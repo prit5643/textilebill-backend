@@ -1,0 +1,157 @@
+# ══════════════════════════════════════════════════════════════
+# Quick Start Guide: Switch from Local PostgreSQL to Supabase
+# ══════════════════════════════════════════════════════════════
+
+## 1. Create Supabase Project
+
+1. Go to https://supabase.com/
+2. Sign up / Log in
+3. Click "New Project"
+4. Configure:
+   - Organization: Select or create
+   - Name: textilebill-dev (or your preferred name)
+   - Database Password: Choose a strong password and SAVE IT
+   - Region: ap-south-1 (or closest to you)
+5. Click "Create new project" (takes ~2 minutes)
+
+## 2. Get Connection Strings
+
+After project creation:
+
+1. Go to Settings (⚙️) → Database
+2. Scroll to "Connection string" section
+3. Select "URI" tab
+4. You'll see two types:
+
+   **Transaction Mode (Direct - Port 5432):**
+   ```
+   postgresql://postgres.[REF]:[PASSWORD]@aws-0-[REGION].pooler.supabase.com:5432/postgres
+   ```
+   ➜ Use for: Local development, migrations, db:push, db:seed
+
+   **Session Mode (Pooled - Port 6543):**
+   ```
+   postgresql://postgres.[REF]:[PASSWORD]@aws-0-[REGION].pooler.supabase.com:6543/postgres
+   ```
+   ➜ Use for: Production runtime on Render
+
+4. Replace `[YOUR-PASSWORD]` with your actual database password
+
+## 3. Update Local Development Environment
+
+Option A: Keep using local PostgreSQL (No changes needed)
+- Continue using: `postgresql://jenishkheni@localhost:5432/textilebill`
+
+Option B: Switch to Supabase for local development
+
+1. Edit `backend/.env`:
+   ```bash
+   # Comment out local DB
+   # DATABASE_URL=postgresql://jenishkheni@localhost:5432/textilebill
+   
+   # Add Supabase DIRECT connection (port 5432)
+   DATABASE_URL=postgresql://postgres.xxxxx:YourPassword@aws-0-ap-south-1.pooler.supabase.com:5432/postgres
+   ```
+
+2. Run migrations to Supabase:
+   ```bash
+   cd backend
+   npx prisma migrate deploy
+   # OR
+   npx prisma db push
+   ```
+
+3. Optional - Seed data:
+   ```bash
+   npx prisma db seed
+   ```
+
+4. Restart backend:
+   ```bash
+   npm run start:dev
+   ```
+
+## 4. Verify Connection
+
+Check backend logs for:
+```
+✓ Prisma Client initialized
+✓ Database connected successfully
+```
+
+Test in Supabase Dashboard:
+1. Go to Table Editor
+2. You should see all tables (Tenant, User, Company, etc.)
+3. Go to SQL Editor and run:
+   ```sql
+   SELECT table_name 
+   FROM information_schema.tables 
+   WHERE table_schema = 'public';
+   ```
+
+## 5. Production Deployment
+
+When deploying to Render (see deployment.md):
+
+Use POOLED connection in Render environment variables:
+```bash
+DATABASE_URL=postgresql://postgres.xxxxx:YourPassword@aws-0-ap-south-1.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1
+```
+
+## Common Issues & Solutions
+
+### Issue: "Can't reach database server"
+Solution:
+- Verify password is correct
+- Check project is not paused (Settings → General)
+- Ensure you're using correct connection string
+
+### Issue: "Prepared statement already exists"
+Solution:
+- Use port 5432 (direct) for local dev and migrations
+- Use port 6543 (pooled) only for production runtime
+
+### Issue: "SSL connection required"
+Solution:
+- Add to connection string: `?sslmode=require`
+
+### Issue: "Too many connections"
+Solution:
+- Use connection pooling (port 6543) with `?connection_limit=1`
+- Close unused database connections
+
+## Environment Variables Summary
+
+```bash
+# Local Development (Direct)
+DATABASE_URL=postgresql://postgres.xxxxx:pwd@host:5432/postgres
+
+# Production Runtime (Pooled)  
+DATABASE_URL=postgresql://postgres.xxxxx:pwd@host:6543/postgres?pgbouncer=true&connection_limit=1
+
+# Migrations (Direct - always)
+DATABASE_URL=postgresql://postgres.xxxxx:pwd@host:5432/postgres
+```
+
+## Benefits of Using Supabase
+
+✓ Free 500MB database (no credit card)
+✓ Automatic daily backups
+✓ Real-time database monitoring
+✓ Same database for local dev and production
+✓ Built-in database UI for easy management
+✓ No need to run local PostgreSQL server
+✓ Accessible from anywhere (good for team development)
+
+## Next Steps
+
+After setting up Supabase:
+1. ✓ Update backend/.env with Supabase connection
+2. ✓ Run migrations: `npx prisma migrate deploy`
+3. ✓ Test locally: `npm run start:dev`
+4. ✓ Follow deployment.md for Render deployment
+5. ✓ Use pooled connection for production
+
+═══════════════════════════════════════════════════════════════
+For detailed deployment instructions, see: deployment.md
+═══════════════════════════════════════════════════════════════

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://ai-context-manager.dev/schema/config-v1.json",
+  "schemaVersion": "1.0",
+  "project": {
+    "name": "textilebill-backend",
+    "stack": [
+      "Node.js",
+      "NestJS",
+      "Prisma",
+      "Jest",
+      "TypeScript"
+    ],
+    "description": ""
+  },
+  "progress": {
+    "completed": [],
+    "inProgress": [],
+    "nextSteps": [],
+    "blockers": [],
+    "lastUpdated": "2026-03-08T05:36:55.477Z"
+  },
+  "activeTask": {
+    "description": "",
+    "relevantFiles": []
+  },
+  "architecture": {
+    "overview": "",
+    "patterns": [],
+    "constraints": []
+  },
+  "exclude": [],
+  "options": {
+    "maxTokens": 8000,
+    "format": "both",
+    "treeDepth": 4,
+    "maxTreeEntries": 200,
+    "includeGit": true,
+    "gitLogCount": 5
+  }
+}

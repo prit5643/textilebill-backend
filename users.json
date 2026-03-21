@@ -1,0 +1,62 @@
+[
+  {
+    "id": "97655533-bc89-43fc-bc75-0d6f637cafb2",
+    "email": "demo@shivfashion.com",
+    "username": "shiv_admin",
+    "isActive": true
+  },
+  {
+    "id": "bc8e2ae0-4cb3-4383-8e3d-455e8d083011",
+    "email": "admin@textilebill.in",
+    "username": "superadmin",
+    "isActive": true
+  },
+  {
+    "id": "e34e1fdd-7b84-4d98-a04c-2940609e5819",
+    "email": "live-superadmin@textilebill.local",
+    "username": "live-superadmin",
+    "isActive": true
+  },
+  {
+    "id": "70e8694d-89f4-44dc-9539-c4542b4850a3",
+    "email": "autotenant1773233448@example.com",
+    "username": "autotenant1773233448_admin",
+    "isActive": true
+  },
+  {
+    "id": "f5a785c2-3c82-415e-a635-a277a3e7d99b",
+    "email": "newuser1773233448@example.com",
+    "username": "new.user_8033",
+    "isActive": true
+  },
+  {
+    "id": "56823e53-f4af-45c1-bd6a-c67446b90353",
+    "email": "info@shivfashion.com",
+    "username": "shiv-fashion2_admin",
+    "isActive": true
+  },
+  {
+    "id": "fdd4cdec-1a8b-42bf-8847-7ecb51a349ed",
+    "email": "live-staff@textilebill.local",
+    "username": "live-staff",
+    "isActive": true
+  },
+  {
+    "id": "665b91f9-e78c-4539-9d7a-a30a686f6161",
+    "email": "live-owner@textilebill.local",
+    "username": "live-owner",
+    "isActive": true
+  },
+  {
+    "id": "0f02b4fb-32a6-41e9-aba4-3b733674981b",
+    "email": "smoke-1773123425921@example.com",
+    "username": "smoke-1773123425921_admin",
+    "isActive": true
+  },
+  {
+    "id": "d7bedd71-d3af-4072-be2e-cdd0bc4cecf4",
+    "email": "prit@rommiui.com",
+    "username": "_admin",
+    "isActive": true
+  }
+]
