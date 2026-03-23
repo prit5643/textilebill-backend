@@ -17,7 +17,6 @@ import {
 import { IdempotencyInterceptor } from './common/interceptors/idempotency.interceptor';
 import { PrismaService } from './modules/prisma/prisma.service';
 import { RedisService } from './modules/redis/redis.service';
-import { parseAllowedOrigins } from './modules/auth/auth-cookie.util';
 import {
   createAuthRateLimiters,
   createWriteRateLimiters,
@@ -38,7 +37,6 @@ async function bootstrap() {
   const shouldEnableSwagger = enableSwagger ?? nodeEnv !== 'production';
   const slowRequestMs = configService.get<number>('app.slowRequestMs', 1500);
   const trustProxy = configService.get<TrustProxySetting>('app.trustProxy', 1);
-  const corsOrigins = parseAllowedOrigins(configService);
   const redisService = app.get(RedisService);
 
   // Global prefix
@@ -108,7 +106,7 @@ async function bootstrap() {
     }),
   );
   app.enableCors({
-    origin: corsOrigins,
+    origin: true,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: [

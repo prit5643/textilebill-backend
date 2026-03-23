@@ -1,0 +1,16 @@
+node_modules
+dist
+coverage
+.git
+.gitignore
+.DS_Store
+.env
+.env.*
+!.env.example
+npm-debug.log
+yarn-error.log
+test-output.txt
+scenario-result.json
+users.json
+users_debug.json
+uploads

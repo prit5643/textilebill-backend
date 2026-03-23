@@ -1,0 +1,18 @@
+services:
+  api:
+    build:
+      context: .
+      target: builder
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
+      DATABASE_DIRECT_URL: ${DATABASE_DIRECT_URL:-}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    command: sh -c "if [ -n \"$DATABASE_DIRECT_URL\" ]; then npm run db:migrate:deploy; else echo 'DATABASE_DIRECT_URL not set, skipping migrations'; fi && npm run start:dev"
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - uploads_data:/app/uploads

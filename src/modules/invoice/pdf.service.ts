@@ -1,9 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import PdfPrinter from 'pdfmake/js/printer';
-import type { TDocumentDefinitions, TableCell } from 'pdfmake/interfaces';
+import PdfPrinter from 'pdfmake/js/Printer';
 import * as fs from 'fs';
 
 import * as path from 'path';
+
+type TDocumentDefinitions = Record<string, unknown>;
+type TableCell = Record<string, unknown>;
 
 function resolvePdfFontPath(fileName: string): string {
   const candidates = [
@@ -271,7 +273,7 @@ export class PdfService {
             ],
           },
           layout: {
-            hLineWidth: (i) => (i === 0 ? 0 : 1), // Suppress top border to merge with header
+            hLineWidth: (i: number) => (i === 0 ? 0 : 1), // Suppress top border to merge with header
             vLineWidth: () => 1,
           },
         },
@@ -447,7 +449,7 @@ export class PdfService {
             ],
           },
           layout: {
-            hLineWidth: (i) => (i === 0 ? 0 : 1), // Merge top line
+            hLineWidth: (i: number) => (i === 0 ? 0 : 1), // Merge top line
             vLineWidth: () => 1,
           },
         },
@@ -676,7 +678,7 @@ export class PdfService {
             ],
           },
           layout: {
-            hLineWidth: (i) => (i === 0 ? 0 : 1), // Merge top
+            hLineWidth: (i: number) => (i === 0 ? 0 : 1), // Merge top
             vLineWidth: () => 1,
             paddingTop: () => 4,
             paddingBottom: () => 2,

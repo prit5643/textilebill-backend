@@ -1,26 +1,35 @@
-version: '3.8'
-
 services:
-  # ─── PostgreSQL 16 ──────────────────────────────────────────
-  postgres:
-    image: postgres:16-alpine
-    container_name: textilebill-postgres
+  api:
+    build:
+      context: .
+      target: production
+    container_name: textilebill-api
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      POSTGRES_DB: textilebill
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: ${PORT:-3001}
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env (Supabase pooled URL)}
+      DATABASE_DIRECT_URL: ${DATABASE_DIRECT_URL:-}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    command: sh -c "if [ -n \"$DATABASE_DIRECT_URL\" ]; then npm run db:migrate:deploy; else echo 'DATABASE_DIRECT_URL not set, skipping migrations'; fi && node dist/main.js"
+    depends_on:
+      redis:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:3001/api/system/health || exit 1"]
+      interval: 20s
       timeout: 5s
       retries: 5
+      start_period: 30s
+    ports:
+      - "3001:3001"
+    volumes:
+      - uploads_data:/app/uploads
 
-  # ─── Redis 7 ────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
     container_name: textilebill-redis
@@ -36,5 +45,5 @@ services:
       retries: 5
 
 volumes:
-  postgres_data:
   redis_data:
+  uploads_data:

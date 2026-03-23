@@ -429,9 +429,14 @@ export class OtpDeliveryService implements OnModuleDestroy {
   private getMailTransporter(config: MailConfig): Transporter {
     if (!this.mailTransporter) {
       const timeoutMs = this.getMailTimeoutMs(config);
+      this.logger.log(`Initializing MailTransporter. Configured timeouts: send=${timeoutMs}, connect=${config.connectionTimeoutMs}, greet=${config.greetingTimeoutMs}, socket=${config.socketTimeoutMs}`);
+      
       if (this.getMailTransport(config) === 'gmail') {
+        this.logger.log(`Using Gmail transport for user: ${config.gmailUser}`);
         this.mailTransporter = nodemailer.createTransport({
           service: 'gmail',
+          logger: true, // Enable built-in Nodemailer logging
+          debug: true,  // Include SMTP traffic in the logs
           connectionTimeout: config.connectionTimeoutMs ?? timeoutMs,
           greetingTimeout: config.greetingTimeoutMs ?? timeoutMs,
           socketTimeout: config.socketTimeoutMs ?? timeoutMs,
@@ -441,10 +446,13 @@ export class OtpDeliveryService implements OnModuleDestroy {
           },
         });
       } else {
+        this.logger.log(`Using SMTP transport: ${config.host}:${config.port} (secure: ${!!config.secure})`);
         this.mailTransporter = nodemailer.createTransport({
           host: config.host,
           port: config.port,
           secure: !!config.secure,
+          logger: true, // Enable built-in Nodemailer logging
+          debug: true,  // Include SMTP traffic in the logs
           connectionTimeout: config.connectionTimeoutMs ?? timeoutMs,
           greetingTimeout: config.greetingTimeoutMs ?? timeoutMs,
           socketTimeout: config.socketTimeoutMs ?? timeoutMs,
@@ -473,15 +481,22 @@ export class OtpDeliveryService implements OnModuleDestroy {
     payload: SendMailOptions,
     timeoutMs: number,
   ) {
+    this.logger.log(`Starting to send email to ${payload.to} with a node-level timeout of ${timeoutMs}ms...`);
     let timeoutHandle: NodeJS.Timeout | undefined;
     const timeoutPromise = new Promise<never>((_, reject) => {
       timeoutHandle = setTimeout(() => {
+        this.logger.error(`Node-level Promise timeout triggered after ${timeoutMs}ms while sending to ${payload.to}`);
         reject(new Error(`Mail send timed out after ${timeoutMs}ms`));
       }, timeoutMs);
     });
 
     try {
-      await Promise.race([transporter.sendMail(payload), timeoutPromise]);
+      const result = await Promise.race([transporter.sendMail(payload), timeoutPromise]);
+      this.logger.log(`Nodemailer completed sendMail successfully to ${payload.to}`);
+      return result;
+    } catch (error) {
+      this.logger.error(`sendMailWithTimeout caught an error during transport: ${error instanceof Error ? error.stack || error.message : String(error)}`);
+      throw error;
     } finally {
       if (timeoutHandle) {
         clearTimeout(timeoutHandle);
@@ -494,9 +509,11 @@ export class OtpDeliveryService implements OnModuleDestroy {
     payload: SendMailOptions,
     timeoutMs: number,
   ): Promise<{ messageId?: string; response?: string } | null> {
+    this.logger.log(`Starting to send email to ${payload.to} with a node-level timeout of ${timeoutMs}ms...`);
     let timeoutHandle: NodeJS.Timeout | undefined;
     const timeoutPromise = new Promise<never>((_, reject) => {
       timeoutHandle = setTimeout(() => {
+        this.logger.error(`Node-level Promise timeout triggered after ${timeoutMs}ms while sending to ${payload.to}`);
         reject(new Error(`Mail send timed out after ${timeoutMs}ms`));
       }, timeoutMs);
     });
@@ -506,7 +523,11 @@ export class OtpDeliveryService implements OnModuleDestroy {
         transporter.sendMail(payload),
         timeoutPromise,
       ]);
+      this.logger.log(`Nodemailer completed sendMail successfully to ${payload.to}. MessageId: ${(result as any)?.messageId}`);
       return result as { messageId?: string; response?: string };
+    } catch (error) {
+      this.logger.error(`sendMailWithTimeoutAndResponse caught an error during transport: ${error instanceof Error ? error.stack || error.message : String(error)}`);
+      throw error;
     } finally {
       if (timeoutHandle) {
         clearTimeout(timeoutHandle);
