@@ -21,7 +21,7 @@
 | **Cache & Sessions** | Redis | ^4.8.2 | Rate limiting, OTP storage, session tracking |
 | **Authentication** | Passport.js + JWT | @nestjs/jwt ^10.2.0 | Access tokens (15m) + refresh tokens (7d) |
 | **Password Hashing** | bcrypt | ^6.0.0 | Secure password storage with salt rounds |
-| **Email Service** | Nodemailer + Gmail SMTP | ^6.9.20 | Transactional emails, OTP delivery |
+| **Email Service** | Resend SDK | ^6.9.4 | Transactional emails, OTP delivery |
 | **PDF Generation** | Puppeteer | @sparticuz/chromium ^129.1.1 | Server-side HTML→PDF for invoices |
 | **File Storage** | Local Filesystem | Built-in | Upload storage in `uploads/` folder |
 | **Job Queue** | BullMQ | ^5.71.0 | Background job processing |
@@ -107,8 +107,8 @@ User Browser
          ├──────► Redis (Local/Upstash)
          │         └── Sessions, Rate limiting, OTP cache
          │
-         ├──────► Gmail SMTP
-         │         └── Email delivery (OTP, invites)
+         ├──────► Resend API
+         │         └── Email delivery (OTP, invites, password reset)
          │
          └──────► File System
                    └── Document uploads (avatars, invoices)
@@ -346,18 +346,18 @@ frontend/src/app/
 
 ## 8. Email Service Configuration
 
-### Gmail SMTP (Current Implementation)
+### Resend (Current Implementation)
 
-**Provider:** Gmail with App Password  
-**Library:** Nodemailer  
+**Provider:** Resend  
+**Library:** `resend` SDK  
 **Configuration:**
 
 ```env
 MAIL_ENABLED=true
-MAIL_TRANSPORT=gmail
-MAIL_GMAIL_USER=your-email@gmail.com
-MAIL_GMAIL_APP_PASSWORD=xxxx xxxx xxxx xxxx
-MAIL_GMAIL_FROM=your-email@gmail.com
+MAIL_FROM=TextileBill <onboarding@resend.dev>
+MAIL_RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxxx
+MAIL_RESEND_FROM=TextileBill <billing@yourdomain.com>
+MAIL_RESEND_REPLY_TO=support@yourdomain.com
 MAIL_ASYNC_QUEUE_ENABLED=false
 ```
 
@@ -449,8 +449,8 @@ npm run test:automation:data-visibility  # Data isolation tests
 | Feature | Status | Reason |
 |---------|--------|--------|
 | AWS S3 | Planned | Local storage sufficient for MVP |
-| AWS SES | Not needed | Gmail SMTP works for current volume |
-| SendGrid | Not used | Gmail SMTP chosen instead |
+| AWS SES | Not needed | Resend covers current transactional volume |
+| SendGrid | Not used | Resend chosen for current implementation |
 | NextAuth.js | Not used | Custom JWT auth implemented |
 | Fastify | Not used | Express adapter sufficient |
 | Excel Export | Future | Not critical for MVP |
@@ -468,7 +468,7 @@ npm run test:automation:data-visibility  # Data isolation tests
 | **Backend** | Render | Free (750 hrs/month) |
 | **Database** | Supabase | Free (500MB PostgreSQL) |
 | **Redis** | Local/Upstash | TBD |
-| **Email** | Gmail SMTP | Free |
+| **Email** | Resend | Starter/usage-based |
 | **File Storage** | Local | N/A |
 
 **Total Cost:** $0/month (MVP)
@@ -496,9 +496,9 @@ JWT_REFRESH_SECRET=<strong-secret>
 APP_SECRET_KEY=<encryption-key>
 
 MAIL_ENABLED=true
-MAIL_TRANSPORT=gmail
-MAIL_GMAIL_USER=<email>
-MAIL_GMAIL_APP_PASSWORD=<app-password>
+MAIL_FROM=TextileBill <onboarding@resend.dev>
+MAIL_RESEND_API_KEY=<resend-api-key>
+MAIL_RESEND_FROM=TextileBill <billing@yourdomain.com>
 ```
 
 ### Frontend Environment

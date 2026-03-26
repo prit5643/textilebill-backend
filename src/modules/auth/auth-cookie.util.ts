@@ -167,12 +167,29 @@ export function getRefreshTokenFromRequest(request: Request) {
   return getCookieValue(request, REFRESH_TOKEN_COOKIE);
 }
 
+function normalizeOrigin(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  const withoutTrailingSlash = trimmed.replace(/\/+$/, '');
+  try {
+    return new URL(withoutTrailingSlash).origin.toLowerCase();
+  } catch {
+    return withoutTrailingSlash.toLowerCase();
+  }
+}
+
 export function parseAllowedOrigins(configService: ConfigService) {
-  return (
-    configService.get<string>('app.corsOrigin', 'http://localhost:3000') || ''
-  )
+  const rawOrigins =
+    configService.get<string>('app.corsOrigin')
+    || configService.get<string>('app.url')
+    || '';
+
+  return rawOrigins
     .split(',')
-    .map((origin) => origin.trim())
+    .map((origin) => normalizeOrigin(origin))
     .filter(Boolean);
 }
 
@@ -181,13 +198,15 @@ export function assertAllowedOrigin(
   configService: ConfigService,
   logger?: LoggerService,
 ) {
-  const origin = request.headers.origin;
+  const originHeader = request.headers.origin;
+  const origin = Array.isArray(originHeader) ? originHeader[0] : originHeader;
   if (!origin) {
     return;
   }
 
+  const normalizedOrigin = normalizeOrigin(origin);
   const allowedOrigins = parseAllowedOrigins(configService);
-  if (!allowedOrigins.includes(origin)) {
+  if (!allowedOrigins.includes(normalizedOrigin)) {
     logger?.warn?.(`Rejected auth cookie mutation from origin ${origin}`);
     throw new ForbiddenException('Invalid request origin');
   }

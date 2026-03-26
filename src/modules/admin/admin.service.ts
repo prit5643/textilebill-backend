@@ -359,8 +359,7 @@ export class AdminService {
       return { tenant, user, company };
     });
 
-    const appUrl = this.configService.get<string>('app.url', 'http://localhost:3000');
-    const setupLink = `${appUrl}/accept-invite?token=${inviteToken}`;
+    const setupLink = this.buildPublicLink('/accept-invite', inviteToken);
     const deliveryStatus = await this.sendInviteEmailAndAudit({
       userId: result.user.id,
       email: dto.email,
@@ -1012,8 +1011,7 @@ export class AdminService {
       });
     });
 
-    const appUrl = this.configService.get<string>('app.url', 'http://localhost:3001');
-    const setupLink = `${appUrl}/accept-invite?token=${inviteToken}`;
+    const setupLink = this.buildPublicLink('/accept-invite', inviteToken);
     await this.sendInviteEmailAndAudit({
       userId: user.id,
       email: user.email,
@@ -1083,8 +1081,7 @@ export class AdminService {
 
     await this.redisService.del(this.getPasswordResetLinkCooldownKey(user.id));
 
-    const appUrl = this.configService.get<string>('app.url', 'http://localhost:3001');
-    const resetLink = `${appUrl}/reset-password?token=${resetToken}`;
+    const resetLink = this.buildPublicLink('/reset-password', resetToken);
     await this.sendResetLinkEmailAndAudit({
       userId: user.id,
       email: user.email,
@@ -1174,6 +1171,29 @@ export class AdminService {
 
   private getPasswordResetLinkCooldownKey(userId: string): string {
     return `auth:reset-link:resend-cooldown:${userId}`;
+  }
+
+  private resolvePublicAppUrl(): string {
+    const appUrl = this.configService.get<string>('app.url')?.trim();
+    const corsOrigin = this.configService.get<string>('app.corsOrigin')?.trim();
+    const baseUrl = appUrl || corsOrigin;
+
+    if (!baseUrl) {
+      throw new Error(
+        'APP_URL (or CORS_ORIGIN) is required to build password setup and reset links.',
+      );
+    }
+
+    return baseUrl.replace(/\/+$/, '');
+  }
+
+  private buildPublicLink(
+    path: '/accept-invite' | '/reset-password',
+    token: string,
+  ): string {
+    const url = new URL(path, `${this.resolvePublicAppUrl()}/`);
+    url.searchParams.set('token', token);
+    return url.toString();
   }
 
   private async sendInviteEmailAndAudit(input: {

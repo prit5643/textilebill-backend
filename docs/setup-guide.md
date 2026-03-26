@@ -1,14 +1,8 @@
-# Setup Steps After Latest Changes
+# Setup Guide (Supabase + Redis)
 
-This file is the single source of truth for setting up the project after the recent security and DBA hardening updates.
+This guide is the source of truth for local setup with Supabase as the database.
 
-## 1) Pull latest code
-
-```bash
-git pull origin codex/refactor-app
-```
-
-## 2) Install dependencies
+## 1) Install dependencies
 
 ```bash
 cd textilebill-backend
@@ -18,9 +12,16 @@ cd ../textilebill-frontend
 npm install
 ```
 
-## 3) Configure backend environment
+## 2) Configure backend environment
 
-Create/update `textilebill-backend/.env` with at least:
+Copy env template and update DB values:
+
+```bash
+cd textilebill-backend
+cp .env.example .env
+```
+
+Set these required values in `.env`:
 
 ```bash
 NODE_ENV=development
@@ -30,9 +31,11 @@ APP_URL=http://localhost:3000
 CORS_ORIGIN=http://localhost:3000
 TRUST_PROXY=1
 
-DATABASE_URL=postgresql://<user>:<password>@localhost:5432/textilebill
-# Optional but recommended for migration/bootstrap jobs:
-# DATABASE_DIRECT_URL=postgresql://<user>:<password>@localhost:5432/textilebill
+# Supabase pooled URL (runtime, port 6543)
+DATABASE_URL=postgresql://postgres.[PROJECT-REF]:[PASSWORD]@aws-0-[REGION].pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1
+
+# Supabase direct URL (migrations/bootstrap, port 5432)
+DATABASE_DIRECT_URL=postgresql://postgres.[PROJECT-REF]:[PASSWORD]@aws-0-[REGION].pooler.supabase.com:5432/postgres?sslmode=require
 
 JWT_SECRET=<long-random-secret>
 JWT_REFRESH_SECRET=<long-random-secret>
@@ -40,10 +43,10 @@ APP_SECRET_KEY=<long-random-secret>
 ```
 
 Notes:
-- `APP_SECRET_KEY` is now used for encrypting sensitive company settings values.
 - Keep `APP_SECRET_KEY`, `JWT_SECRET`, and `JWT_REFRESH_SECRET` different.
+- Use pooled URL for runtime and direct URL for Prisma migration commands.
 
-## 4) Bootstrap admin + defaults (first-time setup only)
+## 3) Bootstrap admin + defaults (first-time setup only)
 
 If no `SUPER_ADMIN` exists yet, set:
 
@@ -53,25 +56,7 @@ BOOTSTRAP_ADMIN_USERNAME=<admin-username>
 BOOTSTRAP_ADMIN_PASSWORD=<strong-password>
 ```
 
-Optional bootstrap values:
-
-```bash
-BOOTSTRAP_TENANT_SLUG=tv-root
-BOOTSTRAP_TENANT_NAME="TextileBill Root"
-BOOTSTRAP_TENANT_EMAIL=root@textilebill.local
-BOOTSTRAP_COMPANY_NAME="TextileBill Default Company"
-```
-
-Optional credential seeding (stored encrypted):
-
-```bash
-BOOTSTRAP_EWAYBILL_USERNAME=<eway-user>
-BOOTSTRAP_EWAYBILL_PASSWORD=<eway-pass>
-BOOTSTRAP_EINVOICE_USERNAME=<einvoice-user>
-BOOTSTRAP_EINVOICE_PASSWORD=<einvoice-pass>
-```
-
-## 5) Run database setup
+## 4) Apply schema and seed data
 
 ```bash
 cd textilebill-backend
@@ -80,19 +65,14 @@ npm run db:migrate:deploy
 npm run db:bootstrap
 ```
 
-What this now ensures:
-- Required account groups exist.
-- `SUPER_ADMIN` + default tenant/company/financial year exist.
-- `CompanySettings.defaultFinancialYearId` is maintained.
-- Legacy plaintext eWay/eInvoice passwords are backfilled into encrypted columns during bootstrap.
+## 5) Start services
 
-## 6) Start services
-
-Backend:
+Backend + Redis via Docker:
 
 ```bash
 cd textilebill-backend
-npm run start:dev
+docker compose up --build -d
+docker compose logs -f api
 ```
 
 Frontend (new terminal):
@@ -102,13 +82,8 @@ cd textilebill-frontend
 npm run dev
 ```
 
-## 7) Quick verification
+## 6) Quick verification
 
-1. Backend up: open `http://localhost:3001/api/docs` (if swagger enabled).
-2. Frontend login works for seeded admin account.
-3. Protected upload route is not public:
-   - `GET /uploads/avatars/<filename>` should require authentication.
-4. Auth abuse protection is active on:
-   - `POST /api/auth/login`
-   - `POST /api/auth/forgot-password`
-   - `POST /api/auth/reset-password`
+1. Backend docs: `http://localhost:3001/api/docs`
+2. Health check: `http://localhost:3001/api/system/health`
+3. Frontend login works with seeded admin user

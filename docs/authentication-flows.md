@@ -958,10 +958,11 @@ REDIS_HOST=localhost
 REDIS_PORT=6379
 
 # Email Service
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USER=noreply@textilebill.com
-SMTP_PASS=your-password
+MAIL_ENABLED=true
+MAIL_FROM=TextileBill <onboarding@resend.dev>
+MAIL_RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxxx
+MAIL_RESEND_FROM=TextileBill <billing@yourdomain.com>
+MAIL_RESEND_REPLY_TO=support@yourdomain.com
 
 # WhatsApp API
 WHATSAPP_API_URL=https://api.whatsapp.com

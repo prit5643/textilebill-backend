@@ -9,6 +9,15 @@ import { SystemReadinessService } from './system-readiness.service';
 
 @Injectable()
 export class SystemReadyGuard implements CanActivate {
+  private readonly excludedHealthPaths = new Set([
+    '/health',
+    '/api/health',
+    '/system/health',
+    '/api/system/health',
+    '/system/readiness',
+    '/api/system/readiness',
+  ]);
+
   constructor(private readonly readiness: SystemReadinessService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -30,10 +39,13 @@ export class SystemReadyGuard implements CanActivate {
   private isPathExcluded(path: string): boolean {
     if (!path) return false;
 
+    const withoutQuery = path.split('?')[0] ?? '';
+    const normalizedPath =
+      withoutQuery !== '/' ? withoutQuery.replace(/\/+$/, '') : withoutQuery;
+
     return (
-      path.includes('/docs') ||
-      path.endsWith('/system/health') ||
-      path.endsWith('/system/readiness')
+      normalizedPath.includes('/docs') ||
+      this.excludedHealthPaths.has(normalizedPath)
     );
   }
 }

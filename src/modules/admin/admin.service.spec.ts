@@ -42,7 +42,14 @@ describe('AdminService', () => {
       keys: jest.fn().mockResolvedValue([]),
     };
 
-    configService = { get: jest.fn() };
+    configService = {
+      get: jest.fn((key: string) => {
+        if (key === 'app.url' || key === 'app.corsOrigin') {
+          return 'http://localhost:3000';
+        }
+        return undefined;
+      }),
+    };
 
     const mockOtpDeliveryService = {
       sendInviteEmail: jest.fn().mockResolvedValue(true),

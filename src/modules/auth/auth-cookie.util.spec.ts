@@ -121,7 +121,10 @@ describe('auth-cookie.util', () => {
   });
 
   it('parses allowed origins from comma-separated config', () => {
-    const config = createConfig();
+    const config = createConfig({
+      'app.corsOrigin':
+        'https://app.textilebill.test/, https://ADMIN.textilebill.test',
+    });
 
     expect(parseAllowedOrigins(config)).toEqual([
       'https://app.textilebill.test',
@@ -159,6 +162,19 @@ describe('auth-cookie.util', () => {
     expect(() =>
       assertAllowedOrigin(
         { headers: { origin: 'https://admin.textilebill.test' } } as any,
+        config,
+      ),
+    ).not.toThrow();
+  });
+
+  it('accepts origin header when configured origin includes a trailing slash', () => {
+    const config = createConfig({
+      'app.corsOrigin': 'https://app.textilebill.test/',
+    });
+
+    expect(() =>
+      assertAllowedOrigin(
+        { headers: { origin: 'https://app.textilebill.test' } } as any,
         config,
       ),
     ).not.toThrow();

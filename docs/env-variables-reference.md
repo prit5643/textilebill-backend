@@ -8,6 +8,7 @@
 | `NODE_ENV` | `development` | `production` | Set manually | ✅ Yes |
 | `PORT` | `3001` | `3001` | Set manually | ✅ Yes |
 | `API_PREFIX` | `api` | `api` | Set manually | ✅ Yes |
+| `APP_URL` | `http://localhost:3000` | `https://your-frontend.vercel.app` | Frontend base URL for invite/reset links | ✅ Yes |
 | `CORS_ORIGIN` | `http://localhost:3000` | `https://your-frontend.vercel.app` | Your Vercel URL | ✅ Yes |
 | **Database** |
 | `DATABASE_URL` | Direct (5432) | Pooled (6543) | Supabase Dashboard | ✅ Yes |
@@ -21,13 +22,12 @@
 | `JWT_REFRESH_SECRET` | Dev secret | Strong secret | `openssl rand -base64 32` | ✅ Yes |
 | `JWT_REFRESH_EXPIRES_IN` | `7d` | `7d` | Set manually | ✅ Yes |
 | `ADMIN_TENANT_CREATION_PASSWORD` | Dev password | Strong password | Generate secure password | ✅ Yes |
-| **Email (Gmail via Nodemailer)** |
+| **Email (Resend)** |
 | `MAIL_ENABLED` | `true` | `true` | Set manually | ✅ Yes |
-| `MAIL_TRANSPORT` | `gmail` | `gmail` | Set to `gmail` | ✅ Yes |
-| `MAIL_FROM` | Your Gmail | Your Gmail | Gmail account | ✅ Yes |
-| `MAIL_GMAIL_USER` | Your Gmail | Your Gmail | Gmail account | ✅ Yes |
-| `MAIL_GMAIL_APP_PASSWORD` | App password | App password | [Google App Passwords](https://myaccount.google.com/apppasswords) | ✅ Yes |
-| `MAIL_GMAIL_FROM` | Your Gmail | Your Gmail | Gmail account | ✅ Yes |
+| `MAIL_FROM` | `TextileBill <onboarding@resend.dev>` | `TextileBill <onboarding@resend.dev>` | Sender address fallback | ⚠️ Fallback |
+| `MAIL_RESEND_API_KEY` | `re_...` | `re_...` | [Resend API Keys](https://resend.com/api-keys) | ✅ Yes |
+| `MAIL_RESEND_FROM` | `TextileBill <billing@yourdomain.com>` | `TextileBill <billing@yourdomain.com>` | Verified sender domain | ✅ Yes |
+| `MAIL_RESEND_REPLY_TO` | `support@yourdomain.com` | `support@yourdomain.com` | Optional support mailbox | ❌ No |
 | `MAIL_ASYNC_QUEUE_ENABLED` | `false` | `false` | Set manually | ❌ No |
 | `MAIL_TEST_TO` | Test email | (empty) | Optional | ❌ No |
 | **AWS S3** |
@@ -87,14 +87,11 @@ PASSWORD: your-render-redis-password
 4. Scroll to "Connection string"
 5. Copy URI and replace `[YOUR-PASSWORD]`
 
-### Gmail App Password
-1. Go to https://myaccount.google.com/apppasswords
-2. Sign in to your Google Account
-3. Create a new App Password
-4. Select "Mail" and your device
-5. Copy the 16-character password (remove spaces)
-
-**Note:** You must have 2-Step Verification enabled on your Google Account to create App Passwords.
+### Resend API Key
+1. Go to https://resend.com/api-keys
+2. Create a key with email send permissions
+3. Copy the API key (`re_...`)
+4. Verify your sending domain in Resend
 
 ### Upstash Redis
 1. Go to https://console.upstash.com/
@@ -141,6 +138,7 @@ project/
 NODE_ENV=development
 PORT=3001
 API_PREFIX=api
+APP_URL=http://localhost:3000
 CORS_ORIGIN=http://localhost:3000
 
 # Local PostgreSQL
@@ -165,11 +163,10 @@ AWS_SECRET_ACCESS_KEY=
 AWS_S3_BUCKET=textilebill-uploads-dev
 
 MAIL_ENABLED=true
-MAIL_TRANSPORT=gmail
-MAIL_FROM=your-email@gmail.com
-MAIL_GMAIL_USER=your-email@gmail.com
-MAIL_GMAIL_APP_PASSWORD=your-16-char-app-password
-MAIL_GMAIL_FROM=your-email@gmail.com
+MAIL_FROM=TextileBill <onboarding@resend.dev>
+MAIL_RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxxx
+MAIL_RESEND_FROM=TextileBill <billing@yourdomain.com>
+MAIL_RESEND_REPLY_TO=support@yourdomain.com
 MAIL_ASYNC_QUEUE_ENABLED=false
 
 THROTTLE_TTL=60
@@ -182,6 +179,7 @@ THROTTLE_LIMIT=60
 NODE_ENV=production
 PORT=3001
 API_PREFIX=api
+APP_URL=https://your-frontend.vercel.app
 CORS_ORIGIN=https://your-frontend.vercel.app
 
 DATABASE_URL=postgresql://postgres.xxxxx:password@aws-0-ap-south-1.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1
@@ -202,11 +200,10 @@ AWS_SECRET_ACCESS_KEY=YOUR_AWS_SECRET
 AWS_S3_BUCKET=textilebill-uploads-prod
 
 MAIL_ENABLED=true
-MAIL_TRANSPORT=gmail
-MAIL_FROM=your-email@gmail.com
-MAIL_GMAIL_USER=your-email@gmail.com
-MAIL_GMAIL_APP_PASSWORD=your-16-char-app-password
-MAIL_GMAIL_FROM=your-email@gmail.com
+MAIL_FROM=TextileBill <onboarding@resend.dev>
+MAIL_RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxxx
+MAIL_RESEND_FROM=TextileBill <billing@yourdomain.com>
+MAIL_RESEND_REPLY_TO=support@yourdomain.com
 MAIL_ASYNC_QUEUE_ENABLED=false
 
 THROTTLE_TTL=60
@@ -274,30 +271,13 @@ openssl rand -base64 32
 for i in {1..3}; do openssl rand -base64 32; done
 ```
 
-### Test Gmail SMTP
+### Test Resend Delivery
 ```bash
-# Test email delivery from backend
-cd backend
-node -e "
-const nodemailer = require('nodemailer');
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: 'your-email@gmail.com',
-    pass: 'your-app-password'
-  }
-});
-transporter.sendMail({
-  from: 'your-email@gmail.com',
-  to: 'test@example.com',
-  subject: 'Test Email via Gmail',
-  text: 'This is a test from Gmail SMTP using nodemailer'
-}).then(info => {
-  console.log('✅ Email sent:', info.messageId);
-}).catch(err => {
-  console.error('❌ Failed:', err.message);
-});
-"
+# Validate Resend config only
+npm run test:mail:verify -- --verify-only
+
+# Validate + send a real test email
+MAIL_TEST_TO=test@example.com npm run test:mail:verify
 ```
 
 ---

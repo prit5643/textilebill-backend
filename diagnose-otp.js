@@ -50,22 +50,10 @@ async function diagnoseOTP() {
   console.log('✅ Forgot password endpoint responds correctly');
   console.log('\n📋 Email Configuration Check:');
   console.log('   MAIL_ENABLED:', process.env.MAIL_ENABLED || 'true (from .env)');
-  const transport = (process.env.MAIL_TRANSPORT || 'smtp').toLowerCase();
-  console.log('   MAIL_TRANSPORT:', transport);
-  if (transport === 'gmail') {
-    console.log('   MAIL_GMAIL_USER:', process.env.MAIL_GMAIL_USER || '(from .env)');
-    console.log(
-      '   MAIL_GMAIL_APP_PASSWORD:',
-      process.env.MAIL_GMAIL_APP_PASSWORD ? '✓ Set' : '✗ Not set',
-    );
-    console.log('   MAIL_GMAIL_FROM:', process.env.MAIL_GMAIL_FROM || '(optional)');
-  } else {
-    console.log('   MAIL_HOST:', process.env.MAIL_HOST || '(from .env)');
-    console.log('   MAIL_PORT:', process.env.MAIL_PORT || '587');
-    console.log('   MAIL_USER:', process.env.MAIL_USER || '(from .env)');
-    console.log('   MAIL_PASSWORD:', process.env.MAIL_PASSWORD ? '✓ Set' : '✗ Not set');
-  }
-  console.log('   MAIL_FROM:', process.env.MAIL_FROM || 'prit.dharsandiya.dilipbhai@gmail.com');
+  console.log('   MAIL_RESEND_API_KEY:', process.env.MAIL_RESEND_API_KEY ? '✓ Set' : '✗ Not set');
+  console.log('   MAIL_RESEND_FROM:', process.env.MAIL_RESEND_FROM || '(from .env or MAIL_FROM)');
+  console.log('   MAIL_RESEND_REPLY_TO:', process.env.MAIL_RESEND_REPLY_TO || '(optional)');
+  console.log('   MAIL_FROM:', process.env.MAIL_FROM || '(fallback sender)');
   
   console.log('\n📧 Next Steps:');
   console.log('   1. Check your email inbox:', testEmail);
@@ -73,15 +61,9 @@ async function diagnoseOTP() {
   console.log('   3. Review backend logs for email sending errors');
   
   console.log('\n💡 If no email arrives, check:');
-  if (transport === 'gmail') {
-    console.log('   - Gmail address is correct');
-    console.log('   - Gmail App Password is generated and copied correctly');
-    console.log('   - 2-Step Verification is enabled on Gmail account');
-  } else {
-    console.log('   - SMTP host/user/password are correct');
-    console.log('   - Sender email is allowed by your SMTP provider');
-    console.log('   - SMTP account is active');
-  }
+  console.log('   - Resend API key is valid and active');
+  console.log('   - MAIL_RESEND_FROM uses a verified sender/domain');
+  console.log('   - Sender/reply-to addresses are correct');
   console.log('   - Backend logs for delivery errors');
   
   console.log('\n' + '='.repeat(60));

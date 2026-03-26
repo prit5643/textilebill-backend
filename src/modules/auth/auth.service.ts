@@ -1146,8 +1146,7 @@ export class AuthService {
       });
     });
 
-    const appUrl = this.configService.get<string>('app.url', 'http://localhost:3001');
-    const resetLink = `${appUrl}/reset-password?token=${resetToken}`;
+    const resetLink = this.buildPublicLink('/reset-password', resetToken);
     let delivered = false;
 
     try {
@@ -1419,8 +1418,7 @@ export class AuthService {
       });
     });
 
-    const appUrl = this.configService.get<string>('app.url', 'http://localhost:3001');
-    const inviteLink = `${appUrl}/accept-invite?token=${inviteToken}`;
+    const inviteLink = this.buildPublicLink('/accept-invite', inviteToken);
     let delivered = false;
 
     try {
@@ -1764,20 +1762,42 @@ export class AuthService {
     otp: string,
     purpose: OtpPurpose,
   ): Promise<{ delivered: boolean; errorMessage?: string }> {
+    const maskedTarget = this.maskContact(target);
+
     try {
       const delivered = await this.otpDeliveryService.deliver({
         channel,
         target,
         otp,
         purpose,
-        maskedTarget: this.maskContact(target),
+        maskedTarget,
       });
+
+      this.logger.log(
+        `[OTP_DISPATCH_RESULT] ${JSON.stringify({
+          delivered,
+          purpose,
+          channel,
+          target: maskedTarget,
+        })}`,
+      );
 
       return { delivered };
     } catch (error) {
+      const reason = this.toErrorMessage(error);
+      this.logger.error(
+        `[OTP_DISPATCH_ERROR] ${JSON.stringify({
+          delivered: false,
+          purpose,
+          channel,
+          target: maskedTarget,
+          error: reason,
+        })}`,
+      );
+
       return {
         delivered: false,
-        errorMessage: this.toErrorMessage(error),
+        errorMessage: reason,
       };
     }
   }
@@ -1852,6 +1872,29 @@ export class AuthService {
 
   private getPasswordResetLinkCooldownKey(userId: string): string {
     return `auth:reset-link:resend-cooldown:${userId}`;
+  }
+
+  private resolvePublicAppUrl(): string {
+    const appUrl = this.configService.get<string>('app.url')?.trim();
+    const corsOrigin = this.configService.get<string>('app.corsOrigin')?.trim();
+    const baseUrl = appUrl || corsOrigin;
+
+    if (!baseUrl) {
+      throw new Error(
+        'APP_URL (or CORS_ORIGIN) is required to build password setup and reset links.',
+      );
+    }
+
+    return baseUrl.replace(/\/+$/, '');
+  }
+
+  private buildPublicLink(
+    path: '/accept-invite' | '/reset-password',
+    token: string,
+  ): string {
+    const url = new URL(path, `${this.resolvePublicAppUrl()}/`);
+    url.searchParams.set('token', token);
+    return url.toString();
   }
 
   private async findActivePasswordTokenByRawToken(

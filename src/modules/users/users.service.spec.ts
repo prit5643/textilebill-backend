@@ -140,7 +140,7 @@ describe('UsersService', () => {
       expect(otpDeliveryService.sendInviteEmail).toHaveBeenCalledTimes(1);
       expect(otpDeliveryService.sendInviteEmail).toHaveBeenCalledWith(
         'test@test.com',
-        expect.stringContaining('/accept-invite?token='),
+        expect.stringContaining('http://localhost:3000/accept-invite?token='),
         30,
       );
     });

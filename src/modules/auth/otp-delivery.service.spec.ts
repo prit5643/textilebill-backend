@@ -1,14 +1,15 @@
 import { ConfigService } from '@nestjs/config';
 import { Logger } from '@nestjs/common';
-import * as nodemailer from 'nodemailer';
 import { OtpDeliveryService } from './otp-delivery.service';
 
-jest.mock('nodemailer', () => ({
-  __esModule: true,
-  createTransport: jest.fn(),
-  default: {
-    createTransport: jest.fn(),
-  },
+const resendSendMock = jest.fn();
+
+jest.mock('resend', () => ({
+  Resend: jest.fn().mockImplementation(() => ({
+    emails: {
+      send: resendSendMock,
+    },
+  })),
 }));
 
 describe('OtpDeliveryService', () => {
@@ -45,25 +46,21 @@ describe('OtpDeliveryService', () => {
     ).resolves.toBe(true);
 
     expect(loggerSpy).toHaveBeenCalledWith(
-      '[OTP:LOGIN] delivery fallback -> channel=EMAIL, target=ow***@test.com, otp=123456',
+      '[OTP:LOGIN] Dev mode -> channel=EMAIL, target=ow***@test.com, otp=123456',
     );
 
     loggerSpy.mockRestore();
   });
 
-  it('sends OTP email through nodemailer when SMTP is enabled', async () => {
-    const sendMail = jest.fn().mockResolvedValue({ messageId: 'mail-1' });
-    (nodemailer.createTransport as jest.Mock).mockReturnValue({ sendMail });
+  it('sends OTP email through resend when mail is enabled', async () => {
+    resendSendMock.mockResolvedValue({ data: { id: 'mail-1' }, error: null });
 
     configService.get.mockImplementation((key: string) => {
       if (key === 'mail') {
         return {
           enabled: true,
-          host: 'smtp.example.com',
-          port: 587,
-          secure: false,
-          user: 'mailer',
-          password: 'secret',
+          resendApiKey: 're_123',
+          resendFrom: 'TextileBill <billing@test.com>',
           from: 'billing@test.com',
         };
       }
@@ -81,38 +78,25 @@ describe('OtpDeliveryService', () => {
       }),
     ).resolves.toBe(true);
 
-    expect(nodemailer.createTransport).toHaveBeenCalledWith(
+    expect(resendSendMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        host: 'smtp.example.com',
-        port: 587,
-        secure: false,
-        auth: {
-          user: 'mailer',
-          pass: 'secret',
-        },
-      }),
-    );
-    expect(sendMail).toHaveBeenCalledWith(
-      expect.objectContaining({
-        from: 'billing@test.com',
+        from: 'TextileBill <billing@test.com>',
         to: 'owner@test.com',
         subject: 'TextileBill Email Verification OTP',
       }),
     );
   });
 
-  it('sends OTP email through Gmail transport when configured', async () => {
-    const sendMail = jest.fn().mockResolvedValue({ messageId: 'gmail-mail-1' });
-    (nodemailer.createTransport as jest.Mock).mockReturnValue({ sendMail });
+  it('sends invite email through resend when mail is enabled', async () => {
+    resendSendMock.mockResolvedValue({ data: { id: 'mail-2' }, error: null });
 
     configService.get.mockImplementation((key: string) => {
       if (key === 'mail') {
         return {
           enabled: true,
-          transport: 'gmail',
-          gmailUser: 'owner@gmail.com',
-          gmailAppPassword: 'gmail-app-password',
-          gmailFrom: 'TextileBill <owner@gmail.com>',
+          resendApiKey: 're_123',
+          resendFrom: 'TextileBill <owner@test.com>',
+          resendReplyTo: 'support@test.com',
         };
       }
 
@@ -129,42 +113,24 @@ describe('OtpDeliveryService', () => {
       }),
     ).resolves.toBe(true);
 
-    expect(nodemailer.createTransport).toHaveBeenCalledWith(
-      expect.objectContaining({
-        service: 'gmail',
-        auth: {
-          user: 'owner@gmail.com',
-          pass: 'gmail-app-password',
-        },
-      }),
-    );
-    expect(sendMail).toHaveBeenCalledWith(
-      expect.objectContaining({
-        from: 'TextileBill <owner@gmail.com>',
-        to: 'owner@test.com',
-        subject: 'TextileBill Login OTP',
-      }),
-    );
+    await expect(
+      service.sendInviteEmail('owner@test.com', 'https://example.com/invite'),
+    ).resolves.toBe(true);
   });
 
-  it('throws when SMTP delivery fails, even in development', async () => {
+  it('throws when resend delivery fails, even in development', async () => {
     const originalNodeEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = 'development';
 
     try {
-      const sendMail = jest.fn().mockRejectedValue(new Error('SMTP offline'));
-      (nodemailer.createTransport as jest.Mock).mockReturnValue({ sendMail });
+      resendSendMock.mockRejectedValue(new Error('Resend offline'));
 
       configService.get.mockImplementation((key: string) => {
         if (key === 'mail') {
           return {
             enabled: true,
-            host: 'smtp.example.com',
-            port: 587,
-            secure: false,
-            user: 'mailer',
-            password: 'secret',
-            from: 'billing@test.com',
+            resendApiKey: 're_123',
+            resendFrom: 'TextileBill <billing@test.com>',
           };
         }
 
@@ -179,10 +145,33 @@ describe('OtpDeliveryService', () => {
           purpose: 'PASSWORD_RESET',
           maskedTarget: 'ow***@test.com',
         }),
-      ).rejects.toThrow('SMTP offline');
+      ).rejects.toThrow('Resend offline');
     } finally {
       process.env.NODE_ENV = originalNodeEnv;
     }
   });
 
+  it('throws when resend configuration is missing', async () => {
+    configService.get.mockImplementation((key: string) => {
+      if (key === 'mail') {
+        return {
+          enabled: true,
+          resendApiKey: '',
+          resendFrom: '',
+        };
+      }
+
+      return undefined;
+    });
+
+    await expect(
+      service.deliver({
+        channel: 'EMAIL',
+        target: 'owner@test.com',
+        otp: '123456',
+        purpose: 'PASSWORD_RESET',
+        maskedTarget: 'ow***@test.com',
+      }),
+    ).rejects.toThrow('Resend configuration is incomplete');
+  });
 });

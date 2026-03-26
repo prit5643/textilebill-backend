@@ -21,7 +21,6 @@ build({
     'express',
     'helmet',
     'ioredis',
-    'nodemailer',
     'passport*',
     'pdfmake',
     'prisma',

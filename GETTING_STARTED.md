@@ -143,16 +143,18 @@ textilebill-backend/
 
 If you want to enable email features:
 
-1. Get Gmail App Password: [https://myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)
+1. Create a Resend API key: [https://resend.com/api-keys](https://resend.com/api-keys)
+2. Verify a sending domain in Resend (or use `onboarding@resend.dev` for initial testing)
 
-2. Add to .env:
+3. Add to .env:
 
 ```env
 MAIL_ENABLED=true
-MAIL_TRANSPORT=gmail
-MAIL_GMAIL_USER=your-email@gmail.com
-MAIL_GMAIL_APP_PASSWORD=xxxx xxxx xxxx xxxx
-MAIL_GMAIL_FROM=your-email@gmail.com
+MAIL_FROM=TextileBill <onboarding@resend.dev>
+MAIL_RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxxx
+MAIL_RESEND_FROM=TextileBill <billing@yourdomain.com>
+MAIL_RESEND_REPLY_TO=support@yourdomain.com
+MAIL_MAX_SENDS_PER_PROCESS=500
 ```
 
 ## Troubleshooting

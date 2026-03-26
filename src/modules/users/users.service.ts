@@ -198,8 +198,7 @@ export class UsersService {
     });
 
     // Send invite email asynchronously so creation response isn't delayed
-    const appUrl = this.configService.get<string>('app.url', 'http://localhost:3001');
-    const inviteLink = `${appUrl}/accept-invite?token=${inviteToken}`;
+    const inviteLink = this.buildPublicLink('/accept-invite', inviteToken);
     this.otpDeliveryService
       .sendInviteEmail(
         normalizedEmail,
@@ -361,8 +360,7 @@ export class UsersService {
       });
     });
 
-    const appUrl = this.configService.get<string>('app.url', 'http://localhost:3001');
-    const inviteLink = `${appUrl}/accept-invite?token=${inviteToken}`;
+    const inviteLink = this.buildPublicLink('/accept-invite', inviteToken);
     this.otpDeliveryService
       .sendInviteEmail(user.email, inviteLink, PASSWORD_SETUP_LINK_EXPIRY_MINUTES)
       .catch((err: unknown) =>
@@ -429,8 +427,7 @@ export class UsersService {
       });
     });
 
-    const appUrl = this.configService.get<string>('app.url', 'http://localhost:3001');
-    const resetLink = `${appUrl}/reset-password?token=${resetToken}`;
+    const resetLink = this.buildPublicLink('/reset-password', resetToken);
     this.otpDeliveryService
       .sendPasswordResetLinkEmail(
         user.email,
@@ -804,6 +801,29 @@ export class UsersService {
     for (const key of keys) {
       await this.redisService.del(key);
     }
+  }
+
+  private resolvePublicAppUrl(): string {
+    const appUrl = this.configService.get<string>('app.url')?.trim();
+    const corsOrigin = this.configService.get<string>('app.corsOrigin')?.trim();
+    const baseUrl = appUrl || corsOrigin;
+
+    if (!baseUrl) {
+      throw new Error(
+        'APP_URL (or CORS_ORIGIN) is required to build password setup and reset links.',
+      );
+    }
+
+    return baseUrl.replace(/\/+$/, '');
+  }
+
+  private buildPublicLink(
+    path: '/accept-invite' | '/reset-password',
+    token: string,
+  ): string {
+    const url = new URL(path, `${this.resolvePublicAppUrl()}/`);
+    url.searchParams.set('token', token);
+    return url.toString();
   }
 
   private getPasswordSetupStatus(

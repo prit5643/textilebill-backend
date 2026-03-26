@@ -83,6 +83,10 @@ describe('AuthService', () => {
     configService = {
       get: jest.fn((key: string, defaultValue?: string) => {
         switch (key) {
+          case 'app.url':
+            return 'http://localhost:3000';
+          case 'app.corsOrigin':
+            return 'http://localhost:3000';
           case 'jwt.refreshExpiresIn':
             return '7d';
           default:
@@ -827,7 +831,9 @@ describe('AuthService', () => {
       );
       expect(otpDeliveryService.sendPasswordResetLinkEmail).toHaveBeenCalledWith(
         'owner@test.com',
-        expect.stringMatching(/\/reset-password\?token=/),
+        expect.stringMatching(
+          /^http:\/\/localhost:3000\/reset-password\?token=/,
+        ),
         30,
       );
       expect(redis.set).toHaveBeenCalledWith(

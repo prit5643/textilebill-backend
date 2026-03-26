@@ -17,5 +17,6 @@
     "strictBindCallApply": true,
     "forceConsistentCasingInFileNames": true,
     "noFallthroughCasesInSwitch": true
-  }
+  },
+  "exclude": ["scripts", "node_modules", "dist"]
 }
