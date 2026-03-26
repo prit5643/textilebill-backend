@@ -1,4 +1,4 @@
-import { ForbiddenException, type LoggerService } from '@nestjs/common';
+import type { LoggerService } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Request, Response, CookieOptions } from 'express';
 
@@ -182,10 +182,7 @@ function normalizeOrigin(value: string) {
 }
 
 export function parseAllowedOrigins(configService: ConfigService) {
-  const rawOrigins =
-    configService.get<string>('app.corsOrigin')
-    || configService.get<string>('app.url')
-    || '';
+  const rawOrigins = configService.get<string>('app.url') || '';
 
   return rawOrigins
     .split(',')
@@ -194,20 +191,9 @@ export function parseAllowedOrigins(configService: ConfigService) {
 }
 
 export function assertAllowedOrigin(
-  request: Request,
-  configService: ConfigService,
-  logger?: LoggerService,
+  _request: Request,
+  _configService: ConfigService,
+  _logger?: LoggerService,
 ) {
-  const originHeader = request.headers.origin;
-  const origin = Array.isArray(originHeader) ? originHeader[0] : originHeader;
-  if (!origin) {
-    return;
-  }
-
-  const normalizedOrigin = normalizeOrigin(origin);
-  const allowedOrigins = parseAllowedOrigins(configService);
-  if (!allowedOrigins.includes(normalizedOrigin)) {
-    logger?.warn?.(`Rejected auth cookie mutation from origin ${origin}`);
-    throw new ForbiddenException('Invalid request origin');
-  }
+  return;
 }

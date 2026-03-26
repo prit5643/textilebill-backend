@@ -85,8 +85,6 @@ describe('AuthService', () => {
         switch (key) {
           case 'app.url':
             return 'http://localhost:3000';
-          case 'app.corsOrigin':
-            return 'http://localhost:3000';
           case 'jwt.refreshExpiresIn':
             return '7d';
           default:

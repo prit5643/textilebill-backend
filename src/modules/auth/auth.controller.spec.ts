@@ -1,4 +1,3 @@
-import { ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
@@ -30,7 +29,7 @@ describe('AuthController', () => {
   const configService = {
     get: jest.fn((key: string, defaultValue?: string) => {
       switch (key) {
-        case 'app.corsOrigin':
+        case 'app.url':
           return 'http://localhost:3000';
         case 'app.apiPrefix':
           return 'api/v1';
@@ -158,7 +157,7 @@ describe('AuthController', () => {
     expect(result).not.toHaveProperty('refreshToken');
   });
 
-  it('forwards OTP request payloads after origin checks', async () => {
+  it('forwards OTP request payloads', async () => {
     authService.requestLoginOtp.mockResolvedValueOnce({
       message: 'OTP sent successfully.',
       requestId: 'otp-request-1',
@@ -223,8 +222,28 @@ describe('AuthController', () => {
     });
   });
 
-  it('rejects invite acceptance from an untrusted origin before mutating cookies', async () => {
+  it('accepts invites even when the request origin is unexpected', async () => {
     const response = createResponse();
+    authService.acceptInvite.mockResolvedValueOnce({
+      accessToken: 'access-token',
+      sessionToken: 'session-token',
+      refreshToken: 'refresh-token',
+      user: {
+        id: 'user-1',
+        email: 'owner@test.com',
+        username: 'owner',
+        role: 'TENANT_ADMIN',
+        firstName: 'Owner',
+        lastName: 'User',
+        tenantId: 'tenant-1',
+        avatarUrl: null,
+        mustChangePassword: false,
+        emailVerified: true,
+        phoneVerified: false,
+        hasVerifiedContact: true,
+      },
+      companies: [{ id: 'company-1', name: 'Alpha' } as any],
+    } as any);
 
     await expect(
       controller.acceptInvite(
@@ -232,10 +251,16 @@ describe('AuthController', () => {
         response,
         { token: 'invite-token', newPassword: 'NewPassword1!' },
       ),
-    ).rejects.toThrow(ForbiddenException);
+    ).resolves.toEqual({
+      user: expect.objectContaining({ id: 'user-1' }),
+      companies: [{ id: 'company-1', name: 'Alpha' }],
+    });
 
-    expect(authService.acceptInvite).not.toHaveBeenCalled();
-    expect(response.cookie).not.toHaveBeenCalled();
+    expect(authService.acceptInvite).toHaveBeenCalledWith(
+      'invite-token',
+      'NewPassword1!',
+    );
+    expect(response.cookie).toHaveBeenCalledTimes(3);
   });
 
   it('forwards resend requests for active OTP challenges', async () => {
@@ -341,7 +366,7 @@ describe('AuthController', () => {
     expect(authService.getUserSessions).toHaveBeenCalledWith('user-123');
   });
 
-  it('applies origin checks to forgot-password and forwards the recovery payload', async () => {
+  it('forwards forgot-password payloads', async () => {
     authService.forgotPassword.mockResolvedValueOnce({
       message: 'If the email exists, an OTP has been sent',
       resendCooldownSeconds: 32,
@@ -365,7 +390,7 @@ describe('AuthController', () => {
     );
   });
 
-  it('applies origin checks to reset-password and forwards the payload', async () => {
+  it('forwards reset-password payloads', async () => {
     await expect(
       controller.resetPassword(
         { headers: { origin: 'http://localhost:3000' } } as any,

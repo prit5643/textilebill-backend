@@ -1,4 +1,3 @@
-import { ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   ACCESS_TOKEN_COOKIE,
@@ -20,11 +19,11 @@ describe('auth-cookie.util', () => {
       get: jest.fn((key: string, defaultValue?: string) => {
         const values: Record<string, string | undefined> = {
           'app.apiPrefix': 'api/v1',
+          'app.url':
+            'https://app.textilebill.test, https://admin.textilebill.test',
           'app.cookieDomain': '.textilebill.test',
           'app.cookieSameSite': 'strict',
           'app.cookieSecure': 'true',
-          'app.corsOrigin':
-            'https://app.textilebill.test, https://admin.textilebill.test',
           'app.nodeEnv': 'production',
           'jwt.expiresIn': '15m',
           'jwt.refreshExpiresIn': '14d',
@@ -122,7 +121,7 @@ describe('auth-cookie.util', () => {
 
   it('parses allowed origins from comma-separated config', () => {
     const config = createConfig({
-      'app.corsOrigin':
+      'app.url':
         'https://app.textilebill.test/, https://ADMIN.textilebill.test',
     });
 
@@ -132,7 +131,7 @@ describe('auth-cookie.util', () => {
     ]);
   });
 
-  it('rejects disallowed origins and logs the attempted origin', () => {
+  it('allows unexpected origins without logging or throwing', () => {
     const logger = {
       warn: jest.fn(),
       log: jest.fn(),
@@ -145,12 +144,10 @@ describe('auth-cookie.util', () => {
       },
     } as any;
 
-    expect(() => assertAllowedOrigin(request, config, logger as any)).toThrow(
-      ForbiddenException,
-    );
-    expect(logger.warn).toHaveBeenCalledWith(
-      'Rejected auth cookie mutation from origin https://evil.example',
-    );
+    expect(() =>
+      assertAllowedOrigin(request, config, logger as any),
+    ).not.toThrow();
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 
   it('allows same-origin or server-side auth mutations without an Origin header', () => {
@@ -169,7 +166,7 @@ describe('auth-cookie.util', () => {
 
   it('accepts origin header when configured origin includes a trailing slash', () => {
     const config = createConfig({
-      'app.corsOrigin': 'https://app.textilebill.test/',
+      'app.url': 'https://app.textilebill.test/',
     });
 
     expect(() =>

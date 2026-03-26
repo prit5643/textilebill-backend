@@ -44,7 +44,7 @@ describe('AdminService', () => {
 
     configService = {
       get: jest.fn((key: string) => {
-        if (key === 'app.url' || key === 'app.corsOrigin') {
+        if (key === 'app.url') {
           return 'http://localhost:3000';
         }
         return undefined;

@@ -805,12 +805,11 @@ export class UsersService {
 
   private resolvePublicAppUrl(): string {
     const appUrl = this.configService.get<string>('app.url')?.trim();
-    const corsOrigin = this.configService.get<string>('app.corsOrigin')?.trim();
-    const baseUrl = appUrl || corsOrigin;
+    const baseUrl = appUrl;
 
     if (!baseUrl) {
       throw new Error(
-        'APP_URL (or CORS_ORIGIN) is required to build password setup and reset links.',
+        'APP_URL is required to build password setup and reset links.',
       );
     }
 
