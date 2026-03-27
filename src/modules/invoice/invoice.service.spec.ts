@@ -580,18 +580,4 @@ describe('InvoiceService', () => {
     });
   });
 
-  describe('cancel', () => {
-    it('rejects cancellation when payments exist', async () => {
-      (prisma.invoice!.findFirst as jest.Mock).mockResolvedValueOnce({
-        id: 'inv-1',
-        companyId: 'company-1',
-        status: 'PARTIALLY_PAID',
-        paidAmount: 100,
-      });
-
-      await expect(service.cancel('company-1', 'inv-1')).rejects.toBeInstanceOf(
-        BadRequestException,
-      );
-    });
-  });
 });

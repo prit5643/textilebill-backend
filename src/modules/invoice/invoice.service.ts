@@ -88,6 +88,24 @@ export class InvoiceService {
     };
   }
 
+  private normalizeInvoiceNumber(invoiceNumber?: string | null): string | undefined {
+    if (invoiceNumber === undefined || invoiceNumber === null) {
+      return undefined;
+    }
+
+    const normalized = invoiceNumber.trim();
+    return normalized.length > 0 ? normalized : undefined;
+  }
+
+  private isUniqueConstraintError(error: unknown): boolean {
+    return (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      (error as { code?: string }).code === 'P2002'
+    );
+  }
+
   /**
    * Determine if GST is intra-state (CGST+SGST) or inter-state (IGST).
    * Uses company state vs. placeOfSupply.
@@ -246,173 +264,197 @@ export class InvoiceService {
     );
 
     // 3. Insert in a transaction (INCLUDING number generation for atomicity)
-    const invoice = await this.prisma.$transaction(async (tx) => {
-      // CRITICAL: Resolve invoice number INSIDE transaction for atomicity
-      let invoiceNumber = dto.invoiceNumber;
-      if (!invoiceNumber) {
-        invoiceNumber = await this.invoiceNumberService.getNextNumberWithTx(
-          companyId,
-          dto.invoiceType as InvoiceType,
-          tx,
-        );
+    const invoice = await this.prisma
+      .$transaction(async (tx) => {
+        // CRITICAL: Resolve invoice number INSIDE transaction for atomicity
+        let invoiceNumber = this.normalizeInvoiceNumber(dto.invoiceNumber);
         if (!invoiceNumber) {
-          throw new BadRequestException(
-            'Auto-numbering is disabled. Please provide an invoice number.',
+          invoiceNumber = await this.invoiceNumberService.getNextNumberWithTx(
+            companyId,
+            dto.invoiceType as InvoiceType,
+            tx,
           );
-        }
-      }
-
-      const inv = await tx.invoice.create({
-        data: {
-          companyId,
-          financialYearId,
-          invoiceType: dto.invoiceType as InvoiceType,
-          invoiceNumber,
-          invoiceDate: new Date(dto.invoiceDate),
-          accountId: dto.accountId,
-          brokerId: dto.brokerId,
-          coChallanNo: dto.coChallanNo,
-          partyChallanNo: dto.partyChallanNo,
-          hsnCodeHeader: dto.hsnCodeHeader,
-          taxInclusiveRate: taxInclusive,
-          narration: dto.narration,
-          termsAndConditions: dto.termsAndConditions,
-          placeOfSupply: dto.placeOfSupply,
-          subtotal: this.d(subtotal),
-          totalDiscount: this.d(totalDiscount),
-          taxableAmount: this.d(taxableAmount),
-          totalCgst: this.d(this.round2(totalCgst)),
-          totalSgst: this.d(this.round2(totalSgst)),
-          totalIgst: this.d(this.round2(totalIgst)),
-          totalTax: this.d(this.round2(totalTax)),
-          roundOff: this.d(roundOff),
-          grandTotal: this.d(grandTotal),
-          paidAmount: paymentState.paidAmount,
-          remainingAmount: paymentState.remainingAmount,
-          receivedAmount: paymentState.receivedAmount,
-          paymentMode: dto.paymentMode,
-          paymentBookName: dto.paymentBookName,
-          paymentNarration: dto.paymentNarration,
-          status: paymentState.status,
-          convertedFromId: dto.convertedFromId,
-          createdById: userId,
-          items: { create: itemsData },
-        },
-        include: {
-          items: { include: { product: true }, orderBy: { sortOrder: 'asc' } },
-          account: true,
-          broker: true,
-        },
-      });
-
-      let initialPayment:
-        | {
-            id: string;
+          if (!invoiceNumber) {
+            throw new BadRequestException(
+              'Auto-numbering is disabled. Please provide an invoice number.',
+            );
           }
-        | undefined;
-
-      if (initialPaidAmount > 0 && this.isPostedStatus(inv.status)) {
-        initialPayment = await tx.invoicePayment.create({
-          data: {
-            invoiceId: inv.id,
-            paymentDate: new Date(dto.invoiceDate),
-            amount: this.d(initialPaidAmount),
-            paymentMode: dto.paymentMode!,
-            bookName: dto.paymentBookName,
-            narration: dto.paymentNarration,
-          },
-          select: { id: true },
-        });
-      }
-
-      // 5. If config says stock effect and invoice is sale/purchase, create stock movements
-      const config = await this.invoiceNumberService.getOrCreate(
-        companyId,
-        dto.invoiceType as InvoiceType,
-      );
-
-      if (config.stockEffect && this.isPostedStatus(inv.status)) {
-        const productIds = itemsData.map((i) => i.productId);
-        const products = await tx.product.findMany({
-          where: { id: { in: productIds } },
-        });
-
-        // OCC: Verify version and increment to prevent inventory race conditions
-        for (const p of products) {
-          const updated = await tx.product.updateMany({
-            where: { id: p.id, version: p.version },
-            data: { version: { increment: 1 } },
+        } else {
+          const duplicateInvoice = await tx.invoice.findFirst({
+            where: {
+              companyId,
+              invoiceType: dto.invoiceType as InvoiceType,
+              invoiceNumber,
+            },
+            select: { id: true },
           });
-          if (updated.count === 0) {
+
+          if (duplicateInvoice) {
             throw new ConflictException(
-              `Concurrency error updating stock for ${p.name}. Please try again.`,
+              'Invoice number already exists for this invoice type.',
             );
           }
         }
 
-        const movements = itemsData.map((it) => {
-          const type = ['SALE', 'SALE_RETURN', 'JOB_OUT'].includes(
-            dto.invoiceType,
-          )
-            ? 'OUT'
-            : 'IN';
-          return {
-            companyId,
-            productId: it.productId,
-            invoiceId: inv.id,
-            type,
-            quantity: it.quantity,
-            rate: it.rate,
-            date: new Date(dto.invoiceDate),
-          };
-        });
-        await tx.stockMovement.createMany({ data: movements as any });
-      }
-
-      // 6. If config says ledger effect, create ledger entries
-      if (config.ledgerEffect && this.isPostedStatus(inv.status)) {
-        const isSaleType = ['SALE', 'PURCHASE_RETURN'].includes(
-          dto.invoiceType,
-        );
-        await tx.ledgerEntry.create({
+        const inv = await tx.invoice.create({
           data: {
             companyId,
+            financialYearId,
+            invoiceType: dto.invoiceType as InvoiceType,
+            invoiceNumber,
+            invoiceDate: new Date(dto.invoiceDate),
             accountId: dto.accountId,
-            invoiceId: inv.id,
-            voucherType: dto.invoiceType,
-            voucherNumber: invoiceNumber,
-            date: new Date(dto.invoiceDate),
-            debit: isSaleType ? this.d(grandTotal) : this.d(0),
-            credit: isSaleType ? this.d(0) : this.d(grandTotal),
-            narration: `${dto.invoiceType} ${invoiceNumber}`,
+            brokerId: dto.brokerId,
+            coChallanNo: dto.coChallanNo,
+            partyChallanNo: dto.partyChallanNo,
+            hsnCodeHeader: dto.hsnCodeHeader,
+            taxInclusiveRate: taxInclusive,
+            narration: dto.narration,
+            termsAndConditions: dto.termsAndConditions,
+            placeOfSupply: dto.placeOfSupply,
+            subtotal: this.d(subtotal),
+            totalDiscount: this.d(totalDiscount),
+            taxableAmount: this.d(taxableAmount),
+            totalCgst: this.d(this.round2(totalCgst)),
+            totalSgst: this.d(this.round2(totalSgst)),
+            totalIgst: this.d(this.round2(totalIgst)),
+            totalTax: this.d(this.round2(totalTax)),
+            roundOff: this.d(roundOff),
+            grandTotal: this.d(grandTotal),
+            paidAmount: paymentState.paidAmount,
+            remainingAmount: paymentState.remainingAmount,
+            receivedAmount: paymentState.receivedAmount,
+            paymentMode: dto.paymentMode,
+            paymentBookName: dto.paymentBookName,
+            paymentNarration: dto.paymentNarration,
+            status: paymentState.status,
+            convertedFromId: dto.convertedFromId,
+            createdById: userId,
+            items: { create: itemsData },
+          },
+          include: {
+            items: { include: { product: true }, orderBy: { sortOrder: 'asc' } },
+            account: true,
+            broker: true,
           },
         });
 
-        if (initialPayment && inv.accountId) {
-          const paymentLedger = this.getPaymentLedgerData(
-            dto.invoiceType as InvoiceType,
-            initialPaidAmount,
-          );
+        let initialPayment:
+          | {
+              id: string;
+            }
+          | undefined;
 
+        if (initialPaidAmount > 0 && this.isPostedStatus(inv.status)) {
+          initialPayment = await tx.invoicePayment.create({
+            data: {
+              invoiceId: inv.id,
+              paymentDate: new Date(dto.invoiceDate),
+              amount: this.d(initialPaidAmount),
+              paymentMode: dto.paymentMode!,
+              bookName: dto.paymentBookName,
+              narration: dto.paymentNarration,
+            },
+            select: { id: true },
+          });
+        }
+
+        // 5. If config says stock effect and invoice is sale/purchase, create stock movements
+        const config = await this.invoiceNumberService.getOrCreate(
+          companyId,
+          dto.invoiceType as InvoiceType,
+        );
+
+        if (config.stockEffect && this.isPostedStatus(inv.status)) {
+          const productIds = itemsData.map((i) => i.productId);
+          const products = await tx.product.findMany({
+            where: { id: { in: productIds } },
+          });
+
+          // OCC: Verify version and increment to prevent inventory race conditions
+          for (const p of products) {
+            const updated = await tx.product.updateMany({
+              where: { id: p.id, version: p.version },
+              data: { version: { increment: 1 } },
+            });
+            if (updated.count === 0) {
+              throw new ConflictException(
+                `Concurrency error updating stock for ${p.name}. Please try again.`,
+              );
+            }
+          }
+
+          const movements = itemsData.map((it) => {
+            const type = ['SALE', 'SALE_RETURN', 'JOB_OUT'].includes(
+              dto.invoiceType,
+            )
+              ? 'OUT'
+              : 'IN';
+            return {
+              companyId,
+              productId: it.productId,
+              invoiceId: inv.id,
+              type,
+              quantity: it.quantity,
+              rate: it.rate,
+              date: new Date(dto.invoiceDate),
+            };
+          });
+          await tx.stockMovement.createMany({ data: movements as any });
+        }
+
+        // 6. If config says ledger effect, create ledger entries
+        if (config.ledgerEffect && this.isPostedStatus(inv.status)) {
+          const isSaleType = ['SALE', 'PURCHASE_RETURN'].includes(
+            dto.invoiceType,
+          );
           await tx.ledgerEntry.create({
             data: {
               companyId,
-              accountId: inv.accountId,
+              accountId: dto.accountId,
               invoiceId: inv.id,
-              voucherType: paymentLedger.voucherType,
-              voucherNumber: initialPayment.id,
+              voucherType: dto.invoiceType,
+              voucherNumber: invoiceNumber,
               date: new Date(dto.invoiceDate),
-              debit: paymentLedger.debit,
-              credit: paymentLedger.credit,
-              narration:
-                dto.paymentNarration || `Payment for ${inv.invoiceNumber}`,
+              debit: isSaleType ? this.d(grandTotal) : this.d(0),
+              credit: isSaleType ? this.d(0) : this.d(grandTotal),
+              narration: `${dto.invoiceType} ${invoiceNumber}`,
             },
           });
-        }
-      }
 
-      return inv;
-    });
+          if (initialPayment && inv.accountId) {
+            const paymentLedger = this.getPaymentLedgerData(
+              dto.invoiceType as InvoiceType,
+              initialPaidAmount,
+            );
+
+            await tx.ledgerEntry.create({
+              data: {
+                companyId,
+                accountId: inv.accountId,
+                invoiceId: inv.id,
+                voucherType: paymentLedger.voucherType,
+                voucherNumber: initialPayment.id,
+                date: new Date(dto.invoiceDate),
+                debit: paymentLedger.debit,
+                credit: paymentLedger.credit,
+                narration:
+                  dto.paymentNarration || `Payment for ${inv.invoiceNumber}`,
+              },
+            });
+          }
+        }
+
+        return inv;
+      })
+      .catch((error: unknown) => {
+        if (this.isUniqueConstraintError(error)) {
+          throw new ConflictException(
+            'Invoice number already exists for this invoice type.',
+          );
+        }
+        throw error;
+      });
 
     return invoice;
   }
@@ -514,6 +556,17 @@ export class InvoiceService {
       );
     }
 
+    const normalizedInvoiceNumber =
+      dto.invoiceNumber !== undefined
+        ? this.normalizeInvoiceNumber(dto.invoiceNumber)
+        : undefined;
+
+    if (dto.invoiceNumber !== undefined && !normalizedInvoiceNumber) {
+      throw new BadRequestException('Invoice number cannot be blank.');
+    }
+
+    const effectiveInvoiceNumber = normalizedInvoiceNumber ?? existing.invoiceNumber;
+
     // Get company state for GST split
     const company = await this.prisma.company.findUnique({
       where: { id: companyId },
@@ -525,7 +578,29 @@ export class InvoiceService {
     );
     const taxInclusive = dto.taxInclusiveRate ?? existing.taxInclusiveRate;
 
-    return this.prisma.$transaction(async (tx) => {
+    return this.prisma
+      .$transaction(async (tx) => {
+      if (
+        normalizedInvoiceNumber &&
+        normalizedInvoiceNumber !== existing.invoiceNumber
+      ) {
+        const duplicateInvoice = await tx.invoice.findFirst({
+          where: {
+            companyId,
+            invoiceType: existing.invoiceType,
+            invoiceNumber: normalizedInvoiceNumber,
+            NOT: { id },
+          },
+          select: { id: true },
+        });
+
+        if (duplicateInvoice) {
+          throw new ConflictException(
+            'Invoice number already exists for this invoice type.',
+          );
+        }
+      }
+
       // If items are provided, recalculate
       if (dto.items && dto.items.length > 0) {
         // Delete old items + stock + ledger
@@ -588,6 +663,7 @@ export class InvoiceService {
         await tx.invoice.update({
           where: { id },
           data: {
+            invoiceNumber: normalizedInvoiceNumber,
             accountId: dto.accountId,
             brokerId: dto.brokerId,
             invoiceDate: dto.invoiceDate
@@ -672,13 +748,13 @@ export class InvoiceService {
               accountId: dto.accountId ?? existing.accountId,
               invoiceId: id,
               voucherType: invType,
-              voucherNumber: existing.invoiceNumber,
+              voucherNumber: effectiveInvoiceNumber,
               date: dto.invoiceDate
                 ? new Date(dto.invoiceDate)
                 : existing.invoiceDate,
               debit: isSaleType ? this.d(grandTotal) : this.d(0),
               credit: isSaleType ? this.d(0) : this.d(grandTotal),
-              narration: `${invType} ${existing.invoiceNumber}`,
+              narration: `${invType} ${effectiveInvoiceNumber}`,
             },
           });
         }
@@ -687,6 +763,7 @@ export class InvoiceService {
         await tx.invoice.update({
           where: { id },
           data: {
+            invoiceNumber: normalizedInvoiceNumber,
             accountId: dto.accountId,
             brokerId: dto.brokerId,
             invoiceDate: dto.invoiceDate
@@ -700,56 +777,35 @@ export class InvoiceService {
             paymentMode: dto.paymentMode,
           },
         });
-      }
 
-      return this.findById(companyId, id);
-    });
-  }
-
-  async cancel(companyId: string, id: string) {
-    const invoice = await this.prisma.invoice.findFirst({
-      where: { id, companyId },
-    });
-    if (!invoice) throw new NotFoundException('Invoice not found');
-    if (invoice.status === 'CANCELLED') {
-      throw new BadRequestException('Invoice is already cancelled');
-    }
-    if (Number(invoice.paidAmount ?? 0) > 0.01) {
-      throw new BadRequestException(
-        'Cannot cancel an invoice with recorded payments. Delete the payments first.',
-      );
-    }
-
-    return this.prisma.$transaction(async (tx) => {
-      // Remove stock + ledger effects
-      const items = await tx.invoiceItem.findMany({ where: { invoiceId: id } });
-      if (items.length > 0) {
-        const productIds = items.map((i) => i.productId);
-        const products = await tx.product.findMany({
-          where: { id: { in: productIds } },
-        });
-
-        for (const p of products) {
-          const updated = await tx.product.updateMany({
-            where: { id: p.id, version: p.version },
-            data: { version: { increment: 1 } },
+        if (
+          normalizedInvoiceNumber &&
+          normalizedInvoiceNumber !== existing.invoiceNumber
+        ) {
+          await tx.ledgerEntry.updateMany({
+            where: {
+              invoiceId: id,
+              voucherType: existing.invoiceType,
+              voucherNumber: existing.invoiceNumber,
+            },
+            data: {
+              voucherNumber: normalizedInvoiceNumber,
+              narration: `${existing.invoiceType} ${normalizedInvoiceNumber}`,
+            },
           });
-          if (updated.count === 0) {
-            throw new ConflictException(
-              `Concurrency error updating stock for ${p.name}. Please try again.`,
-            );
-          }
         }
       }
 
-      await tx.stockMovement.deleteMany({ where: { invoiceId: id } });
-      await tx.ledgerEntry.deleteMany({ where: { invoiceId: id } });
-
-      return tx.invoice.update({
-        where: { id },
-        data: { status: 'CANCELLED' },
+        return this.findById(companyId, id);
+      })
+      .catch((error: unknown) => {
+        if (this.isUniqueConstraintError(error)) {
+          throw new ConflictException(
+            'Invoice number already exists for this invoice type.',
+          );
+        }
+        throw error;
       });
-    });
   }
 
   async remove(companyId: string, id: string) {

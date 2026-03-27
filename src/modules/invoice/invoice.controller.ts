@@ -4,7 +4,6 @@ import {
   Post,
   Put,
   Delete,
-  Patch,
   Body,
   Param,
   Query,
@@ -110,11 +109,6 @@ export class InvoiceController {
     @Body() dto: UpdateInvoiceDto,
   ) {
     return this.invoiceService.update(companyId, id, dto);
-  }
-
-  @Patch(':id/cancel')
-  cancel(@CurrentCompanyId() companyId: string, @Param('id') id: string) {
-    return this.invoiceService.cancel(companyId, id);
   }
 
   @Delete(':id')

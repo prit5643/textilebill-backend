@@ -5,13 +5,11 @@ import {
   NotFoundException,
   Param,
   Res,
-  UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiExcludeController } from '@nestjs/swagger';
+import { ApiExcludeController } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { existsSync } from 'fs';
 import { join, normalize, sep } from 'path';
-import { JwtAuthGuard } from '../../common/guards';
 import { isValidAvatarFilename } from './avatar-upload.util';
 
 const avatarUploadDir = join(process.cwd(), 'uploads', 'avatars');
@@ -27,8 +25,6 @@ const AVATAR_CONTENT_TYPE_BY_EXTENSION: Record<string, string> = {
 
 @ApiExcludeController()
 @Controller('uploads')
-@UseGuards(JwtAuthGuard)
-@ApiBearerAuth('access-token')
 export class UploadsController {
   @Get('avatars/:filename')
   serveAvatar(
@@ -54,7 +50,8 @@ export class UploadsController {
       AVATAR_CONTENT_TYPE_BY_EXTENSION[extension] || 'application/octet-stream',
     );
     response.setHeader('X-Content-Type-Options', 'nosniff');
-    response.setHeader('Cache-Control', 'private, max-age=86400');
+    // Avatars are overwritten at the same URL, so force revalidation to avoid stale photos.
+    response.setHeader('Cache-Control', 'private, no-cache, max-age=0, must-revalidate');
     response.setHeader('Cross-Origin-Resource-Policy', 'same-site');
     response.sendFile(absolutePath);
   }
