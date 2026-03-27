@@ -1,2 +1,2 @@
-release: npm run db:migrate:deploy
+release: echo "Skipping release migrations"
 web: npm run start:prod
