@@ -132,7 +132,7 @@ export class InvoiceNumberService {
     const nextNum = updated.currentNumber || config.startingNumber;
     const parts: string[] = [];
     if (config.prefix) parts.push(config.prefix);
-    parts.push(String(nextNum).padStart(4, '0'));
+    parts.push(String(nextNum));
     if (config.suffix) parts.push(config.suffix);
 
     return parts.join('-');

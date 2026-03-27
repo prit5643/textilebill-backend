@@ -94,7 +94,23 @@ export class InvoiceService {
     }
 
     const normalized = invoiceNumber.trim();
-    return normalized.length > 0 ? normalized : undefined;
+    if (normalized.length === 0) {
+      return undefined;
+    }
+
+    // Normalize purely numeric invoice numbers (e.g. 0004 -> 4).
+    if (/^\d+$/.test(normalized)) {
+      return normalized.replace(/^0+(?=\d)/, '');
+    }
+
+    // Normalize numeric segments for common prefixed formats
+    // (e.g. INV-0004 -> INV-4, FY-2026-0007 -> FY-2026-7).
+    const segments = normalized.split('-');
+    const normalizedSegments = segments.map((segment) =>
+      /^\d+$/.test(segment) ? segment.replace(/^0+(?=\d)/, '') : segment,
+    );
+
+    return normalizedSegments.join('-');
   }
 
   private isUniqueConstraintError(error: unknown): boolean {
@@ -796,8 +812,12 @@ export class InvoiceService {
         }
       }
 
-        return this.findById(companyId, id);
+        return id;
+      }, {
+        maxWait: 10000,
+        timeout: 20000,
       })
+      .then((updatedInvoiceId) => this.findById(companyId, updatedInvoiceId))
       .catch((error: unknown) => {
         if (this.isUniqueConstraintError(error)) {
           throw new ConflictException(
