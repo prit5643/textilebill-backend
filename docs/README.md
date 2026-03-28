@@ -9,6 +9,7 @@
 | Doc | New Location |
 |---|---|
 | Features implemented | [`docs/backend/features.md`](../../docs/backend/features.md) |
+| App workflow guide | [`docs/backend/app-workflow-and-behavior-guide.md`](../../docs/backend/app-workflow-and-behavior-guide.md) |
 | Code navigation | [`docs/backend/code-navigation.md`](../../docs/backend/code-navigation.md) |
 | Database schema | [`docs/backend/database-schema.md`](../../docs/backend/database-schema.md) |
 | Database operations | [`docs/backend/database-operations.md`](../../docs/backend/database-operations.md) |

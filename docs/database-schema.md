@@ -2,6 +2,9 @@
 
 Primary schema file: `prisma/schema.prisma`
 
+DBA deep-dive reference:
+- `docs/USER_DB_RELATIONS_AND_SIMPLE_MIGRATION.md` (relations, index inventory, performance diagnostics, migration safety workflow)
+
 ## Domain Areas
 
 1. SaaS Layer
