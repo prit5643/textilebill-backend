@@ -7,30 +7,54 @@ export class RedisService implements OnModuleDestroy {
   private readonly logger = new Logger(RedisService.name);
   private client: Redis | null = null;
   private connected = false;
+  private warnedUnavailable = false;
   private readonly fallbackStore = new Map<
     string,
     { value: string; expiresAt: number | null }
   >();
 
   constructor(private configService: ConfigService) {
+    const redisEnabled = this.configService.get<boolean>('redis.enabled');
+    const redisEnvironment = this.configService.get<string>('redis.environment');
+    
+    if (!redisEnabled) {
+      this.logger.log('Redis disabled by configuration; using in-memory fallback');
+      return;
+    }
+
+    this.logger.debug(`Initializing Redis for ${redisEnvironment} environment`);
+
     try {
-      this.client = new Redis({
-        host: this.configService.get<string>('redis.host'),
-        port: this.configService.get<number>('redis.port'),
-        password: this.configService.get<string>('redis.password'),
-        retryStrategy: (times) => {
-          if (times > 3) {
-            this.logger.warn(
-              'Redis unavailable after 3 retries — running without cache',
-            );
-            return null as unknown as number; // stop retrying
-          }
-          return Math.min(times * 200, 2000);
-        },
+      const retryStrategy = (times: number) => {
+        if (times > 3) {
+          this.warnUnavailable('Redis unavailable after 3 retries');
+          return null as unknown as number; // stop retrying
+        }
+        return Math.min(times * 200, 2000);
+      };
+
+      const baseOptions = {
+        retryStrategy,
         maxRetriesPerRequest: 1,
         enableOfflineQueue: false,
         lazyConnect: true,
-      });
+      };
+
+      const redisUrl = this.configService.get<string>('redis.url');
+      if (redisUrl) {
+        this.client = new Redis(redisUrl, baseOptions);
+        this.logger.debug('Using REDIS_URL (Heroku add-on or managed instance)');
+      } else {
+        const tlsEnabled = this.configService.get<boolean>('redis.tlsEnabled');
+        this.client = new Redis({
+          host: this.configService.get<string>('redis.host'),
+          port: this.configService.get<number>('redis.port'),
+          password: this.configService.get<string>('redis.password'),
+          ...(tlsEnabled ? { tls: {} } : {}),
+          ...baseOptions,
+        });
+        this.logger.debug(`Using host/port config (${redisEnvironment})`);
+      }
 
       this.client.on('connect', () => {
         this.connected = true;
@@ -39,7 +63,7 @@ export class RedisService implements OnModuleDestroy {
 
       this.client.on('error', (err) => {
         this.connected = false;
-        this.logger.warn(`Redis error: ${err.message}`);
+        this.warnUnavailable(`Redis error: ${err.message}`);
       });
 
       this.client.on('close', () => {
@@ -48,17 +72,21 @@ export class RedisService implements OnModuleDestroy {
 
       // Attempt connection but do not crash if it fails
       this.client.connect().catch((err) => {
-        this.logger.warn(
-          `Redis not available: ${err.message} — running without cache`,
-        );
+        this.warnUnavailable(`Redis not available: ${err.message}`);
         this.client = null;
       });
     } catch (err: any) {
-      this.logger.warn(
-        `Redis init failed: ${err.message} — running without cache`,
-      );
+      this.warnUnavailable(`Redis init failed: ${err.message}`);
       this.client = null;
     }
+  }
+
+  private warnUnavailable(message: string): void {
+    if (this.warnedUnavailable) {
+      return;
+    }
+    this.warnedUnavailable = true;
+    this.logger.warn(`${message} — running without cache`);
   }
 
   isAvailable(): boolean {
