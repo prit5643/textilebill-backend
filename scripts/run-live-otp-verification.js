@@ -6,7 +6,7 @@ const FRONTEND_ORIGIN =
   process.env.LIVE_FRONTEND_ORIGIN || 'http://localhost:3000';
 const REPORT_FILE =
   process.env.LIVE_OTP_REPORT_FILE ||
-  path.resolve(__dirname, '../../docs/testing/live-otp-runtime-report.json');
+  path.resolve(__dirname, '../docs/live-otp-runtime-report.json');
 
 const LIVE_OTP_IDENTIFIER = process.env.LIVE_OTP_IDENTIFIER;
 const LIVE_OTP_CHANNEL = process.env.LIVE_OTP_CHANNEL || 'AUTO';

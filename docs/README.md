@@ -1,20 +1,18 @@
 # TextileBill Backend Documentation
 
-> **All backend documentation has been consolidated into the main project docs folder.**
->
-> See: [`../../docs/backend/`](../../docs/backend/README.md)
+> Backend documentation lives in this folder.
 
 ## Quick Links
 
-| Doc | New Location |
+| Doc | Location |
 |---|---|
-| Features implemented | [`docs/backend/features.md`](../../docs/backend/features.md) |
-| App workflow guide | [`docs/backend/app-workflow-and-behavior-guide.md`](../../docs/backend/app-workflow-and-behavior-guide.md) |
-| Code navigation | [`docs/backend/code-navigation.md`](../../docs/backend/code-navigation.md) |
-| Database schema | [`docs/backend/database-schema.md`](../../docs/backend/database-schema.md) |
-| Database operations | [`docs/backend/database-operations.md`](../../docs/backend/database-operations.md) |
-| Data validation | [`docs/backend/data-validation.md`](../../docs/backend/data-validation.md) |
-| Security & observability | [`docs/backend/security-observability.md`](../../docs/backend/security-observability.md) |
-| Regression playbook | [`docs/backend/regression-playbook.md`](../../docs/backend/regression-playbook.md) |
-| Test scenarios | [`docs/backend/test-scenarios.md`](../../docs/backend/test-scenarios.md) |
-| Infrastructure scaling (future) | [`docs/future/infrastructure-scaling.md`](../../docs/future/infrastructure-scaling.md) |
+| Features implemented | [`features.md`](./features.md) |
+| App workflow guide | [`app-workflow-and-behavior-guide.md`](./app-workflow-and-behavior-guide.md) |
+| Code navigation | [`code-navigation.md`](./code-navigation.md) |
+| Database schema | [`database-schema.md`](./database-schema.md) |
+| Database operations | [`database-operations.md`](./database-operations.md) |
+| Data validation | [`data-validation.md`](./data-validation.md) |
+| Security & observability | [`security-observability.md`](./security-observability.md) |
+| Regression playbook | [`regression-playbook.md`](./regression-playbook.md) |
+| Test scenarios | [`test-scenarios.md`](./test-scenarios.md) |
+| Auth origin design spec | [`auth-origin-check-removal-design.md`](./auth-origin-check-removal-design.md) |

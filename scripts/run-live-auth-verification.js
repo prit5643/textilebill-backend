@@ -8,7 +8,7 @@ const REPORT_FILE =
   process.env.LIVE_AUTH_REPORT_FILE ||
   path.resolve(
     __dirname,
-    '../../docs/testing/live-auth-runtime-report.json',
+    '../docs/live-auth-runtime-report.json',
   );
 
 const FIXTURES = {
