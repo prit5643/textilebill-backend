@@ -42,7 +42,11 @@ export class RedisService implements OnModuleDestroy {
 
       const redisUrl = this.configService.get<string>('redis.url');
       if (redisUrl) {
-        this.client = new Redis(redisUrl, baseOptions);
+        // For rediss:// URLs (TLS), allow self-signed certificates
+        const urlOptions = redisUrl.startsWith('rediss://')
+          ? { tls: { rejectUnauthorized: false } }
+          : {};
+        this.client = new Redis(redisUrl, { ...baseOptions, ...urlOptions });
         this.logger.debug('Using REDIS_URL (Heroku add-on or managed instance)');
       } else {
         const tlsEnabled = this.configService.get<boolean>('redis.tlsEnabled');
@@ -50,7 +54,7 @@ export class RedisService implements OnModuleDestroy {
           host: this.configService.get<string>('redis.host'),
           port: this.configService.get<number>('redis.port'),
           password: this.configService.get<string>('redis.password'),
-          ...(tlsEnabled ? { tls: {} } : {}),
+          ...(tlsEnabled ? { tls: { rejectUnauthorized: false } } : {}),
           ...baseOptions,
         });
         this.logger.debug(`Using host/port config (${redisEnvironment})`);
