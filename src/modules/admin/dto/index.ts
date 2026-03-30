@@ -130,6 +130,9 @@ export class CreatePlanDto {
 
   @ApiProperty()
   @IsNumber()
+  @IsIn([30, 90, 180], {
+    message: 'durationDays must be one of 30, 90, or 180',
+  })
   durationDays: number;
 
   @ApiProperty()
@@ -182,10 +185,10 @@ export class UpdateSubscriptionDto {
   @IsNumber()
   amount?: number;
 
-  @ApiPropertyOptional({ enum: ['ACTIVE', 'EXPIRED', 'CANCELLED', 'TRIAL'] })
+  @ApiPropertyOptional({ enum: ['ACTIVE', 'EXPIRED', 'CANCELLED', 'PENDING'] })
   @IsOptional()
-  @IsIn(['ACTIVE', 'EXPIRED', 'CANCELLED', 'TRIAL'])
-  status?: 'ACTIVE' | 'EXPIRED' | 'CANCELLED' | 'TRIAL';
+  @IsIn(['ACTIVE', 'EXPIRED', 'CANCELLED', 'PENDING'])
+  status?: 'ACTIVE' | 'EXPIRED' | 'CANCELLED' | 'PENDING';
 
   @ApiPropertyOptional({ description: 'ISO date string' })
   @IsOptional()

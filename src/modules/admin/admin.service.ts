@@ -1,35 +1,31 @@
 import {
+  BadRequestException,
   Injectable,
   Logger,
   NotFoundException,
-  BadRequestException,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { EntityStatus, Prisma, UserRole } from '@prisma/client';
+import { randomUUID, createHash } from 'crypto';
+import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
+import { OtpDeliveryService } from '../auth/otp-delivery.service';
 import {
   parsePagination,
   createPaginatedResult,
 } from '../../common/utils/pagination.util';
-import * as bcrypt from 'bcrypt';
-import { randomUUID } from 'crypto';
-import { PasswordTokenStatus, PasswordTokenType } from '@prisma/client';
-import { OtpDeliveryService } from '../auth/otp-delivery.service';
-import {
-  generatePasswordLifecycleToken,
-  hashPasswordLifecycleToken,
-} from '../auth/password-token.util';
 import {
   getTenantActiveCacheKey,
   getTenantSubscriptionCacheKey,
   getUserAuthCachePattern,
 } from '../auth/auth-request-cache.util';
 
-const PASSWORD_SETUP_LINK_EXPIRY_MINUTES = 30;
-const PASSWORD_RESET_LINK_EXPIRY_MINUTES = 30;
-const PASSWORD_SETUP_MAX_RESEND_COUNT = 3;
-const PASSWORD_RESET_MAX_RESEND_COUNT = 3;
+const PASSWORD_LINK_TTL_SECONDS = 30 * 60;
+const IST_TIME_ZONE = 'Asia/Kolkata';
+const IST_OFFSET_MINUTES = 330;
+const ALLOWED_PLAN_DURATIONS = new Set([30, 90, 180]);
 
 @Injectable()
 export class AdminService {
@@ -42,125 +38,57 @@ export class AdminService {
     private readonly otpDeliveryService: OtpDeliveryService,
   ) {}
 
-  private coalesceTenantProfileValue(
-    tenantValue: string | null | undefined,
-    companyValue: string | null | undefined,
-  ) {
-    const normalizedTenant = tenantValue?.trim();
-    if (normalizedTenant) return normalizedTenant;
-
-    const normalizedCompany = companyValue?.trim();
-    return normalizedCompany || null;
-  }
-
-  private hydrateTenantFromCompanies<
-    T extends {
-      gstin?: string | null;
-      address?: string | null;
-      city?: string | null;
-      state?: string | null;
-      pincode?: string | null;
-      phone?: string | null;
-      email?: string | null;
-      companies?: Array<{
-        gstin?: string | null;
-        address?: string | null;
-        city?: string | null;
-        state?: string | null;
-        pincode?: string | null;
-        phone?: string | null;
-        email?: string | null;
-      }>;
-    },
-  >(tenant: T): T {
-    const company = tenant.companies?.find((entry) =>
-      [
-        entry.gstin,
-        entry.address,
-        entry.city,
-        entry.state,
-        entry.pincode,
-        entry.phone,
-        entry.email,
-      ].some((value) => Boolean(value?.trim())),
-    );
-
-    if (!company) {
-      return tenant;
-    }
-
-    return {
-      ...tenant,
-      gstin: this.coalesceTenantProfileValue(tenant.gstin, company.gstin),
-      address: this.coalesceTenantProfileValue(tenant.address, company.address),
-      city: this.coalesceTenantProfileValue(tenant.city, company.city),
-      state: this.coalesceTenantProfileValue(tenant.state, company.state),
-      pincode: this.coalesceTenantProfileValue(tenant.pincode, company.pincode),
-      phone: this.coalesceTenantProfileValue(tenant.phone, company.phone),
-      email: this.coalesceTenantProfileValue(tenant.email, company.email),
-    };
-  }
-
-  // â”€â”€â”€ Dashboard KPIs â”€â”€â”€
   async getDashboardKpis() {
-    const [totalTenants, activeTenants, totalUsers, totalPlans] =
+    const [totalTenants, activeTenants, totalUsers, totalCompanies, totalInvoices] =
       await Promise.all([
-        this.prisma.tenant.count(),
-        this.prisma.tenant.count({ where: { isActive: true } }),
-        this.prisma.user.count({ where: { role: { not: 'SUPER_ADMIN' } } }),
-        this.prisma.plan.count({ where: { isActive: true } }),
+        this.prisma.tenant.count({ where: { deletedAt: null } }),
+        this.prisma.tenant.count({
+          where: { deletedAt: null, status: EntityStatus.ACTIVE },
+        }),
+        this.prisma.user.count({ where: { deletedAt: null } }),
+        this.prisma.company.count({ where: { deletedAt: null } }),
+        this.prisma.invoice.count({ where: { deletedAt: null } }),
       ]);
 
-    const now = new Date();
-    const thirtyDaysLater = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-
-    const [activeSubscriptions, expiringSubscriptions, totalRevenue] =
-      await Promise.all([
-        this.prisma.subscription.count({ where: { status: 'ACTIVE' } }),
-        this.prisma.subscription.count({
-          where: {
-            status: 'ACTIVE',
-            endDate: { gte: now, lte: thirtyDaysLater },
-          },
-        }),
-        this.prisma.subscription.aggregate({
-          _sum: { amount: true },
-          where: { status: { in: ['ACTIVE', 'EXPIRED'] } },
-        }),
-      ]);
+    const invoiceRevenue = await this.prisma.invoice.aggregate({
+      where: { deletedAt: null },
+      _sum: { totalAmount: true },
+    });
 
     return {
       totalTenants,
       activeTenants,
       totalUsers,
-      totalPlans,
-      activeSubscriptions,
-      expiringSubscriptions,
-      totalRevenue: totalRevenue._sum.amount || 0,
+      totalCompanies,
+      totalInvoices,
+      totalRevenue: invoiceRevenue._sum.totalAmount ?? 0,
     };
   }
 
-  // â”€â”€â”€ Tenants â”€â”€â”€
   async listTenants(query: { page?: number; limit?: number; search?: string }) {
     const { skip, take, page, limit } = parsePagination(query);
-
-    const where: Record<string, unknown> = {};
-    if (query.search) {
-      where.OR = [
-        { name: { contains: query.search, mode: 'insensitive' } },
-        { slug: { contains: query.search, mode: 'insensitive' } },
-        { email: { contains: query.search, mode: 'insensitive' } },
-        { gstin: { contains: query.search, mode: 'insensitive' } },
-        {
-          companies: {
-            some: {
-              isActive: true,
-              gstin: { contains: query.search, mode: 'insensitive' },
+    const where = query.search
+      ? {
+          deletedAt: null,
+          OR: [
+            { name: { contains: query.search, mode: 'insensitive' as const } },
+            {
+              companies: {
+                some: {
+                  name: { contains: query.search, mode: 'insensitive' as const },
+                },
+              },
             },
-          },
-        },
-      ];
-    }
+            {
+              companies: {
+                some: {
+                  gstin: { contains: query.search, mode: 'insensitive' as const },
+                },
+              },
+            },
+          ],
+        }
+      : { deletedAt: null };
 
     const [tenants, total] = await Promise.all([
       this.prisma.tenant.findMany({
@@ -171,34 +99,23 @@ export class AdminService {
         include: {
           _count: { select: { users: true, companies: true } },
           companies: {
-            where: { isActive: true },
-            orderBy: { createdAt: 'asc' },
+            where: { deletedAt: null },
             select: {
+              id: true,
+              name: true,
               gstin: true,
               address: true,
-              city: true,
-              state: true,
-              pincode: true,
               phone: true,
               email: true,
+              status: true,
             },
-          },
-          subscriptions: {
-            where: { status: 'ACTIVE' },
-            orderBy: { endDate: 'desc' },
-            take: 1,
-            include: { plan: true },
           },
         },
       }),
       this.prisma.tenant.count({ where }),
     ]);
 
-    const normalizedTenants = tenants.map((tenant) =>
-      this.hydrateTenantFromCompanies(tenant),
-    );
-
-    return createPaginatedResult(normalizedTenants, total, page, limit);
+    return createPaginatedResult(tenants, total, page, limit);
   }
 
   async getTenant(id: string) {
@@ -206,41 +123,36 @@ export class AdminService {
       where: { id },
       include: {
         users: {
+          where: { deletedAt: null },
           select: {
             id: true,
             email: true,
-            username: true,
-            firstName: true,
-            lastName: true,
-            role: true,
-            isActive: true,
-            lastLoginAt: true,
+            name: true,
+            phone: true,
+            status: true,
+            createdAt: true,
+            userCompanies: {
+              select: {
+                role: true,
+                company: {
+                  select: { id: true, name: true },
+                },
+              },
+            },
           },
         },
         companies: {
-          where: { isActive: true },
+          where: { deletedAt: null },
           orderBy: { createdAt: 'asc' },
-          select: {
-            id: true,
-            name: true,
-            gstin: true,
-            address: true,
-            city: true,
-            state: true,
-            pincode: true,
-            phone: true,
-            email: true,
-            isActive: true,
-          },
-        },
-        subscriptions: {
-          orderBy: { createdAt: 'desc' },
-          include: { plan: true },
         },
       },
     });
-    if (!tenant) throw new NotFoundException('Tenant not found');
-    return this.hydrateTenantFromCompanies(tenant);
+
+    if (!tenant || tenant.deletedAt) {
+      throw new NotFoundException('Tenant not found');
+    }
+
+    return tenant;
   }
 
   async createTenant(dto: {
@@ -251,137 +163,153 @@ export class AdminService {
     city?: string;
     state?: string;
     pincode?: string;
-      phone?: string;
-      email: string;
-      adminFirstName: string;
-      adminLastName: string;
-      planId?: string;
+    phone?: string;
+    email: string;
+    adminFirstName: string;
+    adminLastName: string;
+    planId?: string;
   }) {
-    // Check slug uniqueness
-    const existing = await this.prisma.tenant.findUnique({
-      where: { slug: dto.slug },
-    });
-    if (existing) throw new BadRequestException('Slug already taken');
+    const requestedSlug = dto.slug.trim().toLowerCase();
 
-    const rawPassword = randomUUID() + randomUUID();
-    const passwordHash = await bcrypt.hash(rawPassword, 12);
-    const inviteToken = generatePasswordLifecycleToken();
-    const inviteTokenExpiresAt = new Date(
-      Date.now() + PASSWORD_SETUP_LINK_EXPIRY_MINUTES * 60 * 1000,
-    );
+    const existingSlug = await this.prisma.tenant.findUnique({
+      where: { slug: requestedSlug },
+      select: { id: true },
+    });
+    if (existingSlug) {
+      throw new BadRequestException('Tenant slug already exists');
+    }
+
+    const existingName = await this.prisma.tenant.findFirst({
+      where: {
+        name: { equals: dto.name.trim(), mode: 'insensitive' },
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+    if (existingName) {
+      throw new BadRequestException('Tenant name already exists');
+    }
+
+    const fullName =
+      `${dto.adminFirstName ?? ''} ${dto.adminLastName ?? ''}`.trim() ||
+      'Tenant Admin';
+    const passwordHash = await bcrypt.hash(randomUUID(), 12);
+    const setupToken = randomUUID();
+    const setupExpiry = new Date(Date.now() + PASSWORD_LINK_TTL_SECONDS * 1000);
 
     const result = await this.prisma.$transaction(async (tx) => {
-      // Create tenant
       const tenant = await tx.tenant.create({
         data: {
-          name: dto.name,
-          slug: dto.slug,
-          gstin: dto.gstin,
-          address: dto.address,
-          city: dto.city,
-          state: dto.state,
-          pincode: dto.pincode,
-          phone: dto.phone,
-          email: dto.email,
+          name: dto.name.trim(),
+          slug: requestedSlug,
+          status: EntityStatus.ACTIVE,
         },
       });
 
-      // Create admin user
-      const user = await tx.user.create({
-        data: {
-          tenantId: tenant.id,
-          email: dto.email,
-          username: dto.slug + '_admin',
-          passwordHash,
-          role: 'TENANT_ADMIN',
-          firstName: dto.adminFirstName,
-          lastName: dto.adminLastName,
-          phone: dto.phone,
-          inviteToken,
-          inviteTokenExpiresAt,
-        },
-      });
-
-      await tx.passwordLifecycleToken.create({
-        data: {
-          tenantId: tenant.id,
-          userId: user.id,
-          tokenHash: hashPasswordLifecycleToken(inviteToken),
-          type: PasswordTokenType.SETUP_PASSWORD,
-          status: PasswordTokenStatus.ACTIVE,
-          expiresAt: inviteTokenExpiresAt,
-          maxResends: 3,
-          requestedByRole: 'SUPER_ADMIN',
-        },
-      });
-
-      // Create default company
       const company = await tx.company.create({
         data: {
           tenantId: tenant.id,
-          name: dto.name,
-          gstin: dto.gstin,
-          address: dto.address,
-          city: dto.city,
-          state: dto.state ?? 'Gujarat',
+          name: dto.name.trim(),
+          gstin: dto.gstin?.trim().toUpperCase() || null,
+          address: dto.address?.trim() || null,
+          phone: dto.phone?.trim() || null,
+          email: dto.email.trim().toLowerCase(),
+          status: EntityStatus.ACTIVE,
         },
       });
 
-      // Link user to company
-      await tx.userCompanyAccess.create({
+      const user = await tx.user.create({
         data: {
+          tenantId: tenant.id,
+          email: dto.email.trim().toLowerCase(),
+          passwordHash,
+          name: fullName,
+          phone: dto.phone?.trim() || null,
+          status: EntityStatus.ACTIVE,
+        },
+      });
+
+      await tx.userCompany.create({
+        data: {
+          tenantId: tenant.id,
           userId: user.id,
           companyId: company.id,
+          role: UserRole.ADMIN,
         },
       });
 
-      // Create subscription if plan specified
       if (dto.planId) {
         const plan = await tx.plan.findUnique({ where: { id: dto.planId } });
-        if (plan) {
-          const startDate = new Date();
-          const endDate = new Date(
-            startDate.getTime() + plan.durationDays * 24 * 60 * 60 * 1000,
-          );
-          await tx.subscription.create({
+        if (!plan) {
+          throw new NotFoundException('Plan not found');
+        }
+        this.assertSupportedPlanDuration(plan.durationDays);
+
+        const { startDate, endDate } = this.buildIstSubscriptionWindow(
+          plan.durationDays,
+        );
+        await tx.subscription.create({
+          data: {
+            tenantId: tenant.id,
+            planId: plan.id,
+            startDate,
+            endDate,
+            amountPaid: plan.price,
+            status: 'ACTIVE',
+            paymentStatus: 'PAID',
+          }
+        });
+      } else {
+        // give a default 3 months trial
+        let trialPlan = await tx.plan.findFirst({ where: { name: 'Free Trial' } });
+        if (!trialPlan) {
+          trialPlan = await tx.plan.create({
             data: {
-              tenantId: tenant.id,
-              planId: plan.id,
-              startDate,
-              endDate,
-              amount: plan.price,
-              status: 'ACTIVE',
-            },
+              name: 'Free Trial',
+              description: 'Default 3-month free trial',
+              price: 0,
+              durationDays: 90,
+            }
           });
         }
+        this.assertSupportedPlanDuration(trialPlan.durationDays);
+        const { startDate, endDate } = this.buildIstSubscriptionWindow(
+          trialPlan.durationDays,
+        );
+        await tx.subscription.create({
+          data: {
+            tenantId: tenant.id,
+            planId: trialPlan.id,
+            startDate,
+            endDate,
+            amountPaid: 0,
+            status: 'ACTIVE',
+            paymentStatus: 'PAID',
+          }
+        });
       }
 
-      return { tenant, user, company };
+      return { tenant, company, user };
     });
 
-    const setupLink = this.buildPublicLink('/accept-invite', inviteToken);
-    const deliveryStatus = await this.sendInviteEmailAndAudit({
-      userId: result.user.id,
-      email: dto.email,
-      setupLink,
-      expiresAt: inviteTokenExpiresAt,
-      action: 'PASSWORD_SETUP_LINK_SENT',
-      metadata: {
-        initiatedBy: 'SUPER_ADMIN_TENANT_CREATE',
-        resendCount: 0,
-        remainingResends: PASSWORD_SETUP_MAX_RESEND_COUNT,
-      },
-      throwOnFailure: false,
-    });
-
-    this.logger.log(
-      `Tenant "${dto.name}" created with admin user ${result.user.email}`,
+    await this.redisService.set(
+      this.getSetupLinkKey(setupToken),
+      result.user.id,
+      PASSWORD_LINK_TTL_SECONDS,
     );
+
+    const setupLink = this.buildPublicLink('/accept-invite', setupToken);
+    const delivered = await this.otpDeliveryService.sendInviteEmail(
+      result.user.email,
+      setupLink,
+      PASSWORD_LINK_TTL_SECONDS / 60,
+    );
+
     return {
       ...result,
       passwordSetupStatus: 'PENDING_SETUP',
-      passwordSetupExpiresAt: inviteTokenExpiresAt,
-      passwordSetupDeliveryStatus: deliveryStatus,
+      passwordSetupExpiresAt: setupExpiry,
+      passwordSetupDeliveryStatus: delivered ? 'QUEUED_OR_SENT' : 'FAILED',
     };
   }
 
@@ -400,126 +328,97 @@ export class AdminService {
     await this.getTenant(id);
 
     const updatedTenant = await this.prisma.$transaction(async (tx) => {
-      const updated = await tx.tenant.update({
+      const tenant = await tx.tenant.update({
         where: { id },
-        data: dto,
+        data: {
+          ...(typeof dto.name === 'string' ? { name: dto.name.trim() } : {}),
+        },
       });
 
-      // Keep GSTIN in sync for company-facing screens.
-      // Users read GSTIN from company payloads, not tenant payloads.
-      if (dto.gstin !== undefined) {
-        await tx.company.updateMany({
-          where: {
-            tenantId: id,
-            OR: [{ gstin: null }, { gstin: '' }],
+      const firstCompany = await tx.company.findFirst({
+        where: { tenantId: id, deletedAt: null },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true },
+      });
+
+      if (firstCompany) {
+        await tx.company.update({
+          where: { id: firstCompany.id },
+          data: {
+            ...(typeof dto.name === 'string' ? { name: dto.name.trim() } : {}),
+            ...(typeof dto.gstin === 'string'
+              ? { gstin: dto.gstin.trim().toUpperCase() || null }
+              : {}),
+            ...(typeof dto.address === 'string'
+              ? { address: dto.address.trim() || null }
+              : {}),
+            ...(typeof dto.phone === 'string' ? { phone: dto.phone.trim() || null } : {}),
+            ...(typeof dto.email === 'string'
+              ? { email: dto.email.trim().toLowerCase() || null }
+              : {}),
           },
-          data: { gstin: dto.gstin || null },
         });
       }
 
-      // User-side pages read company fields. If this tenant has a single company,
-      // keep those details aligned with tenant edits.
-      const companies = await tx.company.findMany({
-        where: { tenantId: id },
-        select: { id: true },
-      });
-
-      if (companies.length === 1) {
-        const companyUpdate: Partial<{
-          name: string;
-          gstin: string;
-          address: string;
-          city: string;
-          state: string;
-          phone: string;
-          email: string;
-        }> = {};
-
-        if (dto.name !== undefined) companyUpdate.name = dto.name;
-        if (dto.gstin !== undefined) companyUpdate.gstin = dto.gstin;
-        if (dto.address !== undefined) companyUpdate.address = dto.address;
-        if (dto.city !== undefined) companyUpdate.city = dto.city;
-        if (dto.state !== undefined) companyUpdate.state = dto.state;
-        if (dto.phone !== undefined) companyUpdate.phone = dto.phone;
-        if (dto.email !== undefined) companyUpdate.email = dto.email;
-
-        if (Object.keys(companyUpdate).length > 0) {
-          await tx.company.update({
-            where: { id: companies[0].id },
-            data: companyUpdate,
-          });
-        }
-      }
-
-      return updated;
+      return tenant;
     });
 
-    // Critical: Clear all caches for this tenant's users to ensure
-    // tenant admins see updated data immediately without re-login
     await this.clearTenantUsersCaches(id);
-
     return updatedTenant;
-  }
-
-  /**
-   * Clears all cached session data for users belonging to a tenant.
-   * This ensures that when super admin updates tenant data (GST, email, etc.),
-   * all active tenant admin sessions immediately see the changes on next API call.
-   */
-  private async clearTenantUsersCaches(tenantId: string) {
-    try {
-      // Clear tenant-level caches
-      await this.redisService.del(getTenantActiveCacheKey(tenantId));
-      await this.redisService.del(getTenantSubscriptionCacheKey(tenantId));
-
-      // Find all users belonging to this tenant
-      const users = await this.prisma.user.findMany({
-        where: { tenantId },
-        select: { id: true },
-      });
-
-      // Clear all session caches for each user
-      // This forces fresh data fetch on their next authenticated request
-      for (const user of users) {
-        const pattern = getUserAuthCachePattern(user.id);
-        const sessionKeys = await this.redisService.keys(pattern);
-
-        for (const key of sessionKeys) {
-          await this.redisService.del(key);
-        }
-      }
-
-      this.logger.log(
-        `Cleared caches for ${users.length} users in tenant ${tenantId}`,
-      );
-    } catch (error) {
-      // Don't fail the update if cache clearing fails
-      // Users will get fresh data after cache TTL expires (5 min)
-      this.logger.warn(
-        `Failed to clear tenant user caches for ${tenantId}: ${error.message}`,
-      );
-    }
   }
 
   async toggleTenant(id: string, isActive: boolean) {
     await this.getTenant(id);
+
     const tenant = await this.prisma.tenant.update({
       where: { id },
-      data: { isActive },
+      data: {
+        status: isActive ? EntityStatus.ACTIVE : EntityStatus.INACTIVE,
+        deletedAt: isActive ? null : new Date(),
+      },
     });
-    // Clear all caches to ensure tenant users see status change immediately
+
     await this.clearTenantUsersCaches(id);
     return tenant;
   }
 
   async deleteTenant(id: string) {
     await this.getTenant(id);
-    return this.prisma.tenant.delete({ where: { id } });
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.updateMany({
+        where: { tenantId: id, deletedAt: null },
+        data: {
+          status: EntityStatus.INACTIVE,
+          deletedAt: new Date(),
+        },
+      });
+
+      await tx.company.updateMany({
+        where: { tenantId: id, deletedAt: null },
+        data: {
+          status: EntityStatus.INACTIVE,
+          deletedAt: new Date(),
+        },
+      });
+
+      await tx.tenant.update({
+        where: { id },
+        data: {
+          status: EntityStatus.INACTIVE,
+          deletedAt: new Date(),
+        },
+      });
+    });
+
+    await this.clearTenantUsersCaches(id);
+    return;
   }
 
-  // â”€â”€â”€ Plans â”€â”€â”€
   async listPlans() {
-    return this.prisma.plan.findMany({ orderBy: { price: 'asc' } });
+    return this.prisma.plan.findMany({
+      where: { deletedAt: null },
+      orderBy: { createdAt: 'desc' },
+    });
   }
 
   async createPlan(dto: {
@@ -531,178 +430,131 @@ export class AdminService {
     maxUsers?: number;
     maxCompanies?: number;
   }) {
+    this.assertSupportedPlanDuration(dto.durationDays);
     return this.prisma.plan.create({
       data: {
         name: dto.name,
-        displayName: dto.displayName,
+        description: dto.displayName,
         durationDays: dto.durationDays,
         price: dto.price,
-        currency: dto.currency ?? 'INR',
-        maxUsers: dto.maxUsers ?? 5,
-        maxCompanies: dto.maxCompanies ?? 3,
-      },
+        maxUsers: dto.maxUsers ?? 0,
+        maxCompanies: dto.maxCompanies ?? 0,
+      }
     });
   }
 
-  async updatePlan(id: string, dto: Record<string, unknown>) {
-    return this.prisma.plan.update({ where: { id }, data: dto as any });
+  async updatePlan(id: string, dto: Record<string, any>) {
+    if (dto.durationDays !== undefined) {
+      this.assertSupportedPlanDuration(dto.durationDays);
+    }
+
+    return this.prisma.plan.update({
+      where: { id },
+      data: dto
+    });
   }
 
-  async togglePlan(id: string, isActive: boolean) {
-    const plan = await this.prisma.plan.findUnique({ where: { id } });
-    if (!plan) throw new NotFoundException('Plan not found');
-    return this.prisma.plan.update({ where: { id }, data: { isActive } });
+  async togglePlan(id: string, status: boolean) {
+    return this.prisma.plan.update({
+      where: { id },
+      data: {
+        status: status ? 'ACTIVE' : 'INACTIVE',
+        deletedAt: status ? null : new Date()
+      }
+    });
   }
 
   async deletePlan(id: string) {
-    const activeUsage = await this.prisma.subscription.count({
-      where: {
-        planId: id,
-        status: { in: ['ACTIVE', 'TRIAL'] },
-      },
+    return this.prisma.plan.update({
+      where: { id },
+      data: {
+        status: 'INACTIVE',
+        deletedAt: new Date()
+      }
     });
-
-    if (activeUsage > 0) {
-      throw new BadRequestException(
-        'Cannot delete plan with active subscriptions',
-      );
-    }
-
-    return this.prisma.plan.delete({ where: { id } });
   }
 
-  // â”€â”€â”€ Subscriptions â”€â”€â”€
-  async assignSubscription(dto: {
-    gstin: string;
-    planId: string;
-    amount?: number;
-  }) {
+  async assignSubscription(dto: { gstin: string; planId: string; amount?: number }) {
     const gstin = dto.gstin.trim().toUpperCase();
-    if (!gstin) {
-      throw new BadRequestException('GST number is required');
-    }
 
-    const plan = await this.prisma.plan.findUnique({
-      where: { id: dto.planId },
+    // find tenant by gstin
+    const company = await this.prisma.company.findFirst({
+      where: { gstin, deletedAt: null, status: EntityStatus.ACTIVE },
+      select: { tenantId: true },
     });
+    if (!company) throw new NotFoundException('Company not found with given GSTIN');
+    
+    const plan = await this.prisma.plan.findUnique({ where: { id: dto.planId } });
     if (!plan) throw new NotFoundException('Plan not found');
+    this.assertSupportedPlanDuration(plan.durationDays);
 
-    const tenants = await this.prisma.tenant.findMany({
-      where: {
-        OR: [
-          {
-            gstin: {
-              equals: gstin,
-              mode: 'insensitive',
-            },
+    const created = await this.prisma.$transaction(
+      async (tx) => {
+        const now = new Date();
+        const activeSubscription = await tx.subscription.findFirst({
+          where: {
+            tenantId: company.tenantId,
+            deletedAt: null,
+            status: 'ACTIVE',
+            endDate: { gte: now },
           },
-          {
-            companies: {
-              some: {
-                isActive: true,
-                gstin: {
-                  equals: gstin,
-                  mode: 'insensitive',
-                },
-              },
-            },
-          },
-        ],
-      },
-      select: {
-        id: true,
-        name: true,
-        slug: true,
-        gstin: true,
-        isActive: true,
-        subscriptions: {
-          where: { status: 'ACTIVE' },
           orderBy: { endDate: 'desc' },
-          take: 1,
-          include: {
-            plan: {
-              select: { displayName: true },
-            },
+          select: { endDate: true },
+        });
+
+        const anchorDate =
+          activeSubscription?.endDate && activeSubscription.endDate > now
+            ? new Date(activeSubscription.endDate.getTime() + 1000)
+            : now;
+
+        const { startDate, endDate } = this.buildIstSubscriptionWindow(
+          plan.durationDays,
+          anchorDate,
+        );
+
+        await tx.subscription.updateMany({
+          where: {
+            tenantId: company.tenantId,
+            deletedAt: null,
+            status: 'ACTIVE',
           },
-        },
+          data: { status: 'EXPIRED' },
+        });
+
+        return tx.subscription.create({
+          data: {
+            tenantId: company.tenantId,
+            planId: plan.id,
+            startDate,
+            endDate,
+            amountPaid: dto.amount ?? plan.price,
+            status: 'ACTIVE',
+            paymentStatus: 'PAID',
+          },
+        });
       },
-    });
-
-    if (tenants.length === 0) {
-      throw new NotFoundException('No tenant found for this GST number');
-    }
-
-    if (tenants.length > 1) {
-      throw new BadRequestException(
-        'GST number is linked to multiple tenants. Resolve duplicates before assigning subscription.',
-      );
-    }
-
-    const tenant = tenants[0];
-
-    if (!tenant.isActive) {
-      throw new BadRequestException(
-        'Cannot assign subscription to an inactive tenant',
-      );
-    }
-
-    const existingActiveSub = tenant.subscriptions[0];
-    if (existingActiveSub) {
-      const existingPlanName =
-        existingActiveSub.plan?.displayName || 'Unknown Plan';
-      throw new BadRequestException(
-        `GST number ${gstin} is already linked to an active subscription (${existingPlanName}).`,
-      );
-    }
-
-    const startDate = new Date();
-    const endDate = new Date(
-      startDate.getTime() + plan.durationDays * 24 * 60 * 60 * 1000,
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      },
     );
 
-    const subscription = await this.prisma.subscription.create({
-      data: {
-        tenantId: tenant.id,
-        planId: dto.planId,
-        startDate,
-        endDate,
-        amount: dto.amount ?? plan.price,
-        status: 'ACTIVE',
-      },
-      include: {
-        plan: true,
-        tenant: { select: { id: true, name: true, slug: true, gstin: true } },
-      },
-    });
-
-    await this.redisService.del(getTenantSubscriptionCacheKey(tenant.id));
-    return subscription;
+    await this.redisService.del(getTenantSubscriptionCacheKey(company.tenantId));
+    return created;
   }
 
-  async listSubscriptions(query: {
-    page?: number;
-    limit?: number;
-    status?: string;
-  }) {
+  async listSubscriptions(query: { page?: number; limit?: number; status?: string }) {
     const { skip, take, page, limit } = parsePagination(query);
-    const where: Record<string, unknown> = {};
-    if (query.status) where.status = query.status;
-
-    const [subs, total] = await Promise.all([
+    const where: any = {};
+    if (query.status) {
+      where.status = query.status;
+    }
+    const [data, total] = await Promise.all([
       this.prisma.subscription.findMany({
-        where,
-        skip,
-        take,
-        orderBy: { createdAt: 'desc' },
-        include: {
-          tenant: { select: { id: true, name: true, slug: true, gstin: true } },
-          plan: true,
-        },
+        where, skip, take, include: { plan: true, tenant: { select: { id: true, name: true } } }
       }),
-      this.prisma.subscription.count({ where }),
+      this.prisma.subscription.count({ where })
     ]);
-
-    return createPaginatedResult(subs, total, page, limit);
+    return createPaginatedResult(data, total, page, limit);
   }
 
   async updateSubscription(
@@ -710,73 +562,88 @@ export class AdminService {
     dto: {
       planId?: string;
       amount?: number;
-      status?: 'ACTIVE' | 'EXPIRED' | 'CANCELLED' | 'TRIAL';
+      status?: 'ACTIVE' | 'EXPIRED' | 'CANCELLED' | 'PENDING';
       endDate?: string;
       extendDays?: number;
     },
   ) {
-    const existing = await this.prisma.subscription.findUnique({
-      where: { id },
-      include: {
-        tenant: { select: { id: true, name: true, slug: true, gstin: true } },
-        plan: true,
-      },
-    });
+    const sub = await this.prisma.subscription.findUnique({ where: { id } });
+    if (!sub) throw new NotFoundException('Subscription not found');
 
-    if (!existing) throw new NotFoundException('Subscription not found');
-
-    const data: Record<string, unknown> = {};
-
-    if (dto.planId) {
-      const plan = await this.prisma.plan.findUnique({ where: { id: dto.planId } });
-      if (!plan) throw new NotFoundException('Plan not found');
-      data.planId = dto.planId;
-    }
-
-    if (dto.amount !== undefined) data.amount = dto.amount;
-    if (dto.status) data.status = dto.status;
-
-    if (dto.endDate) {
-      const parsed = new Date(dto.endDate);
-      if (Number.isNaN(parsed.getTime())) {
-        throw new BadRequestException('Invalid endDate');
-      }
-      data.endDate = parsed;
-    }
-
-    if (dto.extendDays !== undefined) {
-      if (!Number.isFinite(dto.extendDays) || dto.extendDays <= 0) {
-        throw new BadRequestException('extendDays must be greater than 0');
-      }
-      const baseDate =
-        data.endDate instanceof Date ? data.endDate : new Date(existing.endDate);
-      data.endDate = new Date(
-        baseDate.getTime() + dto.extendDays * 24 * 60 * 60 * 1000,
+    if (dto.endDate !== undefined && dto.extendDays !== undefined) {
+      throw new BadRequestException(
+        'Provide either endDate or extendDays, not both.',
       );
     }
 
-    if (dto.status === 'CANCELLED' && !data.endDate) {
-      data.endDate = new Date();
+    const data: any = {};
+    if (dto.planId) data.planId = dto.planId;
+    if (dto.amount !== undefined && dto.amount < 0) {
+      throw new BadRequestException('amount cannot be negative');
+    }
+    if (dto.amount !== undefined) data.amountPaid = dto.amount;
+    if (dto.status) data.status = dto.status;
+
+    if (dto.endDate !== undefined) {
+      const parsed = new Date(dto.endDate);
+      if (Number.isNaN(parsed.getTime())) {
+        throw new BadRequestException('Invalid endDate format');
+      }
+      data.endDate = this.toIstEndOfDayUtc(parsed);
+    } else if (dto.extendDays !== undefined) {
+      if (dto.extendDays <= 0) {
+        throw new BadRequestException('extendDays must be greater than 0');
+      }
+      const now = new Date();
+      const anchor =
+        sub.endDate > now ? new Date(sub.endDate.getTime() + 1000) : now;
+      data.endDate = this.buildIstSubscriptionWindow(
+        dto.extendDays,
+        anchor,
+      ).endDate;
     }
 
-    if (!Object.keys(data).length) {
-      throw new BadRequestException('No subscription fields provided to update');
+    const effectiveStatus = (data.status ?? sub.status) as
+      | 'ACTIVE'
+      | 'EXPIRED'
+      | 'CANCELLED'
+      | 'PENDING';
+    const effectiveEndDate = (data.endDate ?? sub.endDate) as Date;
+
+    if (effectiveStatus === 'ACTIVE' && effectiveEndDate < new Date()) {
+      throw new BadRequestException(
+        'Active subscription must have a future endDate',
+      );
     }
 
-    const updated = await this.prisma.subscription.update({
-      where: { id },
-      data: data as any,
-      include: {
-        tenant: { select: { id: true, name: true, slug: true, gstin: true } },
-        plan: true,
+    const updated = await this.prisma.$transaction(
+      async (tx) => {
+        if (effectiveStatus === 'ACTIVE') {
+          await tx.subscription.updateMany({
+            where: {
+              tenantId: sub.tenantId,
+              deletedAt: null,
+              status: 'ACTIVE',
+              NOT: { id: sub.id },
+            },
+            data: { status: 'EXPIRED' },
+          });
+        }
+
+        return tx.subscription.update({
+          where: { id },
+          data,
+        });
       },
-    });
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      },
+    );
 
-    await this.redisService.del(getTenantSubscriptionCacheKey(existing.tenantId));
+    await this.redisService.del(getTenantSubscriptionCacheKey(sub.tenantId));
     return updated;
   }
 
-  // â”€â”€â”€ Cross-tenant Users â”€â”€â”€
   async listAllUsers(query: {
     page?: number;
     limit?: number;
@@ -784,15 +651,18 @@ export class AdminService {
     tenantId?: string;
   }) {
     const { skip, take, page, limit } = parsePagination(query);
-    const where: Record<string, unknown> = { role: { not: 'SUPER_ADMIN' } };
-    if (query.tenantId) where.tenantId = query.tenantId;
-    if (query.search) {
-      where.OR = [
-        { email: { contains: query.search, mode: 'insensitive' } },
-        { firstName: { contains: query.search, mode: 'insensitive' } },
-        { lastName: { contains: query.search, mode: 'insensitive' } },
-      ];
-    }
+    const where = {
+      deletedAt: null,
+      ...(query.tenantId ? { tenantId: query.tenantId } : {}),
+      ...(query.search
+        ? {
+            OR: [
+              { email: { contains: query.search, mode: 'insensitive' as const } },
+              { name: { contains: query.search, mode: 'insensitive' as const } },
+            ],
+          }
+        : {}),
+    };
 
     const [users, total] = await Promise.all([
       this.prisma.user.findMany({
@@ -802,25 +672,23 @@ export class AdminService {
         orderBy: { createdAt: 'desc' },
         select: {
           id: true,
+          tenantId: true,
           email: true,
-          username: true,
-          firstName: true,
-          lastName: true,
-          role: true,
-          isActive: true,
-          lastLoginAt: true,
-          passwordChangedAt: true,
-          passwordTokens: {
-            where: {
-              type: PasswordTokenType.SETUP_PASSWORD,
-              status: PasswordTokenStatus.ACTIVE,
-            },
-            orderBy: { createdAt: 'desc' },
-            take: 1,
-            select: { expiresAt: true },
-          },
+          name: true,
+          phone: true,
+          status: true,
           createdAt: true,
-          tenant: { select: { id: true, name: true, slug: true, gstin: true } },
+          tenant: {
+            select: { id: true, name: true, status: true },
+          },
+          userCompanies: {
+            select: {
+              role: true,
+              company: {
+                select: { id: true, name: true },
+              },
+            },
+          },
         },
       }),
       this.prisma.user.count({ where }),
@@ -829,13 +697,7 @@ export class AdminService {
     return createPaginatedResult(
       users.map((user) => ({
         ...user,
-        passwordSetupLinkExpiresAt: user.passwordTokens[0]?.expiresAt ?? null,
-        passwordSetupStatus: user.passwordChangedAt
-          ? 'SETUP_COMPLETED'
-          : user.passwordTokens[0]?.expiresAt &&
-              user.passwordTokens[0].expiresAt < new Date()
-            ? 'LINK_EXPIRED'
-            : 'PENDING_SETUP',
+        role: this.toLegacyRole(this.getHighestRole(user.userCompanies)),
       })),
       total,
       page,
@@ -846,32 +708,28 @@ export class AdminService {
   async toggleUser(id: string, isActive: boolean) {
     const user = await this.prisma.user.findUnique({
       where: { id },
-      select: { id: true, role: true },
+      select: { id: true },
     });
-
-    if (!user) throw new NotFoundException('User not found');
-    if (user.role === 'SUPER_ADMIN') {
-      throw new BadRequestException(
-        'Super admin user status cannot be changed',
-      );
+    if (!user) {
+      throw new NotFoundException('User not found');
     }
 
-    const updatedUser = await this.prisma.user.update({
+    const updated = await this.prisma.user.update({
       where: { id },
-      data: { isActive },
+      data: {
+        status: isActive ? EntityStatus.ACTIVE : EntityStatus.INACTIVE,
+        deletedAt: isActive ? null : new Date(),
+      },
       select: {
         id: true,
         email: true,
-        firstName: true,
-        lastName: true,
-        role: true,
-        isActive: true,
-        tenant: { select: { id: true, name: true, slug: true, gstin: true } },
+        name: true,
+        status: true,
       },
     });
 
     await this.clearUserAuthCache(id);
-    return updatedUser;
+    return updated;
   }
 
   async updateUser(
@@ -883,228 +741,134 @@ export class AdminService {
       role?: 'TENANT_ADMIN' | 'MANAGER' | 'STAFF' | 'ACCOUNTANT' | 'VIEWER';
     },
   ) {
-    const existingUser = await this.prisma.user.findUnique({
+    const existing = await this.prisma.user.findUnique({
       where: { id },
-      select: { id: true, role: true },
+      select: { id: true, name: true },
     });
 
-    if (!existingUser) throw new NotFoundException('User not found');
-    if (existingUser.role === 'SUPER_ADMIN') {
-      throw new BadRequestException('Super admin user cannot be edited here');
-    }
-
-    const data: Record<string, unknown> = {};
-
-    if (dto.firstName !== undefined) {
-      data.firstName = dto.firstName.trim() || null;
-    }
-
-    if (dto.lastName !== undefined) {
-      data.lastName = dto.lastName.trim() || null;
-    }
-
-    if (dto.email !== undefined) {
-      data.email = dto.email.trim().toLowerCase();
-    }
-
-    if (dto.role !== undefined) {
-      data.role = dto.role;
-    }
-
-    if (!Object.keys(data).length) {
-      throw new BadRequestException('No user fields provided to update');
-    }
-
-    const updatedUser = await this.prisma.user.update({
-      where: { id },
-      data: data as any,
-      select: {
-        id: true,
-        email: true,
-        firstName: true,
-        lastName: true,
-        role: true,
-        isActive: true,
-        tenant: { select: { id: true, name: true, slug: true, gstin: true } },
-      },
-    });
-
-    await this.clearUserAuthCache(id);
-    return updatedUser;
-  }
-
-  private async clearUserAuthCache(userId: string): Promise<void> {
-    const keys = await this.redisService.keys(getUserAuthCachePattern(userId));
-    for (const key of keys) {
-      await this.redisService.del(key);
-    }
-  }
-
-  async resendSetupLinkByAdmin(id: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        tenantId: true,
-        email: true,
-        isActive: true,
-        passwordChangedAt: true,
-      },
-    });
-
-    if (!user || !user.isActive) {
+    if (!existing) {
       throw new NotFoundException('User not found');
     }
 
-    if (user.passwordChangedAt) {
-      throw new BadRequestException('Password is already set for this user');
+    const patch: { name?: string; email?: string } = {};
+    if (dto.firstName !== undefined || dto.lastName !== undefined) {
+      const name = `${dto.firstName ?? ''} ${dto.lastName ?? ''}`.trim();
+      if (name) {
+        patch.name = name;
+      }
     }
 
-    const inviteToken = generatePasswordLifecycleToken();
-    const expiresAt = new Date(
-      Date.now() + PASSWORD_SETUP_LINK_EXPIRY_MINUTES * 60 * 1000,
-    );
-    const existingSetupToken = await this.prisma.passwordLifecycleToken.findFirst({
-      where: {
-        userId: user.id,
-        type: PasswordTokenType.SETUP_PASSWORD,
-        status: PasswordTokenStatus.ACTIVE,
-      },
-      orderBy: { createdAt: 'desc' },
+    if (dto.email !== undefined) {
+      patch.email = dto.email.trim().toLowerCase();
+    }
+
+    if (Object.keys(patch).length > 0) {
+      await this.prisma.user.update({
+        where: { id },
+        data: patch,
+      });
+    }
+
+    if (dto.role) {
+      await this.prisma.userCompany.updateMany({
+        where: { userId: id },
+        data: { role: this.fromLegacyRole(dto.role) },
+      });
+    }
+
+    await this.clearUserAuthCache(id);
+
+    return this.prisma.user.findUnique({
+      where: { id },
       select: {
-        resendCount: true,
-        maxResends: true,
+        id: true,
+        email: true,
+        name: true,
+        status: true,
+        userCompanies: {
+          select: {
+            role: true,
+            company: { select: { id: true, name: true } },
+          },
+        },
       },
     });
-    const nextResendCount = (existingSetupToken?.resendCount ?? 0) + 1;
-    const maxResends = existingSetupToken?.maxResends ?? PASSWORD_SETUP_MAX_RESEND_COUNT;
+  }
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.passwordLifecycleToken.updateMany({
-        where: {
-          userId: user.id,
-          type: PasswordTokenType.SETUP_PASSWORD,
-          status: PasswordTokenStatus.ACTIVE,
-        },
-        data: { status: PasswordTokenStatus.REVOKED },
-      });
-
-      await tx.passwordLifecycleToken.create({
-        data: {
-          tenantId: user.tenantId,
-          userId: user.id,
-          tokenHash: hashPasswordLifecycleToken(inviteToken),
-          type: PasswordTokenType.SETUP_PASSWORD,
-          status: PasswordTokenStatus.ACTIVE,
-          expiresAt,
-          maxResends: 3,
-          requestedByRole: 'SUPER_ADMIN',
-        },
-      });
-
-      await tx.user.update({
-        where: { id: user.id },
-        data: {
-          inviteToken,
-          inviteTokenExpiresAt: expiresAt,
-        },
-      });
+  async resendSetupLinkByAdmin(id: string) {
+    const user = await this.prisma.user.findFirst({
+      where: { id, deletedAt: null, status: EntityStatus.ACTIVE },
+      select: { id: true, email: true },
     });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
 
-    const setupLink = this.buildPublicLink('/accept-invite', inviteToken);
-    await this.sendInviteEmailAndAudit({
-      userId: user.id,
-      email: user.email,
+    const token = randomUUID();
+    await this.redisService.set(
+      this.getSetupLinkKey(token),
+      user.id,
+      PASSWORD_LINK_TTL_SECONDS,
+    );
+
+    const setupLink = this.buildPublicLink('/accept-invite', token);
+    const delivered = await this.otpDeliveryService.sendInviteEmail(
+      user.email,
       setupLink,
-      expiresAt,
-      action: 'PASSWORD_SETUP_ADMIN_RESEND',
-      metadata: {
-        initiatedBy: 'SUPER_ADMIN',
-        resendCount: nextResendCount,
-        remainingResends: Math.max(0, maxResends - nextResendCount),
-      },
-      throwOnFailure: true,
-    });
+      PASSWORD_LINK_TTL_SECONDS / 60,
+    );
+
+    if (!delivered) {
+      await this.redisService.del(this.getSetupLinkKey(token));
+      throw new ServiceUnavailableException(
+        'We could not send the setup email right now. Please try again shortly.',
+      );
+    }
 
     return {
       message: 'Password setup link sent',
       email: user.email,
-      expiresAt,
-      status: 'RESEND_AVAILABLE',
+      expiresAt: new Date(Date.now() + PASSWORD_LINK_TTL_SECONDS * 1000),
     };
   }
 
   async sendPasswordResetLinkByAdmin(id: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        tenantId: true,
-        email: true,
-        isActive: true,
-      },
+    const user = await this.prisma.user.findFirst({
+      where: { id, deletedAt: null, status: EntityStatus.ACTIVE },
+      select: { id: true, email: true },
     });
-
-    if (!user || !user.isActive) {
+    if (!user) {
       throw new NotFoundException('User not found');
     }
 
-    const resetToken = generatePasswordLifecycleToken();
-    const expiresAt = new Date(
-      Date.now() + PASSWORD_RESET_LINK_EXPIRY_MINUTES * 60 * 1000,
+    const token = randomUUID();
+    await this.redisService.set(
+      this.getPasswordResetLinkKey(token),
+      user.id,
+      PASSWORD_LINK_TTL_SECONDS,
     );
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.passwordLifecycleToken.updateMany({
-        where: {
-          userId: user.id,
-          type: PasswordTokenType.RESET_PASSWORD,
-          status: PasswordTokenStatus.ACTIVE,
-        },
-        data: { status: PasswordTokenStatus.REVOKED },
-      });
-
-      await tx.passwordLifecycleToken.create({
-        data: {
-          tenantId: user.tenantId,
-          userId: user.id,
-          tokenHash: hashPasswordLifecycleToken(resetToken),
-          type: PasswordTokenType.RESET_PASSWORD,
-          status: PasswordTokenStatus.ACTIVE,
-          expiresAt,
-          maxResends: 3,
-          resendCount: 0,
-          requestedByRole: 'SUPER_ADMIN',
-        },
-      });
-    });
-
-    await this.redisService.del(this.getPasswordResetLinkCooldownKey(user.id));
-
-    const resetLink = this.buildPublicLink('/reset-password', resetToken);
-    await this.sendResetLinkEmailAndAudit({
-      userId: user.id,
-      email: user.email,
+    const resetLink = this.buildPublicLink('/reset-password', token);
+    const delivered = await this.otpDeliveryService.sendPasswordResetLinkEmail(
+      user.email,
       resetLink,
-      expiresAt,
-      action: 'PASSWORD_RESET_ADMIN_OVERRIDE_LINK_SENT',
-      metadata: {
-        initiatedBy: 'SUPER_ADMIN',
-        resendCount: 0,
-        remainingResends: PASSWORD_RESET_MAX_RESEND_COUNT,
-      },
-      throwOnFailure: true,
-    });
+      PASSWORD_LINK_TTL_SECONDS / 60,
+    );
+
+    if (!delivered) {
+      await this.redisService.del(this.getPasswordResetLinkKey(token));
+      throw new ServiceUnavailableException(
+        'We could not send the password reset email right now. Please try again shortly.',
+      );
+    }
 
     return {
-      message: 'Password reset link sent by admin override',
+      message: 'Password reset link sent',
       email: user.email,
-      expiresAt,
-      status: 'RESEND_AVAILABLE',
+      expiresAt: new Date(Date.now() + PASSWORD_LINK_TTL_SECONDS * 1000),
     };
   }
 
-  // â”€â”€â”€ Audit Logs â”€â”€â”€
   async getAuditLogs(query: {
     page?: number;
     limit?: number;
@@ -1112,40 +876,15 @@ export class AdminService {
     userId?: string;
     entity?: string;
   }) {
-    const { skip, take, page, limit } = parsePagination(query);
-    const where: Record<string, unknown> = {};
-    if (query.companyId) where.companyId = query.companyId;
-    if (query.userId) where.userId = query.userId;
-    if (query.entity) where.entity = query.entity;
-
-    const [logs, total] = await Promise.all([
-      this.prisma.auditLog.findMany({
-        where,
-        skip,
-        take,
-        orderBy: { createdAt: 'desc' },
-        include: {
-          user: {
-            select: { id: true, email: true, firstName: true, lastName: true },
-          },
-          company: { select: { id: true, name: true } },
-        },
-      }),
-      this.prisma.auditLog.count({ where }),
-    ]);
-
-    return createPaginatedResult(logs, total, page, limit);
+    const { page, limit } = parsePagination(query);
+    return createPaginatedResult([], 0, page, limit);
   }
 
-  // â”€â”€â”€ Module Permissions â”€â”€â”€
-  async getModulePermissions(companyId: string) {
-    return this.prisma.modulePermission.findMany({
-      where: { companyId },
-      orderBy: [{ module: 'asc' }, { role: 'asc' }],
-    });
+  async getModulePermissions(_companyId: string) {
+    return [];
   }
 
-  async upsertModulePermission(data: {
+  async upsertModulePermission(_data: {
     companyId: string;
     role: string;
     module: string;
@@ -1156,144 +895,146 @@ export class AdminService {
     canPayment?: boolean;
     canReminder?: boolean;
   }) {
-    return this.prisma.modulePermission.upsert({
-      where: {
-        companyId_role_module: {
-          companyId: data.companyId,
-          role: data.role as any,
-          module: data.module,
-        },
-      },
-      create: data as any,
-      update: data as any,
-    });
+    throw new BadRequestException(
+      'Module permissions are deprecated because ModulePermission model was removed from schema v2.',
+    );
   }
 
-  private getPasswordResetLinkCooldownKey(userId: string): string {
-    return `auth:reset-link:resend-cooldown:${userId}`;
+  private async clearTenantUsersCaches(tenantId: string) {
+    await this.redisService.del(getTenantActiveCacheKey(tenantId));
+    await this.redisService.del(getTenantSubscriptionCacheKey(tenantId));
+
+    const users = await this.prisma.user.findMany({
+      where: { tenantId },
+      select: { id: true },
+    });
+
+    for (const user of users) {
+      await this.clearUserAuthCache(user.id);
+    }
+  }
+
+  private async clearUserAuthCache(userId: string) {
+    const keys = await this.redisService.keys(getUserAuthCachePattern(userId));
+    for (const key of keys) {
+      await this.redisService.del(key);
+    }
+  }
+
+  private fromLegacyRole(
+    role: 'TENANT_ADMIN' | 'MANAGER' | 'STAFF' | 'ACCOUNTANT' | 'VIEWER',
+  ): UserRole {
+    switch (role) {
+      case 'TENANT_ADMIN':
+        return UserRole.ADMIN;
+      case 'MANAGER':
+        return UserRole.MANAGER;
+      case 'ACCOUNTANT':
+        return UserRole.ACCOUNTANT;
+      case 'STAFF':
+      case 'VIEWER':
+      default:
+        return UserRole.VIEWER;
+    }
+  }
+
+  private getHighestRole(rows: Array<{ role: UserRole }>) {
+    const rank: Record<UserRole, number> = {
+      OWNER: 5,
+      ADMIN: 4,
+      MANAGER: 3,
+      ACCOUNTANT: 2,
+      VIEWER: 1,
+    };
+
+    return [...rows]
+      .map((row) => row.role)
+      .sort((a, b) => rank[b] - rank[a])[0] ?? UserRole.VIEWER;
+  }
+
+  private toLegacyRole(role: UserRole): string {
+    switch (role) {
+      case UserRole.OWNER:
+        return 'SUPER_ADMIN';
+      case UserRole.ADMIN:
+        return 'TENANT_ADMIN';
+      case UserRole.MANAGER:
+        return 'MANAGER';
+      case UserRole.ACCOUNTANT:
+        return 'ACCOUNTANT';
+      case UserRole.VIEWER:
+      default:
+        return 'VIEWER';
+    }
+  }
+
+  private getPasswordResetLinkKey(token: string) {
+    return `auth:reset-link:${this.hashOpaqueToken(token)}`;
+  }
+
+  private getSetupLinkKey(token: string) {
+    return `auth:setup-link:${this.hashOpaqueToken(token)}`;
+  }
+
+  private hashOpaqueToken(value: string) {
+    return createHash('sha256').update(value).digest('hex');
   }
 
   private resolvePublicAppUrl(): string {
     const appUrl = this.configService.get<string>('app.url')?.trim();
-    const baseUrl = appUrl;
-
-    if (!baseUrl) {
-      throw new Error(
-        'APP_URL is required to build password setup and reset links.',
-      );
+    if (!appUrl) {
+      throw new Error('APP_URL is required to build public links.');
     }
-
-    return baseUrl.replace(/\/+$/, '');
+    return appUrl.replace(/\/+$/, '');
   }
 
-  private buildPublicLink(
-    path: '/accept-invite' | '/reset-password',
-    token: string,
-  ): string {
+  private buildPublicLink(path: '/accept-invite' | '/reset-password', token: string) {
     const url = new URL(path, `${this.resolvePublicAppUrl()}/`);
     url.searchParams.set('token', token);
     return url.toString();
   }
 
-  private async sendInviteEmailAndAudit(input: {
-    userId: string;
-    email: string;
-    setupLink: string;
-    expiresAt: Date;
-    action: string;
-    metadata?: Record<string, unknown>;
-    throwOnFailure: boolean;
-  }): Promise<'QUEUED_OR_SENT' | 'FAILED'> {
-    let delivered = false;
-
-    try {
-      delivered = await this.otpDeliveryService.sendInviteEmail(
-        input.email,
-        input.setupLink,
-        PASSWORD_SETUP_LINK_EXPIRY_MINUTES,
-      );
-    } catch (error) {
-      this.logger.error(
-        `Failed to send setup link to ${input.email}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
+  private assertSupportedPlanDuration(durationDays: number) {
+    const normalized = Math.trunc(Number(durationDays));
+    if (!Number.isFinite(normalized) || !ALLOWED_PLAN_DURATIONS.has(normalized)) {
+      throw new BadRequestException(
+        'Plan duration must be one of 30, 90, or 180 days.',
       );
     }
-
-    const deliveryStatus = delivered ? 'QUEUED_OR_SENT' : 'FAILED';
-    await this.prisma.auditLog.create({
-      data: {
-        userId: input.userId,
-        action: input.action,
-        entity: 'PASSWORD_LIFECYCLE',
-        newValue: {
-          channel: 'EMAIL',
-          linkType: 'SETUP_LINK',
-          expiresAt: input.expiresAt.toISOString(),
-          deliveryStatus,
-          email: input.email,
-          ...(input.metadata ?? {}),
-        },
-      },
-    });
-
-    if (!delivered && input.throwOnFailure) {
-      throw new ServiceUnavailableException(
-        'We could not send the setup email right now. Please try again shortly.',
-      );
-    }
-
-    return deliveryStatus;
   }
 
-  private async sendResetLinkEmailAndAudit(input: {
-    userId: string;
-    email: string;
-    resetLink: string;
-    expiresAt: Date;
-    action: string;
-    metadata?: Record<string, unknown>;
-    throwOnFailure: boolean;
-  }): Promise<'QUEUED_OR_SENT' | 'FAILED'> {
-    let delivered = false;
+  private buildIstSubscriptionWindow(durationDays: number, anchor = new Date()) {
+    const safeDuration = Math.max(1, Math.floor(durationDays || 1));
+    const startDate = new Date(anchor);
+    const endDate = this.toIstEndOfDayUtc(
+      this.addIstCalendarDays(startDate, safeDuration - 1),
+    );
 
-    try {
-      delivered = await this.otpDeliveryService.sendPasswordResetLinkEmail(
-        input.email,
-        input.resetLink,
-        PASSWORD_RESET_LINK_EXPIRY_MINUTES,
-      );
-    } catch (error) {
-      this.logger.error(
-        `Failed to send password reset link to ${input.email}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-    }
+    return { startDate, endDate };
+  }
 
-    const deliveryStatus = delivered ? 'QUEUED_OR_SENT' : 'FAILED';
-    await this.prisma.auditLog.create({
-      data: {
-        userId: input.userId,
-        action: input.action,
-        entity: 'PASSWORD_LIFECYCLE',
-        newValue: {
-          channel: 'EMAIL',
-          linkType: 'RESET_LINK',
-          expiresAt: input.expiresAt.toISOString(),
-          deliveryStatus,
-          email: input.email,
-          ...(input.metadata ?? {}),
-        },
-      },
-    });
+  private addIstCalendarDays(date: Date, days: number) {
+    const istStart = this.toIstStartOfDayUtc(date);
+    return new Date(istStart.getTime() + days * 24 * 60 * 60 * 1000);
+  }
 
-    if (!delivered && input.throwOnFailure) {
-      throw new ServiceUnavailableException(
-        'We could not send the password reset email right now. Please try again shortly.',
-      );
-    }
+  private toIstEndOfDayUtc(date: Date) {
+    const istStart = this.toIstStartOfDayUtc(date);
+    return new Date(istStart.getTime() + 24 * 60 * 60 * 1000 - 1);
+  }
 
-    return deliveryStatus;
+  private toIstStartOfDayUtc(date: Date) {
+    const formatted = new Intl.DateTimeFormat('en-CA', {
+      timeZone: IST_TIME_ZONE,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(date);
+
+    const [year, month, day] = formatted.split('-').map((value) => Number(value));
+    return new Date(
+      Date.UTC(year, month - 1, day, 0, 0, 0, 0) -
+        IST_OFFSET_MINUTES * 60 * 1000,
+    );
   }
 }
