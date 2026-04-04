@@ -59,3 +59,6 @@ npm run test:e2e -- --runInBand
 - `docs/setup-guide.md`
 - `docs/database-operations.md`
 - `docs/backend-operations-handbook.md`
+
+## Deployment (Heroku API)
+Please see the full Heroku documentation and standard operating procedures at [docs/DEPLOYMENT_GUIDE.md](./docs/DEPLOYMENT_GUIDE.md).
