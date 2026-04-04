@@ -2,11 +2,10 @@ import {
   Injectable,
   BadRequestException,
   NotFoundException,
-  Logger,
 } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
-import { Prisma, VoucherSeries } from '@prisma/client';
+import { Prisma, MovementType } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
+import { PrismaService } from '../prisma/prisma.service';
 import {
   CreateCashBookEntryDto,
   CreateBankBookEntryDto,
@@ -23,98 +22,63 @@ import { VoucherNumberService } from './voucher-number.service';
 
 @Injectable()
 export class AccountingService {
-  private readonly logger = new Logger(AccountingService.name);
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly voucherNumberService: VoucherNumberService,
   ) {}
 
-  // ═══════════════ CASH BOOK ═══════════════
+  private async getCompanyContext(companyId: string) {
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { id: true, tenantId: true },
+    });
+    if (!company) {
+      throw new NotFoundException('Company not found');
+    }
+    return company;
+  }
+
+  private buildTaggedNarration(
+    tag: 'CASH_BOOK' | 'BANK_BOOK' | 'JOURNAL' | 'OPENING_BALANCE',
+    voucherNumber: string,
+    narration?: string,
+  ) {
+    return `[${tag}][VNO:${voucherNumber}] ${narration ?? ''}`.trim();
+  }
+
+  private extractVoucherNumber(narration: string | null | undefined) {
+    const match = narration?.match(/\[VNO:([^\]]+)\]/);
+    return match?.[1] ?? null;
+  }
 
   async createCashBookEntry(companyId: string, dto: CreateCashBookEntryDto) {
+    const company = await this.getCompanyContext(companyId);
     return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      const entryDate = new Date(dto.date);
-      const voucherNumber = await this.allocateVoucherNumber(
-        tx,
+      const date = new Date(dto.date);
+      const voucherNumber = await this.voucherNumberService.getNextNumber(tx, {
         companyId,
-        'CB',
-        entryDate,
-      );
+        series: 'CB',
+        voucherDate: date,
+      });
 
-      const entry = await tx.cashBookEntry.create({
+      const entry = await tx.ledgerEntry.create({
         data: {
+          tenantId: company.tenantId,
           companyId,
-          bookName: dto.bookName || 'Cash Book',
-          voucherNumber,
-          date: entryDate,
           accountId: dto.accountId,
-          type: dto.type,
-          amount: dto.amount,
-          invoiceId: dto.invoiceId,
-          narration: dto.narration,
+          invoiceId: dto.invoiceId ?? null,
+          date,
+          debit: dto.type === 'DR' ? dto.amount : 0,
+          credit: dto.type === 'CR' ? dto.amount : 0,
+          narration: this.buildTaggedNarration(
+            'CASH_BOOK',
+            voucherNumber,
+            dto.narration ?? dto.bookName,
+          ),
         },
       });
 
-      // Create ledger entries: Cash A/c DR / Party CR (for receipt) or Party DR / Cash A/c CR (for payment)
-      const cashAccount = await this.findOrCreateCashAccount(tx, companyId);
-      if (dto.type === 'CR') {
-        // Receipt: Cash DR, Party CR
-        await tx.ledgerEntry.createMany({
-          data: [
-            {
-              companyId,
-              accountId: cashAccount,
-              voucherType: 'CASH_RECEIPT',
-              voucherNumber,
-              date: entryDate,
-              debit: dto.amount,
-              credit: 0,
-              narration: dto.narration,
-            },
-            {
-              companyId,
-              accountId: dto.accountId,
-              voucherType: 'CASH_RECEIPT',
-              voucherNumber,
-              date: entryDate,
-              debit: 0,
-              credit: dto.amount,
-              narration: dto.narration,
-              invoiceId: dto.invoiceId,
-            },
-          ],
-        });
-      } else {
-        // Payment: Party DR, Cash CR
-        await tx.ledgerEntry.createMany({
-          data: [
-            {
-              companyId,
-              accountId: dto.accountId,
-              voucherType: 'CASH_PAYMENT',
-              voucherNumber,
-              date: entryDate,
-              debit: dto.amount,
-              credit: 0,
-              narration: dto.narration,
-              invoiceId: dto.invoiceId,
-            },
-            {
-              companyId,
-              accountId: cashAccount,
-              voucherType: 'CASH_PAYMENT',
-              voucherNumber,
-              date: entryDate,
-              debit: 0,
-              credit: dto.amount,
-              narration: dto.narration,
-            },
-          ],
-        });
-      }
-
-      return entry;
+      return { ...entry, voucherNumber };
     });
   }
 
@@ -129,141 +93,90 @@ export class AccountingService {
     },
   ) {
     const { skip, take, page, limit } = parsePagination(query);
-    const where: Record<string, unknown> = { companyId };
-    if (query.bookName) where.bookName = query.bookName;
+    const where: Prisma.LedgerEntryWhereInput = {
+      companyId,
+      narration: { contains: '[CASH_BOOK]' },
+    };
+
     if (query.dateFrom || query.dateTo) {
       where.date = {};
-      if (query.dateFrom)
-        (where.date as Record<string, unknown>).gte = new Date(query.dateFrom);
-      if (query.dateTo)
-        (where.date as Record<string, unknown>).lte = new Date(query.dateTo);
+      if (query.dateFrom) where.date.gte = new Date(query.dateFrom);
+      if (query.dateTo) where.date.lte = new Date(query.dateTo);
+    }
+    if (query.bookName) {
+      where.narration = {
+        contains: query.bookName,
+        mode: 'insensitive',
+      };
     }
 
-    const [data, total] = await Promise.all([
-      this.prisma.cashBookEntry.findMany({
-        where: where as never,
+    const [rows, total] = await Promise.all([
+      this.prisma.ledgerEntry.findMany({
+        where,
         skip,
         take,
         orderBy: { date: 'desc' },
-        include: { account: { select: { id: true, name: true } } },
+        include: {
+          account: {
+            select: {
+              id: true,
+              party: { select: { name: true } },
+            },
+          },
+        },
       }),
-      this.prisma.cashBookEntry.count({ where: where as never }),
+      this.prisma.ledgerEntry.count({ where }),
     ]);
-    return createPaginatedResult(data, total, page, limit);
+
+    return createPaginatedResult(
+      rows.map((row) => ({
+        ...row,
+        voucherNumber: this.extractVoucherNumber(row.narration),
+      })),
+      total,
+      page,
+      limit,
+    );
   }
 
   async deleteCashBookEntry(companyId: string, id: string) {
-    const entry = await this.prisma.cashBookEntry.findFirst({
-      where: { id, companyId },
+    const entry = await this.prisma.ledgerEntry.findFirst({
+      where: { id, companyId, narration: { contains: '[CASH_BOOK]' } },
+      select: { id: true },
     });
     if (!entry) throw new NotFoundException('Cash book entry not found');
-    if (!entry.voucherNumber) {
-      throw new BadRequestException(
-        'Cash book entry has no voucher number and cannot be safely deleted.',
-      );
-    }
-    await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      const ledgerDeleteResult = await tx.ledgerEntry.deleteMany({
-        where: {
-          companyId,
-          voucherNumber: entry.voucherNumber,
-          voucherType: { in: ['CASH_RECEIPT', 'CASH_PAYMENT'] },
-        },
-      });
-      await tx.cashBookEntry.delete({ where: { id } });
-
-      if (ledgerDeleteResult.count === 0) {
-        this.logger.warn(
-          `Cash book deletion removed no ledger rows (company=${companyId}, voucher=${entry.voucherNumber}).`,
-        );
-      }
-    });
+    await this.prisma.ledgerEntry.delete({ where: { id } });
     return { message: 'Deleted' };
   }
 
-  // ═══════════════ BANK BOOK ═══════════════
-
   async createBankBookEntry(companyId: string, dto: CreateBankBookEntryDto) {
+    const company = await this.getCompanyContext(companyId);
     return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      const entryDate = new Date(dto.date);
-      const voucherNumber = await this.allocateVoucherNumber(
-        tx,
+      const date = new Date(dto.date);
+      const voucherNumber = await this.voucherNumberService.getNextNumber(tx, {
         companyId,
-        'BB',
-        entryDate,
-      );
+        series: 'BB',
+        voucherDate: date,
+      });
 
-      const entry = await tx.bankBookEntry.create({
+      const entry = await tx.ledgerEntry.create({
         data: {
+          tenantId: company.tenantId,
           companyId,
-          bookName: dto.bookName || 'Bank Book',
-          voucherNumber,
-          date: entryDate,
           accountId: dto.accountId,
-          type: dto.type,
-          amount: dto.amount,
-          chequeNumber: dto.chequeNumber,
-          invoiceId: dto.invoiceId,
-          narration: dto.narration,
+          invoiceId: dto.invoiceId ?? null,
+          date,
+          debit: dto.type === 'DR' ? dto.amount : 0,
+          credit: dto.type === 'CR' ? dto.amount : 0,
+          narration: this.buildTaggedNarration(
+            'BANK_BOOK',
+            voucherNumber,
+            [dto.narration, dto.chequeNumber].filter(Boolean).join(' | '),
+          ),
         },
       });
 
-      const bankAccount = await this.findOrCreateBankAccount(tx, companyId);
-      if (dto.type === 'CR') {
-        await tx.ledgerEntry.createMany({
-          data: [
-            {
-              companyId,
-              accountId: bankAccount,
-              voucherType: 'BANK_RECEIPT',
-              voucherNumber,
-              date: entryDate,
-              debit: dto.amount,
-              credit: 0,
-              narration: dto.narration,
-            },
-            {
-              companyId,
-              accountId: dto.accountId,
-              voucherType: 'BANK_RECEIPT',
-              voucherNumber,
-              date: entryDate,
-              debit: 0,
-              credit: dto.amount,
-              narration: dto.narration,
-              invoiceId: dto.invoiceId,
-            },
-          ],
-        });
-      } else {
-        await tx.ledgerEntry.createMany({
-          data: [
-            {
-              companyId,
-              accountId: dto.accountId,
-              voucherType: 'BANK_PAYMENT',
-              voucherNumber,
-              date: entryDate,
-              debit: dto.amount,
-              credit: 0,
-              narration: dto.narration,
-              invoiceId: dto.invoiceId,
-            },
-            {
-              companyId,
-              accountId: bankAccount,
-              voucherType: 'BANK_PAYMENT',
-              voucherNumber,
-              date: entryDate,
-              debit: 0,
-              credit: dto.amount,
-              narration: dto.narration,
-            },
-          ],
-        });
-      }
-
-      return entry;
+      return { ...entry, voucherNumber };
     });
   }
 
@@ -278,127 +191,125 @@ export class AccountingService {
     },
   ) {
     const { skip, take, page, limit } = parsePagination(query);
-    const where: Record<string, unknown> = { companyId };
-    if (query.bookName) where.bookName = query.bookName;
+    const where: Prisma.LedgerEntryWhereInput = {
+      companyId,
+      narration: { contains: '[BANK_BOOK]' },
+    };
+
     if (query.dateFrom || query.dateTo) {
       where.date = {};
-      if (query.dateFrom)
-        (where.date as Record<string, unknown>).gte = new Date(query.dateFrom);
-      if (query.dateTo)
-        (where.date as Record<string, unknown>).lte = new Date(query.dateTo);
+      if (query.dateFrom) where.date.gte = new Date(query.dateFrom);
+      if (query.dateTo) where.date.lte = new Date(query.dateTo);
+    }
+    if (query.bookName) {
+      where.narration = {
+        contains: query.bookName,
+        mode: 'insensitive',
+      };
     }
 
-    const [data, total] = await Promise.all([
-      this.prisma.bankBookEntry.findMany({
-        where: where as never,
+    const [rows, total] = await Promise.all([
+      this.prisma.ledgerEntry.findMany({
+        where,
         skip,
         take,
         orderBy: { date: 'desc' },
-        include: { account: { select: { id: true, name: true } } },
+        include: {
+          account: {
+            select: {
+              id: true,
+              party: { select: { name: true } },
+            },
+          },
+        },
       }),
-      this.prisma.bankBookEntry.count({ where: where as never }),
+      this.prisma.ledgerEntry.count({ where }),
     ]);
-    return createPaginatedResult(data, total, page, limit);
+
+    return createPaginatedResult(
+      rows.map((row) => ({
+        ...row,
+        voucherNumber: this.extractVoucherNumber(row.narration),
+      })),
+      total,
+      page,
+      limit,
+    );
   }
 
   async deleteBankBookEntry(companyId: string, id: string) {
-    const entry = await this.prisma.bankBookEntry.findFirst({
-      where: { id, companyId },
+    const entry = await this.prisma.ledgerEntry.findFirst({
+      where: { id, companyId, narration: { contains: '[BANK_BOOK]' } },
+      select: { id: true },
     });
     if (!entry) throw new NotFoundException('Bank book entry not found');
-    if (!entry.voucherNumber) {
-      throw new BadRequestException(
-        'Bank book entry has no voucher number and cannot be safely deleted.',
-      );
-    }
-    await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      const ledgerDeleteResult = await tx.ledgerEntry.deleteMany({
-        where: {
-          companyId,
-          voucherNumber: entry.voucherNumber,
-          voucherType: { in: ['BANK_RECEIPT', 'BANK_PAYMENT'] },
-        },
-      });
-      await tx.bankBookEntry.delete({ where: { id } });
-
-      if (ledgerDeleteResult.count === 0) {
-        this.logger.warn(
-          `Bank book deletion removed no ledger rows (company=${companyId}, voucher=${entry.voucherNumber}).`,
-        );
-      }
-    });
+    await this.prisma.ledgerEntry.delete({ where: { id } });
     return { message: 'Deleted' };
   }
 
   async reconcileBankEntry(companyId: string, id: string) {
-    const entry = await this.prisma.bankBookEntry.findFirst({
-      where: { id, companyId },
+    const entry = await this.prisma.ledgerEntry.findFirst({
+      where: { id, companyId, narration: { contains: '[BANK_BOOK]' } },
+      select: { id: true, narration: true },
     });
     if (!entry) throw new NotFoundException('Bank book entry not found');
-    return this.prisma.bankBookEntry.update({
+
+    return this.prisma.ledgerEntry.update({
       where: { id },
-      data: { isReconciled: true, reconciledDate: new Date() },
+      data: {
+        narration: `${entry.narration ?? ''} [RECONCILED:${new Date().toISOString()}]`,
+      },
     });
   }
 
-  // ═══════════════ JOURNAL ENTRY ═══════════════
-
   async createJournalEntry(companyId: string, dto: CreateJournalEntryDto) {
     const drTotal = dto.lines
-      .filter((l) => l.type === 'DR')
-      .reduce((s, l) => s + l.amount, 0);
+      .filter((line) => line.type === 'DR')
+      .reduce((sum, line) => sum + line.amount, 0);
     const crTotal = dto.lines
-      .filter((l) => l.type === 'CR')
-      .reduce((s, l) => s + l.amount, 0);
+      .filter((line) => line.type === 'CR')
+      .reduce((sum, line) => sum + line.amount, 0);
     if (Math.abs(drTotal - crTotal) > 0.01) {
       throw new BadRequestException(
         `Debit total (${drTotal}) must equal Credit total (${crTotal})`,
       );
     }
 
+    const company = await this.getCompanyContext(companyId);
     return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      const entryDate = new Date(dto.date);
-      const voucherNumber = await this.allocateVoucherNumber(
-        tx,
+      const date = new Date(dto.date);
+      const voucherNumber = await this.voucherNumberService.getNextNumber(tx, {
         companyId,
-        'JV',
-        entryDate,
+        series: 'JV',
+        voucherDate: date,
+      });
+
+      const rows = await Promise.all(
+        dto.lines.map((line) =>
+          tx.ledgerEntry.create({
+            data: {
+              tenantId: company.tenantId,
+              companyId,
+              accountId: line.accountId,
+              date,
+              debit: line.type === 'DR' ? line.amount : 0,
+              credit: line.type === 'CR' ? line.amount : 0,
+              narration: this.buildTaggedNarration(
+                'JOURNAL',
+                voucherNumber,
+                line.narration ?? dto.narration,
+              ),
+            },
+          }),
+        ),
       );
 
-      const entry = await tx.journalEntry.create({
-        data: {
-          companyId,
-          voucherNumber,
-          date: entryDate,
-          narration: dto.narration,
-          totalAmount: drTotal,
-          lines: {
-            create: dto.lines.map((l) => ({
-              accountId: l.accountId,
-              type: l.type,
-              amount: l.amount,
-              narration: l.narration,
-            })),
-          },
-        },
-        include: { lines: true },
-      });
-
-      // Create ledger entries for each line
-      await tx.ledgerEntry.createMany({
-        data: dto.lines.map((l) => ({
-          companyId,
-          accountId: l.accountId,
-          voucherType: 'JOURNAL',
-          voucherNumber,
-          date: entryDate,
-          debit: l.type === 'DR' ? l.amount : 0,
-          credit: l.type === 'CR' ? l.amount : 0,
-          narration: l.narration || dto.narration,
-        })),
-      });
-
-      return entry;
+      return {
+        id: voucherNumber,
+        voucherNumber,
+        date,
+        lines: rows,
+      };
     });
   }
 
@@ -412,85 +323,62 @@ export class AccountingService {
     },
   ) {
     const { skip, take, page, limit } = parsePagination(query);
-    const where: Record<string, unknown> = { companyId };
+    const where: Prisma.LedgerEntryWhereInput = {
+      companyId,
+      narration: { contains: '[JOURNAL]' },
+    };
     if (query.dateFrom || query.dateTo) {
       where.date = {};
-      if (query.dateFrom)
-        (where.date as Record<string, unknown>).gte = new Date(query.dateFrom);
-      if (query.dateTo)
-        (where.date as Record<string, unknown>).lte = new Date(query.dateTo);
+      if (query.dateFrom) where.date.gte = new Date(query.dateFrom);
+      if (query.dateTo) where.date.lte = new Date(query.dateTo);
     }
 
-    const [data, total] = await Promise.all([
-      this.prisma.journalEntry.findMany({
-        where: where as never,
+    const [rows, total] = await Promise.all([
+      this.prisma.ledgerEntry.findMany({
+        where,
         skip,
         take,
-        orderBy: { date: 'desc' },
-        include: { lines: true },
+        orderBy: [{ date: 'desc' }, { id: 'desc' }],
+        include: {
+          account: { select: { id: true, party: { select: { name: true } } } },
+        },
       }),
-      this.prisma.journalEntry.count({ where: where as never }),
+      this.prisma.ledgerEntry.count({ where }),
     ]);
-    return createPaginatedResult(data, total, page, limit);
+
+    return createPaginatedResult(
+      rows.map((row) => ({
+        ...row,
+        voucherNumber: this.extractVoucherNumber(row.narration),
+      })),
+      total,
+      page,
+      limit,
+    );
   }
 
   async deleteJournalEntry(companyId: string, id: string) {
-    const entry = await this.prisma.journalEntry.findFirst({
-      where: { id, companyId },
+    const entry = await this.prisma.ledgerEntry.findFirst({
+      where: { id, companyId, narration: { contains: '[JOURNAL]' } },
+      select: { id: true },
     });
     if (!entry) throw new NotFoundException('Journal entry not found');
-    if (!entry.voucherNumber) {
-      throw new BadRequestException(
-        'Journal entry has no voucher number and cannot be safely deleted.',
-      );
-    }
-    await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      const ledgerDeleteResult = await tx.ledgerEntry.deleteMany({
-        where: {
-          companyId,
-          voucherNumber: entry.voucherNumber,
-          voucherType: 'JOURNAL',
-        },
-      });
-      await tx.journalEntry.delete({ where: { id } });
-
-      if (ledgerDeleteResult.count === 0) {
-        this.logger.warn(
-          `Journal deletion removed no ledger rows (company=${companyId}, voucher=${entry.voucherNumber}).`,
-        );
-      }
-    });
+    await this.prisma.ledgerEntry.delete({ where: { id } });
     return { message: 'Deleted' };
   }
 
-  // ═══════════════ OPENING STOCK ═══════════════
-
   async createOpeningStock(companyId: string, dto: CreateOpeningStockDto) {
-    return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      const entryDate = new Date(dto.date);
-      const entry = await tx.openingStock.create({
-        data: {
-          companyId,
-          productId: dto.productId,
-          quantity: dto.quantity,
-          rate: dto.rate,
-          date: entryDate,
-        },
-      });
-
-      await tx.stockMovement.create({
-        data: {
-          companyId,
-          productId: dto.productId,
-          type: 'OPENING',
-          quantity: dto.quantity,
-          rate: dto.rate,
-          date: entryDate,
-          reference: `Opening Stock`,
-        },
-      });
-
-      return entry;
+    const company = await this.getCompanyContext(companyId);
+    return this.prisma.stockMovement.create({
+      data: {
+        tenantId: company.tenantId,
+        companyId,
+        productId: dto.productId,
+        type: MovementType.IN,
+        quantity: dto.quantity,
+        date: new Date(dto.date),
+        notes: `[OPENING_STOCK] rate=${dto.rate}`,
+      },
     });
   }
 
@@ -499,53 +387,39 @@ export class AccountingService {
     query: { page?: number; limit?: number },
   ) {
     const { skip, take, page, limit } = parsePagination(query);
+    const where: Prisma.StockMovementWhereInput = {
+      companyId,
+      notes: { contains: '[OPENING_STOCK]' },
+    };
+
     const [data, total] = await Promise.all([
-      this.prisma.openingStock.findMany({
-        where: { companyId },
+      this.prisma.stockMovement.findMany({
+        where,
         skip,
         take,
         include: {
           product: { select: { id: true, name: true, hsnCode: true } },
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: { date: 'desc' },
       }),
-      this.prisma.openingStock.count({ where: { companyId } }),
+      this.prisma.stockMovement.count({ where }),
     ]);
 
     return createPaginatedResult(data, total, page, limit);
   }
 
-  // ═══════════════ STOCK ADJUSTMENT ═══════════════
-
-  async createStockAdjustment(
-    companyId: string,
-    dto: CreateStockAdjustmentDto,
-  ) {
-    return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      const entryDate = new Date(dto.date);
-      const entry = await tx.stockAdjustment.create({
-        data: {
-          companyId,
-          productId: dto.productId,
-          type: dto.type,
-          quantity: dto.quantity,
-          reason: dto.reason,
-          date: entryDate,
-        },
-      });
-
-      await tx.stockMovement.create({
-        data: {
-          companyId,
-          productId: dto.productId,
-          type: dto.type === 'ADD' ? 'ADJUSTMENT_IN' : 'ADJUSTMENT_OUT',
-          quantity: dto.quantity,
-          date: entryDate,
-          reference: `Stock Adjustment: ${dto.reason || 'Manual'}`,
-        },
-      });
-
-      return entry;
+  async createStockAdjustment(companyId: string, dto: CreateStockAdjustmentDto) {
+    const company = await this.getCompanyContext(companyId);
+    return this.prisma.stockMovement.create({
+      data: {
+        tenantId: company.tenantId,
+        companyId,
+        productId: dto.productId,
+        type: dto.type === 'ADD' ? MovementType.IN : MovementType.OUT,
+        quantity: dto.quantity,
+        date: new Date(dto.date),
+        notes: `[STOCK_ADJ] ${dto.reason ?? ''}`.trim(),
+      },
     });
   }
 
@@ -554,46 +428,53 @@ export class AccountingService {
     query: { page?: number; limit?: number },
   ) {
     const { skip, take, page, limit } = parsePagination(query);
+    const where: Prisma.StockMovementWhereInput = {
+      companyId,
+      notes: { contains: '[STOCK_ADJ]' },
+    };
+
     const [data, total] = await Promise.all([
-      this.prisma.stockAdjustment.findMany({
-        where: { companyId },
+      this.prisma.stockMovement.findMany({
+        where,
         skip,
         take,
         orderBy: { date: 'desc' },
       }),
-      this.prisma.stockAdjustment.count({ where: { companyId } }),
+      this.prisma.stockMovement.count({ where }),
     ]);
+
     return createPaginatedResult(data, total, page, limit);
   }
 
-  // ═══════════════ OPENING BALANCE ═══════════════
-
   async createOpeningBalance(companyId: string, dto: CreateOpeningBalanceDto) {
+    const company = await this.getCompanyContext(companyId);
     return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      const entryDate = new Date(dto.date);
-      const voucherNumber = await this.allocateVoucherNumber(
-        tx,
+      const date = new Date(dto.date);
+      const voucherNumber = await this.voucherNumberService.getNextNumber(tx, {
         companyId,
-        'OB',
-        entryDate,
-      );
+        series: 'OB',
+        voucherDate: date,
+      });
 
-      return tx.ledgerEntry.create({
+      const entry = await tx.ledgerEntry.create({
         data: {
+          tenantId: company.tenantId,
           companyId,
           accountId: dto.accountId,
-          voucherType: 'OPENING_BALANCE',
-          voucherNumber,
-          date: entryDate,
+          date,
           debit: dto.type === 'DR' ? dto.amount : 0,
           credit: dto.type === 'CR' ? dto.amount : 0,
-          narration: 'Opening Balance',
+          narration: this.buildTaggedNarration(
+            'OPENING_BALANCE',
+            voucherNumber,
+            'Opening Balance',
+          ),
         },
       });
+
+      return { ...entry, voucherNumber };
     });
   }
-
-  // ═══════════════ LEDGER ═══════════════
 
   async getLedger(
     companyId: string,
@@ -610,10 +491,8 @@ export class AccountingService {
     if (query.accountId) where.accountId = query.accountId;
     if (query.dateFrom || query.dateTo) {
       where.date = {};
-      if (query.dateFrom)
-        (where.date as Prisma.DateTimeFilter).gte = new Date(query.dateFrom);
-      if (query.dateTo)
-        (where.date as Prisma.DateTimeFilter).lte = new Date(query.dateTo);
+      if (query.dateFrom) where.date.gte = new Date(query.dateFrom);
+      if (query.dateTo) where.date.lte = new Date(query.dateTo);
     }
 
     const orderBy: Prisma.LedgerEntryOrderByWithRelationInput[] = [
@@ -638,10 +517,7 @@ export class AccountingService {
               {
                 OR: [
                   { date: { lt: boundaryEntry.date } },
-                  {
-                    date: boundaryEntry.date,
-                    id: { lt: boundaryEntry.id },
-                  },
+                  { date: boundaryEntry.date, id: { lt: boundaryEntry.id } },
                 ],
               },
             ],
@@ -652,189 +528,138 @@ export class AccountingService {
         where: openingWhere,
         _sum: { debit: true, credit: true },
       });
+
       openingBalance =
         Number(openingTotals._sum.debit ?? 0) -
         Number(openingTotals._sum.credit ?? 0);
     }
 
-    const [data, total] = await Promise.all([
+    const [rows, total] = await Promise.all([
       this.prisma.ledgerEntry.findMany({
         where,
         skip,
         take,
         orderBy,
         include: {
-          account: { select: { id: true, name: true } },
+          account: {
+            select: {
+              id: true,
+              group: true,
+              party: { select: { name: true } },
+            },
+          },
           invoice: { select: { id: true, invoiceNumber: true } },
         },
       }),
       this.prisma.ledgerEntry.count({ where }),
     ]);
 
-    // Running balance must include entries from previous pages in the same filter scope.
-    let balance = this.round2(openingBalance);
-    const entries = data.map((e: { debit: Decimal; credit: Decimal }) => {
-      balance = this.round2(balance + Number(e.debit) - Number(e.credit));
-      return { ...e, runningBalance: balance };
+    let balance = openingBalance;
+    const data = rows.map((row) => {
+      balance = this.round2(balance + Number(row.debit) - Number(row.credit));
+      return { ...row, runningBalance: balance };
     });
 
-    return createPaginatedResult(entries, total, page, limit);
+    return createPaginatedResult(data, total, page, limit);
   }
 
   async getLedgerSummary(
     companyId: string,
     query: { dateFrom?: string; dateTo?: string },
   ) {
-    const where: Record<string, unknown> = { companyId };
+    const where: Prisma.LedgerEntryWhereInput = { companyId };
     if (query.dateFrom || query.dateTo) {
       where.date = {};
-      if (query.dateFrom)
-        (where.date as Record<string, unknown>).gte = new Date(query.dateFrom);
-      if (query.dateTo)
-        (where.date as Record<string, unknown>).lte = new Date(query.dateTo);
+      if (query.dateFrom) where.date.gte = new Date(query.dateFrom);
+      if (query.dateTo) where.date.lte = new Date(query.dateTo);
     }
 
-    const result = await this.prisma.ledgerEntry.groupBy({
+    const grouped = await this.prisma.ledgerEntry.groupBy({
       by: ['accountId'],
-      where: where as never,
+      where,
       _sum: { debit: true, credit: true },
     });
 
-    // Fetch account names
-    const accountIds = result.map((r: { accountId: string }) => r.accountId);
+    const accountIds = grouped.map((row) => row.accountId);
     const accounts = await this.prisma.account.findMany({
       where: { id: { in: accountIds } },
       select: {
         id: true,
-        name: true,
-        group: { select: { name: true, nature: true } },
+        group: true,
+        party: { select: { name: true } },
       },
     });
-    const accountMap = new Map(
-      accounts.map(
-        (a: {
-          id: string;
-          name: string;
-          group: { name: string; nature: string } | null;
-        }) => [a.id, a],
-      ),
-    );
 
-    return result.map(
-      (r: {
-        accountId: string;
-        _sum: { debit: Decimal | null; credit: Decimal | null };
-      }) => {
-        const account = accountMap.get(r.accountId);
-        return {
-          accountId: r.accountId,
-          accountName: account?.name || 'Unknown',
-          groupName: account?.group?.name,
-          nature: account?.group?.nature,
-          totalDebit: Number(r._sum.debit || 0),
-          totalCredit: Number(r._sum.credit || 0),
-          closingBalance:
-            Number(r._sum.debit || 0) - Number(r._sum.credit || 0),
-        };
-      },
-    );
+    const accountMap = new Map(accounts.map((account) => [account.id, account]));
+
+    return grouped.map((row) => {
+      const account = accountMap.get(row.accountId);
+      const totalDebit = Number(row._sum.debit ?? 0);
+      const totalCredit = Number(row._sum.credit ?? 0);
+      return {
+        accountId: row.accountId,
+        accountName: account?.party?.name ?? 'Unknown',
+        group: account?.group ?? null,
+        totalDebit,
+        totalCredit,
+        closingBalance: this.round2(totalDebit - totalCredit),
+      };
+    });
   }
 
   async getOutstandingInvoices(companyId: string, accountId: string) {
     const invoices = await this.prisma.invoice.findMany({
-      where: { companyId, accountId, status: { not: 'CANCELLED' } },
+      where: {
+        companyId,
+        accountId,
+        status: { not: 'CANCELLED' },
+        deletedAt: null,
+      },
       select: {
         id: true,
         invoiceNumber: true,
         invoiceDate: true,
-        grandTotal: true,
-        paidAmount: true,
-        invoiceType: true,
+        totalAmount: true,
+        type: true,
       },
       orderBy: { invoiceDate: 'desc' },
     });
-    return invoices
-      .map(
-        (inv: {
-          id: string;
-          invoiceNumber: string;
-          invoiceDate: Date;
-          grandTotal: Decimal;
-          paidAmount: Decimal;
-          invoiceType: string;
-        }) => ({
-          ...inv,
-          grandTotal: Number(inv.grandTotal),
-          paidAmount: Number(inv.paidAmount),
-          remaining: Number(inv.grandTotal) - Number(inv.paidAmount),
-        }),
-      )
-      .filter((inv: { remaining: number }) => inv.remaining > 0.01);
-  }
 
-  // ═══════════════ HELPERS ═══════════════
+    const invoiceIds = invoices.map((invoice) => invoice.id);
+    if (invoiceIds.length === 0) {
+      return [];
+    }
 
-  private async allocateVoucherNumber(
-    tx: Prisma.TransactionClient,
-    companyId: string,
-    series: VoucherSeries,
-    voucherDate: Date,
-  ): Promise<string> {
-    return this.voucherNumberService.getNextNumber(tx, {
-      companyId,
-      series,
-      voucherDate,
+    const paymentGroups = await this.prisma.ledgerEntry.groupBy({
+      by: ['invoiceId'],
+      where: {
+        companyId,
+        invoiceId: { in: invoiceIds },
+      },
+      _sum: {
+        credit: true,
+      },
     });
+
+    const paidMap = new Map(
+      paymentGroups.map((row) => [row.invoiceId ?? '', Number(row._sum.credit ?? 0)]),
+    );
+
+    return invoices
+      .map((invoice) => {
+        const paidAmount = paidMap.get(invoice.id) ?? 0;
+        const totalAmount = Number(invoice.totalAmount);
+        return {
+          ...invoice,
+          totalAmount,
+          paidAmount,
+          remaining: this.round2(Math.max(0, totalAmount - paidAmount)),
+        };
+      })
+      .filter((invoice) => invoice.remaining > 0);
   }
 
   private round2(value: number): number {
     return Math.round(value * 100) / 100;
-  }
-
-  private async findOrCreateCashAccount(
-    tx: Prisma.TransactionClient,
-    companyId: string,
-  ): Promise<string> {
-    const existing = await tx.account.findFirst({
-      where: { companyId, group: { name: 'Cash-in-Hand' } },
-    });
-    if (existing) return existing.id;
-    const group = await tx.accountGroup.findFirst({
-      where: { name: 'Cash-in-Hand' },
-    });
-    if (!group)
-      throw new BadRequestException('Cash-in-Hand account group not found');
-    const account = await tx.account.create({
-      data: {
-        companyId,
-        name: 'Cash Account',
-        groupId: group.id,
-        gstType: 'UNREGISTERED',
-      },
-    });
-    return account.id;
-  }
-
-  private async findOrCreateBankAccount(
-    tx: Prisma.TransactionClient,
-    companyId: string,
-  ): Promise<string> {
-    const existing = await tx.account.findFirst({
-      where: { companyId, group: { name: 'Bank Accounts' } },
-    });
-    if (existing) return existing.id;
-    const group = await tx.accountGroup.findFirst({
-      where: { name: 'Bank Accounts' },
-    });
-    if (!group) throw new BadRequestException('Bank Accounts group not found');
-    const account = await tx.account.create({
-      data: {
-        companyId,
-        name: 'Bank Account',
-        groupId: group.id,
-        gstType: 'UNREGISTERED',
-      },
-    });
-    return account.id;
   }
 }

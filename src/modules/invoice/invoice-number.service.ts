@@ -1,67 +1,29 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { InvoiceType, VoucherType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { InvoiceType } from '@prisma/client';
 import {
   CreateInvoiceNumberConfigDto,
   UpdateInvoiceNumberConfigDto,
 } from './dto';
 
+type PrismaLikeClient = Pick<
+  PrismaService,
+  'company' | 'financialYear' | 'voucherSequence'
+>;
+
 @Injectable()
 export class InvoiceNumberService {
   constructor(private prisma: PrismaService) {}
 
-  /**
-   * Get or create the InvoiceNumberConfig for a given company + type.
-   * Returns current config (creates default if missing).
-   */
   async getOrCreate(companyId: string, invoiceType: InvoiceType) {
-    let config = await this.prisma.invoiceNumberConfig.findUnique({
-      where: {
-        companyId_invoiceType: { companyId, invoiceType },
-      },
-    });
-
-    if (!config) {
-      const prefixMap: Record<string, string> = {
-        SALE: 'INV',
-        PURCHASE: 'PUR',
-        QUOTATION: 'QTN',
-        CHALLAN: 'CH',
-        PROFORMA: 'PI',
-        SALE_RETURN: 'SR',
-        PURCHASE_RETURN: 'PR',
-        JOB_IN: 'JI',
-        JOB_OUT: 'JO',
-      };
-
-      config = await this.prisma.invoiceNumberConfig.create({
-        data: {
-          companyId,
-          invoiceType,
-          prefix: prefixMap[invoiceType] || invoiceType.substring(0, 3),
-          startingNumber: 1,
-          currentNumber: 0,
-          isAutoNumber: true,
-          stockEffect: [
-            'SALE',
-            'PURCHASE',
-            'SALE_RETURN',
-            'PURCHASE_RETURN',
-          ].includes(invoiceType),
-          ledgerEffect: !['QUOTATION', 'PROFORMA', 'CHALLAN'].includes(
-            invoiceType,
-          ),
-        },
-      });
-    }
-
-    return config;
+    const tx = this.prisma as unknown as PrismaLikeClient;
+    return this.ensureConfig(tx, companyId, invoiceType);
   }
 
-  /**
-   * Generate and return the next invoice number, atomically incrementing the counter.
-   * Uses default prisma client.
-   */
   async getNextNumber(
     companyId: string,
     invoiceType: InvoiceType,
@@ -69,129 +31,223 @@ export class InvoiceNumberService {
     return this.getNextNumberWithTx(companyId, invoiceType, this.prisma);
   }
 
-  /**
-   * Generate and return the next invoice number within a transaction.
-   * Accepts either a Prisma transaction client or the default prisma instance.
-   * Must be called within a transaction context for atomicity.
-   */
   async getNextNumberWithTx(
     companyId: string,
     invoiceType: InvoiceType,
-    tx: any, // PrismaClient or Prisma.TransactionClient
+    tx: PrismaLikeClient,
   ): Promise<string> {
-    // First, check if config exists using the tx client
-    let config = await tx.invoiceNumberConfig.findUnique({
-      where: {
-        companyId_invoiceType: { companyId, invoiceType },
-      },
-    });
-
-    if (!config) {
-      const prefixMap: Record<string, string> = {
-        SALE: 'INV',
-        PURCHASE: 'PUR',
-        QUOTATION: 'QTN',
-        CHALLAN: 'CH',
-        PROFORMA: 'PI',
-        SALE_RETURN: 'SR',
-        PURCHASE_RETURN: 'PR',
-        JOB_IN: 'JI',
-        JOB_OUT: 'JO',
-      };
-
-      config = await tx.invoiceNumberConfig.create({
-        data: {
-          companyId,
-          invoiceType,
-          prefix: prefixMap[invoiceType] || invoiceType.substring(0, 3),
-          startingNumber: 1,
-          currentNumber: 0,
-          isAutoNumber: true,
-          stockEffect: [
-            'SALE',
-            'PURCHASE',
-            'SALE_RETURN',
-            'PURCHASE_RETURN',
-          ].includes(invoiceType),
-          ledgerEffect: !['QUOTATION', 'PROFORMA', 'CHALLAN'].includes(
-            invoiceType,
-          ),
-        },
-      });
-    }
-
-    if (!config.isAutoNumber) {
-      return ''; // manual numbering — caller must supply number
-    }
-
-    const updated = await tx.invoiceNumberConfig.update({
+    const config = await this.ensureConfig(tx, companyId, invoiceType);
+    const sequence = await tx.voucherSequence.update({
       where: { id: config.id },
-      data: { currentNumber: { increment: 1 } },
+      data: { currentValue: { increment: 1 } },
+      select: { prefix: true, currentValue: true },
     });
 
-    const nextNum = updated.currentNumber || config.startingNumber;
-    const parts: string[] = [];
-    if (config.prefix) parts.push(config.prefix);
-    parts.push(String(nextNum));
-    if (config.suffix) parts.push(config.suffix);
-
-    return parts.join('-');
+    return `${sequence.prefix}${String(sequence.currentValue).padStart(4, '0')}`;
   }
 
-  /**
-   * List all configs for a company.
-   */
   async findAll(companyId: string) {
-    return this.prisma.invoiceNumberConfig.findMany({
-      where: { companyId },
-      orderBy: { invoiceType: 'asc' },
+    const tx = this.prisma as unknown as PrismaLikeClient;
+    const fy = await this.resolveFinancialYear(tx, companyId);
+    const sequences = await this.prisma.voucherSequence.findMany({
+      where: { companyId, financialYearId: fy.id },
+      orderBy: { type: 'asc' },
     });
+
+    return sequences.map((row) =>
+      this.toInvoiceConfig(row, this.toInvoiceType(row.type)),
+    );
   }
 
-  /**
-   * Create a new config.
-   */
   async create(companyId: string, dto: CreateInvoiceNumberConfigDto) {
-    return this.prisma.invoiceNumberConfig.create({
-      data: {
+    const invoiceType = this.normalizeInvoiceType(dto.invoiceType as string);
+    const tx = this.prisma as unknown as PrismaLikeClient;
+    const company = await tx.company.findUnique({
+      where: { id: companyId },
+      select: { id: true, tenantId: true },
+    });
+    if (!company) {
+      throw new NotFoundException('Company not found');
+    }
+    const fy = await this.resolveFinancialYear(tx, companyId);
+
+    const created = await this.prisma.voucherSequence.upsert({
+      where: {
+        companyId_financialYearId_type: {
+          companyId,
+          financialYearId: fy.id,
+          type: this.toVoucherType(invoiceType),
+        },
+      },
+      update: {
+        prefix: dto.prefix ?? `${invoiceType.slice(0, 3)}-`,
+        currentValue: Math.max(0, (dto.startingNumber ?? 1) - 1),
+      },
+      create: {
+        tenantId: company.tenantId,
         companyId,
-        invoiceType: dto.invoiceType as InvoiceType,
-        prefix: dto.prefix,
-        suffix: dto.suffix,
-        startingNumber: dto.startingNumber ?? 1,
-        currentNumber: 0,
-        isAutoNumber: dto.isAutoNumber ?? true,
-        gstType: dto.gstType,
-        stockEffect: dto.stockEffect ?? true,
-        ledgerEffect: dto.ledgerEffect ?? true,
+        financialYearId: fy.id,
+        type: this.toVoucherType(invoiceType),
+        prefix: dto.prefix ?? `${invoiceType.slice(0, 3)}-`,
+        currentValue: Math.max(0, (dto.startingNumber ?? 1) - 1),
       },
     });
+
+    return this.toInvoiceConfig(created, invoiceType);
   }
 
-  /**
-   * Update an existing config by id.
-   */
   async update(
     companyId: string,
     id: string,
     dto: UpdateInvoiceNumberConfigDto,
   ) {
-    const config = await this.prisma.invoiceNumberConfig.findFirst({
+    const config = await this.prisma.voucherSequence.findFirst({
       where: { id, companyId },
     });
     if (!config) throw new NotFoundException('Invoice number config not found');
 
-    return this.prisma.invoiceNumberConfig.update({
+    const updated = await this.prisma.voucherSequence.update({
       where: { id },
       data: {
-        prefix: dto.prefix,
-        suffix: dto.suffix,
-        startingNumber: dto.startingNumber,
-        isAutoNumber: dto.isAutoNumber,
-        gstType: dto.gstType,
-        stockEffect: dto.stockEffect,
-        ledgerEffect: dto.ledgerEffect,
+        ...(dto.prefix !== undefined ? { prefix: dto.prefix } : {}),
+        ...(dto.startingNumber !== undefined
+          ? { currentValue: Math.max(0, dto.startingNumber - 1) }
+          : {}),
       },
     });
+
+    return this.toInvoiceConfig(updated, this.toInvoiceType(updated.type));
+  }
+
+  private async ensureConfig(
+    tx: PrismaLikeClient,
+    companyId: string,
+    invoiceType: InvoiceType,
+  ) {
+    const company = await tx.company.findUnique({
+      where: { id: companyId },
+      select: { id: true, tenantId: true },
+    });
+    if (!company) {
+      throw new NotFoundException('Company not found');
+    }
+
+    const fy = await this.resolveFinancialYear(tx, companyId);
+    const voucherType = this.toVoucherType(invoiceType);
+    const prefix = `${invoiceType.slice(0, 3)}-`;
+
+    const sequence = await tx.voucherSequence.upsert({
+      where: {
+        companyId_financialYearId_type: {
+          companyId,
+          financialYearId: fy.id,
+          type: voucherType,
+        },
+      },
+      update: {},
+      create: {
+        tenantId: company.tenantId,
+        companyId,
+        financialYearId: fy.id,
+        type: voucherType,
+        prefix,
+        currentValue: 0,
+      },
+    });
+
+    return this.toInvoiceConfig(sequence, invoiceType);
+  }
+
+  private async resolveFinancialYear(tx: PrismaLikeClient, companyId: string) {
+    const now = new Date();
+    const byDate = await tx.financialYear.findFirst({
+      where: {
+        companyId,
+        startDate: { lte: now },
+        endDate: { gte: now },
+      },
+      orderBy: { startDate: 'desc' },
+      select: { id: true },
+    });
+
+    if (byDate) return byDate;
+
+    const latest = await tx.financialYear.findFirst({
+      where: { companyId },
+      orderBy: { startDate: 'desc' },
+      select: { id: true },
+    });
+    if (!latest) {
+      throw new BadRequestException(
+        'No financial year exists for this company. Create a financial year first.',
+      );
+    }
+    return latest;
+  }
+
+  private normalizeInvoiceType(value: string): InvoiceType {
+    const normalized = value.trim().toUpperCase();
+    if (Object.values(InvoiceType).includes(normalized as InvoiceType)) {
+      return normalized as InvoiceType;
+    }
+    throw new BadRequestException(`Unsupported invoice type: ${value}`);
+  }
+
+  private toVoucherType(type: InvoiceType): VoucherType {
+    switch (type) {
+      case InvoiceType.SALE:
+        return VoucherType.SALE;
+      case InvoiceType.PURCHASE:
+        return VoucherType.PURCHASE;
+      case InvoiceType.SALE_RETURN:
+        return VoucherType.SALE_RETURN;
+      case InvoiceType.PURCHASE_RETURN:
+        return VoucherType.PURCHASE_RETURN;
+      default:
+        return VoucherType.SALE;
+    }
+  }
+
+  private toInvoiceType(type: VoucherType): InvoiceType {
+    switch (type) {
+      case VoucherType.PURCHASE:
+        return InvoiceType.PURCHASE;
+      case VoucherType.SALE_RETURN:
+        return InvoiceType.SALE_RETURN;
+      case VoucherType.PURCHASE_RETURN:
+        return InvoiceType.PURCHASE_RETURN;
+      case VoucherType.SALE:
+      default:
+        return InvoiceType.SALE;
+    }
+  }
+
+  private toInvoiceConfig(
+    row: {
+      id: string;
+      companyId: string;
+      type: VoucherType;
+      prefix: string;
+      currentValue: number;
+    },
+    invoiceType: InvoiceType,
+  ) {
+    return {
+      id: row.id,
+      companyId: row.companyId,
+      invoiceType,
+      prefix: row.prefix,
+      suffix: null,
+      startingNumber: 1,
+      currentNumber: row.currentValue,
+      isAutoNumber: true,
+      gstType: null,
+      stockEffect:
+        invoiceType === InvoiceType.SALE ||
+        invoiceType === InvoiceType.PURCHASE ||
+        invoiceType === InvoiceType.SALE_RETURN ||
+        invoiceType === InvoiceType.PURCHASE_RETURN,
+      ledgerEffect: true,
+    };
   }
 }

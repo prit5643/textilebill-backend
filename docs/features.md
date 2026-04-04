@@ -1,121 +1,82 @@
-# Application Features And Roadmap
+# Application Features
 
-## Implemented Features
+Last updated: `2026-03-30`
 
-## Authentication & Access
+This file lists currently implemented features only.
 
-- Login, refresh, logout, password change/reset
-- JWT authentication
-- Role-based authorization
-- Subscription enforcement for tenant users
-- Route-level abuse throttling for login/forgot-password/reset-password
-- Standardized 429 response contract for auth rate limits
+## Authentication and Access
 
-Code:
+- password login
+- OTP request, resend, and verification
+- cookie-based session, refresh, and logout
+- password change and password reset flows
+- invite and password-setup flows
+- role guards, company access checks, subscription enforcement
+- auth endpoint rate limiting
 
-- `src/modules/auth/*`
-- `src/common/guards/*`
+## Tenant and Admin
 
-## Multi-Tenant Admin
+- tenant profile APIs
+- admin dashboard
+- tenant CRUD/toggle
+- user administration, activation/deactivation, resend setup/reset link
+- plan and subscription management
+- compatibility responses for deprecated audit/module-permission surfaces
 
-- Tenant creation and management
-- Plan and subscription operations
-- User activation/deactivation and session management
+## Company and Financial Year
 
-Code:
+- company create/list/update/delete
+- company usage/limits endpoint
+- compatibility settings endpoints
+- financial year create/list/activate
 
-- `src/modules/admin/*`
-- `src/modules/users/*`
-- `src/modules/tenant/*`
+## Accounts and Parties
 
-## Company Management
+- account CRUD
+- permanent delete support
+- enum-based account grouping via `AccountGroupType`
+- selector/list payloads for UI pickers
+- compatibility broker endpoints
 
-- Company create/update/list
-- Company settings
-- Financial year management and active FY switching
-- Lightweight header payload view for company switchers
+## Products
 
-Code:
+- product CRUD
+- permanent delete support
+- selector/list payloads
+- schema-aligned pricing, tax, and HSN fields
 
-- `src/modules/company/*`
+## Invoices
 
-## Product & Master Data
+- invoice create/list/get/update/delete
+- invoice PDF endpoint
+- invoice summary endpoint
+- invoice payment recording/list/delete
+- invoice conversion support
+- voucher-sequence-based numbering
+- immutable versioning support via current invoice schema
 
-- Product CRUD
-- Category CRUD
-- Brand CRUD
-- UOM CRUD
-- Lightweight selector payload view for product pickers
+## Accounting and Inventory
 
-Code:
+- cash/bank/journal style compatibility endpoints
+- ledger and ledger-summary endpoints
+- opening balances / stock adjustment compatibility flows mapped to current ledgers
+- deterministic voucher numbering
+- stock reporting and movement tracking through `StockMovement`
 
-- `src/modules/product/*`
+## Reports
 
-## Accounts & Parties
-
-- Account CRUD
-- Broker CRUD
-- Account group lookup APIs
-- Lightweight selector payload view for account pickers
-
-Code:
-
-- `src/modules/account/*`
-
-## Invoicing
-
-- Invoice create/update/cancel/delete
-- Auto/manual invoice numbering
-- Tax calculation support
-- Invoice conversion support
-- Payment recording against invoices
-- PDF generation
-
-Code:
-
-- `src/modules/invoice/*`
-
-## Accounting
-
-- Cash book and bank book entries
-- Journal entries
-- Opening stock and stock adjustments
-- Ledger entries
-- Transaction-safe voucher number allocation per company/FY/series
-- Deterministic voucher format with FY rollover (`<SERIES>-<FY>-<NNNN>`)
-- Ledger running-balance pagination carry-forward and deterministic ordering
-
-Code:
-
-- `src/modules/accounting/*`
-
-## Reporting
-
-- Dashboard summary reports
-- Outstanding debtors/creditors
-- Day book
-- Stock report
-- Product profit analysis
-
-Code:
-
-- `src/modules/report/*`
+- dashboard summary
+- monthly chart
+- outstanding debtors and creditors
+- day book
+- stock and product detail reports
+- GST reports
+- trial balance, profit/loss, balance sheet
 
 ## Platform Reliability
 
-- Request ID tracing
-- Global exception sanitization
-- Readiness/liveness endpoints
-- Deployment-safe readiness gate
-- Request-path observability with route-aware logging context
-- `x-response-time-ms` response header and slow-request warning path
-- Production-safe Swagger gating (`ENABLE_SWAGGER`)
-
-Code:
-
-- `src/common/filters/*`
-- `src/common/middleware/*`
-- `src/modules/system/*`
-
-This file intentionally contains implemented features only.
-For pending work, see `../future/README.md`.
+- readiness and health endpoints
+- global validation and error sanitization
+- request logging and slow-request observability
+- idempotency protection
+- Swagger gating by environment

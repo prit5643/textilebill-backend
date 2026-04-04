@@ -19,14 +19,6 @@ export class TenantService {
   async findById(id: string) {
     const tenant = await this.prisma.tenant.findUnique({
       where: { id },
-      include: {
-        subscriptions: {
-          where: { status: 'ACTIVE' },
-          orderBy: { endDate: 'desc' },
-          take: 1,
-          include: { plan: true },
-        },
-      },
     });
 
     if (!tenant) {
@@ -40,21 +32,15 @@ export class TenantService {
     id: string,
     data: Partial<{
       name: string;
-      gstin: string;
-      address: string;
-      city: string;
-      state: string;
-      pincode: string;
-      phone: string;
-      email: string;
-      logoUrl: string;
     }>,
   ) {
     await this.findById(id);
 
     const updatedTenant = await this.prisma.tenant.update({
       where: { id },
-      data,
+      data: {
+        ...(typeof data.name === 'string' ? { name: data.name } : {}),
+      },
     });
 
     // Clear caches to ensure all tenant admin sessions see the updates

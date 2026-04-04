@@ -2,6 +2,7 @@ import {
   getRetryDelayMs,
   hasConnectionLimit,
   isPgBouncerConnection,
+  normalizeDatabaseUrl,
   redactDatabaseUrl,
 } from './prisma-connection.util';
 
@@ -40,6 +41,30 @@ describe('prisma-connection.util', () => {
       expect(
         isPgBouncerConnection('postgresql://u:p@db.example.com:5432/db'),
       ).toBe(false);
+    });
+
+    it('detects Supabase pooler hosts', () => {
+      expect(
+        isPgBouncerConnection(
+          'postgresql://u:p@project.pooler.supabase.com:6543/postgres',
+        ),
+      ).toBe(true);
+    });
+  });
+
+  describe('normalizeDatabaseUrl', () => {
+    it('injects pooler-safe params for Supabase pooler connections', () => {
+      const normalized = normalizeDatabaseUrl(
+        'postgresql://u:p@project.pooler.supabase.com:6543/postgres',
+      );
+
+      expect(normalized).toContain('pgbouncer=true');
+      expect(normalized).toContain('connection_limit=1');
+    });
+
+    it('keeps non-pooler urls unchanged', () => {
+      const url = 'postgresql://u:p@db.example.com:5432/postgres';
+      expect(normalizeDatabaseUrl(url)).toBe(url);
     });
   });
 

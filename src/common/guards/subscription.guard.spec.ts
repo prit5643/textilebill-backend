@@ -3,6 +3,7 @@ import { PrismaService } from '../../modules/prisma/prisma.service';
 import { RedisService } from '../../modules/redis/redis.service';
 import { SubscriptionGuard } from './subscription.guard';
 import {
+  TENANT_ACTIVE_CACHE_TTL_SECONDS,
   getTenantSubscriptionCacheKey,
   SUBSCRIPTION_NEGATIVE_CACHE_TTL_SECONDS,
 } from '../../modules/auth/auth-request-cache.util';
@@ -53,20 +54,20 @@ describe('SubscriptionGuard', () => {
     expect(prisma.subscription!.findFirst).not.toHaveBeenCalled();
   });
 
-  it('allows cached active subscriptions without hitting the database', async () => {
+  it('allows cached active tenants without hitting the database', async () => {
     redisService.get.mockResolvedValueOnce('1');
     const context = createContext({
-      user: { id: 'user-1', role: 'TENANT_ADMIN', tenantId: 'tenant-1' },
+      user: { id: 'user-1', role: 'ADMIN', tenantId: 'tenant-1' },
     });
 
     await expect(guard.canActivate(context)).resolves.toBe(true);
     expect(prisma.subscription!.findFirst).not.toHaveBeenCalled();
   });
 
-  it('rejects cached inactive subscriptions immediately', async () => {
+  it('rejects cached inactive tenants immediately', async () => {
     redisService.get.mockResolvedValueOnce('0');
     const context = createContext({
-      user: { id: 'user-1', role: 'TENANT_ADMIN', tenantId: 'tenant-1' },
+      user: { id: 'user-1', role: 'ADMIN', tenantId: 'tenant-1' },
     });
 
     await expect(guard.canActivate(context)).rejects.toBeInstanceOf(
@@ -75,41 +76,65 @@ describe('SubscriptionGuard', () => {
     expect(prisma.subscription!.findFirst).not.toHaveBeenCalled();
   });
 
-  it('queries Prisma on cache miss and stores a bounded positive TTL', async () => {
+  it('queries Prisma on cache miss and stores a positive tenant-active TTL', async () => {
     (prisma.subscription!.findFirst as jest.Mock).mockResolvedValueOnce({
-      endDate: new Date('2026-03-12T00:10:00.000Z'),
+      id: 'sub-1',
+      endDate: new Date('2026-03-15T23:59:59.999Z'),
     });
     const context = createContext({
-      user: { id: 'user-1', role: 'TENANT_ADMIN', tenantId: 'tenant-1' },
+      user: { id: 'user-1', role: 'ADMIN', tenantId: 'tenant-1' },
     });
 
     await expect(guard.canActivate(context)).resolves.toBe(true);
     expect(prisma.subscription!.findFirst).toHaveBeenCalledWith({
       where: {
         tenantId: 'tenant-1',
+        deletedAt: null,
         status: 'ACTIVE',
         endDate: {
-          gte: new Date('2026-03-12T00:00:00.000Z'),
+          gte: expect.any(Date),
+        },
+        tenant: {
+          status: 'ACTIVE',
+          deletedAt: null,
         },
       },
-      orderBy: {
-        endDate: 'asc',
-      },
       select: {
+        id: true,
         endDate: true,
       },
     });
     expect(redisService.set).toHaveBeenCalledWith(
       getTenantSubscriptionCacheKey('tenant-1'),
       '1',
-      300,
+      expect.any(Number),
+    );
+    const ttl = (redisService.set as jest.Mock).mock.calls[0][2];
+    expect(ttl).toBeGreaterThan(0);
+    expect(ttl).toBeLessThanOrEqual(TENANT_ACTIVE_CACHE_TTL_SECONDS);
+  });
+
+  it('stores minimum positive cache TTL when subscription expires imminently', async () => {
+    (prisma.subscription!.findFirst as jest.Mock).mockResolvedValueOnce({
+      id: 'sub-1',
+      endDate: new Date('2026-03-12T00:00:00.200Z'),
+    });
+    const context = createContext({
+      user: { id: 'user-1', role: 'ADMIN', tenantId: 'tenant-1' },
+    });
+
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    expect(redisService.set).toHaveBeenCalledWith(
+      getTenantSubscriptionCacheKey('tenant-1'),
+      '1',
+      1,
     );
   });
 
-  it('caches missing subscriptions briefly and fails closed', async () => {
+  it('caches missing active subscription briefly and fails closed', async () => {
     (prisma.subscription!.findFirst as jest.Mock).mockResolvedValueOnce(null);
     const context = createContext({
-      user: { id: 'user-1', role: 'TENANT_ADMIN', tenantId: 'tenant-1' },
+      user: { id: 'user-1', role: 'ADMIN', tenantId: 'tenant-1' },
     });
 
     await expect(guard.canActivate(context)).rejects.toBeInstanceOf(

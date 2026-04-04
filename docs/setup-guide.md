@@ -1,8 +1,10 @@
-# Setup Guide (Supabase + Redis)
+# Setup Guide
 
-This guide is the source of truth for local setup with Supabase as the database.
+Last updated: `2026-03-30`
 
-## 1) Install dependencies
+This is the schema-aligned setup guide for running backend and frontend locally.
+
+## 1. Install Dependencies
 
 ```bash
 cd textilebill-backend
@@ -12,78 +14,94 @@ cd ../textilebill-frontend
 npm install
 ```
 
-## 2) Configure backend environment
-
-Copy env template and update DB values:
+## 2. Configure Backend
 
 ```bash
 cd textilebill-backend
 cp .env.example .env
 ```
 
-Set these required values in `.env`:
+Required backend values:
 
-```bash
+```env
 NODE_ENV=development
 PORT=3001
 API_PREFIX=api
 APP_URL=http://localhost:3000
 CORS_ORIGIN=http://localhost:3000
-TRUST_PROXY=1
 
-# Supabase pooled URL (runtime, port 6543)
-DATABASE_URL=postgresql://postgres.[PROJECT-REF]:[PASSWORD]@aws-0-[REGION].pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1
+DATABASE_URL=<runtime-db-url>
+DATABASE_DIRECT_URL=<direct-db-url>
 
-# Supabase direct URL (migrations/bootstrap, port 5432)
-DATABASE_DIRECT_URL=postgresql://postgres.[PROJECT-REF]:[PASSWORD]@aws-0-[REGION].pooler.supabase.com:5432/postgres?sslmode=require
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_PASSWORD=
 
-JWT_SECRET=<long-random-secret>
-JWT_REFRESH_SECRET=<long-random-secret>
-APP_SECRET_KEY=<long-random-secret>
+JWT_SECRET=<secret>
+JWT_REFRESH_SECRET=<secret>
+APP_SECRET_KEY=<secret>
+
+BOOTSTRAP_ADMIN_EMAIL=owner@example.com
+BOOTSTRAP_ADMIN_NAME=System Owner
+BOOTSTRAP_ADMIN_PASSWORD=ChangeMe@123
 ```
 
-Notes:
-- Keep `APP_SECRET_KEY`, `JWT_SECRET`, and `JWT_REFRESH_SECRET` different.
-- Use pooled URL for runtime and direct URL for Prisma migration commands.
-
-## 3) Bootstrap admin + defaults (first-time setup only)
-
-If no `SUPER_ADMIN` exists yet, set:
+## 3. Configure Frontend
 
 ```bash
-BOOTSTRAP_ADMIN_EMAIL=<admin-email>
-BOOTSTRAP_ADMIN_USERNAME=<admin-username>
-BOOTSTRAP_ADMIN_PASSWORD=<strong-password>
+cd ../textilebill-frontend
+cp .env.example .env.local
 ```
 
-## 4) Apply schema and seed data
+Minimum frontend values:
+
+```env
+NEXT_PUBLIC_API_URL=http://localhost:3001
+JWT_SECRET=<same secret used for frontend session-token verification>
+```
+
+## 4. Prepare Database
+
+```bash
+cd ../textilebill-backend
+npm run db:setup
+```
+
+## 5. Start Services
+
+Backend:
 
 ```bash
 cd textilebill-backend
-npm run db:init
-npm run db:migrate:deploy
-npm run db:bootstrap
+npm run start:dev
 ```
 
-## 5) Start services
-
-Backend + Redis via Docker:
-
-```bash
-cd textilebill-backend
-docker compose up --build -d
-docker compose logs -f api
-```
-
-Frontend (new terminal):
+Frontend:
 
 ```bash
 cd textilebill-frontend
 npm run dev
 ```
 
-## 6) Quick verification
+## 6. Verify
 
-1. Backend docs: `http://localhost:3001/api/docs`
-2. Health check: `http://localhost:3001/api/system/health`
-3. Frontend login works with seeded admin user
+- backend docs: `http://localhost:3001/api/docs`
+- backend readiness: `http://localhost:3001/api/system/readiness`
+- frontend login: `http://localhost:3000/login`
+
+## 7. Test
+
+Backend:
+
+```bash
+npx prisma validate --schema prisma/schema.prisma
+npx tsc --noEmit
+npm test -- --runInBand
+```
+
+Frontend:
+
+```bash
+npm run build
+npm test -- --runInBand
+```

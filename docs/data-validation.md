@@ -1,72 +1,56 @@
 # Data Validation Reference
 
-## Request-Level Validation
+Last updated: `2026-03-30`
 
-Global setup in `src/main.ts`:
+## Request Validation
 
-- `ValidationPipe` with:
-  - `whitelist: true`
-  - `forbidNonWhitelisted: true`
-  - `transform: true`
-  - `enableImplicitConversion: true`
+Global validation is configured in `src/main.ts` with:
 
-Implication:
+- `whitelist: true`
+- `forbidNonWhitelisted: true`
+- `transform: true`
+- `enableImplicitConversion: true`
 
-- Unknown fields are rejected.
-- DTO decorators (`class-validator`) are enforced globally.
-- Primitive types are transformed where possible.
+Effects:
+
+- unknown fields are rejected
+- DTO decorators are enforced globally
+- primitive conversions are applied where possible
 
 ## Error Sanitization
 
-Global exception filter: `src/common/filters/global-exception.filter.ts`
+`src/common/filters/global-exception.filter.ts`
 
-- Converts technical/internal error messages to safe user messages.
-- Logs full backend details for debugging.
-- Includes request ID in response for traceability.
+- hides internal Prisma/DB details from clients
+- logs technical detail server-side
+- returns safe public messages
 
-## Module DTO Validation Entry Points
+## DTO Entry Points
 
-1. Auth
-   - `src/modules/auth/dto/*.ts`
-2. Company
-   - `src/modules/company/dto/*.ts`
-3. Product
-   - `src/modules/product/dto/*.ts`
-4. Account
-   - `src/modules/account/dto/*.ts`
-5. Invoice
-   - `src/modules/invoice/dto/*.ts`
-6. Accounting
-   - `src/modules/accounting/dto/index.ts`
+- auth DTOs: `src/modules/auth/dto/*`
+- company DTOs: `src/modules/company/dto/*`
+- product DTOs: `src/modules/product/dto/*`
+- account DTOs: `src/modules/account/dto/*`
+- invoice DTOs: `src/modules/invoice/dto/*`
+- accounting DTOs: `src/modules/accounting/dto/*`
 
-## Business Validation (Service Layer)
+## Service-Level Business Validation
 
 Examples:
 
-- Invoice creation requires company GSTIN:
-  - `src/modules/invoice/invoice.service.ts`
-- Prevent update of cancelled invoices:
-  - `src/modules/invoice/invoice.service.ts`
-- Concurrency safety for stock updates using `Product.version`:
-  - `src/modules/invoice/invoice.service.ts`
-- Subscription checks for non-super-admin users:
-  - `src/common/guards/subscription.guard.ts`
-- Roles-based authorization:
-  - `src/common/guards/roles.guard.ts`
+- auth state, tenant state, and session checks
+- company access and subscription checks
+- invoice arithmetic and versioning rules
+- account/product existence and scoping checks
+- voucher sequence and ledger/stock invariants
 
 ## Readiness Validation
 
-System readiness checks validate:
+`src/modules/system/system-readiness.service.ts`
 
-- Required schema objects are present.
-- Required baseline data exists (e.g. `SUPER_ADMIN`, core account groups).
+Current readiness checks are based on active schema tables and bootstrap data, not legacy bootstrap-role assumptions or removed model assumptions.
 
-Files:
+Expected behavior:
 
-- `src/modules/system/system-readiness.service.ts`
-- `src/modules/system/system-ready.guard.ts`
-
-Behavior:
-
-- Backend logs exact technical issue.
-- Frontend receives sanitized `503 Service Unavailable`.
+- backend logs root cause
+- client receives sanitized `503`

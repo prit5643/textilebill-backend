@@ -1,1002 +1,748 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Injectable } from '@nestjs/common';
+import { InvoiceStatus, InvoiceType, MovementType, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { Decimal } from '@prisma/client/runtime/library';
 
-type InvoiceTypeSummaryRow = {
-  invoiceType: string;
-  _sum: {
-    grandTotal: Decimal | number | null;
-    paidAmount?: Decimal | number | null;
-  };
+type DateRangeInput = {
+  dateFrom?: string;
+  dateTo?: string;
 };
-
-type MonthlyInvoiceChartRow = {
-  monthIndex: number;
-  invoiceType: string;
-  total: Decimal | number;
-};
-
-const MONTH_LABELS = [
-  'Jan',
-  'Feb',
-  'Mar',
-  'Apr',
-  'May',
-  'Jun',
-  'Jul',
-  'Aug',
-  'Sep',
-  'Oct',
-  'Nov',
-  'Dec',
-] as const;
 
 @Injectable()
 export class ReportService {
-  private readonly logger = new Logger(ReportService.name);
-
   constructor(private readonly prisma: PrismaService) {}
 
-  // ═══════════════ LEDGER REPORTS ═══════════════
+  async getDashboardKpis(companyId: string) {
+    const now = new Date();
+    const start = new Date(now);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 1);
 
-  async getOutstandingDebtors(
-    companyId: string,
-    query: { dateFrom?: string; dateTo?: string } = {},
-  ) {
-    const debtorGroup = await this.prisma.accountGroup.findFirst({
-      where: { name: 'Sundry Debtors' },
-    });
-    if (!debtorGroup) return [];
+    const [todaySales, todayPurchases, totalProducts] = await Promise.all([
+      this.prisma.invoice.aggregate({
+        where: {
+          companyId,
+          type: InvoiceType.SALE,
+          status: { not: InvoiceStatus.CANCELLED },
+          deletedAt: null,
+          invoiceDate: { gte: start, lt: end },
+        },
+        _sum: { totalAmount: true },
+      }),
+      this.prisma.invoice.aggregate({
+        where: {
+          companyId,
+          type: InvoiceType.PURCHASE,
+          status: { not: InvoiceStatus.CANCELLED },
+          deletedAt: null,
+          invoiceDate: { gte: start, lt: end },
+        },
+        _sum: { totalAmount: true },
+      }),
+      this.prisma.product.count({
+        where: { companyId, deletedAt: null },
+      }),
+    ]);
 
-    const grouped = await this.prisma.invoice.groupBy({
-      by: ['accountId'],
-      where: {
-        companyId,
-        invoiceType: 'SALE',
-        status: { notIn: ['CANCELLED', 'DRAFT'] },
-        account: { groupId: debtorGroup.id },
-        ...this.buildDateFilter(query.dateFrom, query.dateTo),
-      },
-      _sum: {
-        grandTotal: true,
-        paidAmount: true,
-      },
-      _count: {
-        _all: true,
-      },
-    });
+    const outstanding = await this.computeOutstanding(companyId);
 
-    const accountIds = grouped.map((entry) => entry.accountId);
-    if (accountIds.length === 0) return [];
-
-    const accounts = await this.prisma.account.findMany({
-      where: { companyId, id: { in: accountIds } },
-      select: { id: true, name: true, gstin: true, city: true },
-    });
-    const accountMap = new Map(
-      accounts.map((account) => [account.id, account]),
-    );
-
-    return grouped
-      .map((entry) => {
-        const account = accountMap.get(entry.accountId);
-        if (!account) return null;
-
-        const totalDue = this.round2(
-          Number(entry._sum.grandTotal ?? 0) -
-            Number(entry._sum.paidAmount ?? 0),
-        );
-
-        if (totalDue <= 0.01) return null;
-
-        return {
-          ...account,
-          totalDue,
-          invoiceCount: entry._count._all,
-        };
-      })
-      .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
-      .sort((a, b) => b.totalDue - a.totalDue);
+    return {
+      todaySales: Number(todaySales._sum.totalAmount ?? 0),
+      todayPurchases: Number(todayPurchases._sum.totalAmount ?? 0),
+      outstandingReceivable: outstanding.receivable,
+      outstandingPayable: outstanding.payable,
+      totalProducts,
+    };
   }
 
-  async getOutstandingCreditors(
-    companyId: string,
-    query: { dateFrom?: string; dateTo?: string } = {},
-  ) {
-    const creditorGroup = await this.prisma.accountGroup.findFirst({
-      where: { name: 'Sundry Creditors' },
-    });
-    if (!creditorGroup) return [];
+  async getMonthlySalesChart(companyId: string, year: number) {
+    const from = new Date(year, 0, 1);
+    const to = new Date(year + 1, 0, 1);
 
-    const grouped = await this.prisma.invoice.groupBy({
-      by: ['accountId'],
+    const invoices = await this.prisma.invoice.findMany({
       where: {
         companyId,
-        invoiceType: 'PURCHASE',
-        status: { notIn: ['CANCELLED', 'DRAFT'] },
-        account: { groupId: creditorGroup.id },
-        ...this.buildDateFilter(query.dateFrom, query.dateTo),
+        deletedAt: null,
+        status: { not: InvoiceStatus.CANCELLED },
+        type: { in: [InvoiceType.SALE, InvoiceType.PURCHASE] },
+        invoiceDate: { gte: from, lt: to },
       },
-      _sum: {
-        grandTotal: true,
-        paidAmount: true,
-      },
-      _count: {
-        _all: true,
-      },
+      select: { invoiceDate: true, type: true, totalAmount: true },
     });
 
-    const accountIds = grouped.map((entry) => entry.accountId);
-    if (accountIds.length === 0) return [];
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const buckets = Array.from({ length: 12 }, (_, i) => ({
+      month: monthNames[i],
+      sales: 0,
+      purchases: 0,
+    }));
 
-    const accounts = await this.prisma.account.findMany({
-      where: { companyId, id: { in: accountIds } },
-      select: { id: true, name: true, gstin: true, city: true },
-    });
-    const accountMap = new Map(
-      accounts.map((account) => [account.id, account]),
-    );
+    for (const invoice of invoices) {
+      const idx = new Date(invoice.invoiceDate).getMonth();
+      if (invoice.type === InvoiceType.SALE) {
+        buckets[idx].sales += Number(invoice.totalAmount);
+      } else if (invoice.type === InvoiceType.PURCHASE) {
+        buckets[idx].purchases += Number(invoice.totalAmount);
+      }
+    }
 
-    return grouped
-      .map((entry) => {
-        const account = accountMap.get(entry.accountId);
-        if (!account) return null;
-
-        const totalDue = this.round2(
-          Number(entry._sum.grandTotal ?? 0) -
-            Number(entry._sum.paidAmount ?? 0),
-        );
-
-        if (totalDue <= 0.01) return null;
-
-        return {
-          ...account,
-          totalDue,
-          invoiceCount: entry._count._all,
-        };
-      })
-      .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
-      .sort((a, b) => b.totalDue - a.totalDue);
-  }
-
-  async getDayBook(companyId: string, date: string) {
-    const dayStart = new Date(date);
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(date);
-    dayEnd.setHours(23, 59, 59, 999);
-
-    const entries = await this.prisma.ledgerEntry.findMany({
-      where: { companyId, date: { gte: dayStart, lte: dayEnd } },
-      include: {
-        account: { select: { id: true, name: true } },
-        invoice: { select: { id: true, invoiceNumber: true } },
-      },
-      orderBy: { createdAt: 'asc' },
-    });
-
-    return entries.map((e) => ({
-      ...e,
-      debit: Number(e.debit),
-      credit: Number(e.credit),
+    return buckets.map((row) => ({
+      ...row,
+      sales: this.round2(row.sales),
+      purchases: this.round2(row.purchases),
     }));
   }
 
-  // ═══════════════ STOCK REPORTS ═══════════════
+  async getOutstandingDebtors(companyId: string, range: DateRangeInput) {
+    return this.getOutstandingByType(companyId, InvoiceType.SALE, range);
+  }
+
+  async getOutstandingCreditors(companyId: string, range: DateRangeInput) {
+    return this.getOutstandingByType(companyId, InvoiceType.PURCHASE, range);
+  }
+
+  async getDayBook(companyId: string, date: string) {
+    const start = new Date(date);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 1);
+
+    const [invoices, ledger, stock] = await Promise.all([
+      this.prisma.invoice.findMany({
+        where: {
+          companyId,
+          deletedAt: null,
+          invoiceDate: { gte: start, lt: end },
+        },
+        select: {
+          id: true,
+          invoiceNumber: true,
+          invoiceDate: true,
+          type: true,
+          totalAmount: true,
+        },
+        orderBy: { invoiceDate: 'asc' },
+      }),
+      this.prisma.ledgerEntry.findMany({
+        where: {
+          companyId,
+          date: { gte: start, lt: end },
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+          date: true,
+          debit: true,
+          credit: true,
+          narration: true,
+          account: {
+            select: {
+              id: true,
+              party: { select: { name: true } },
+            },
+          },
+        },
+        orderBy: { date: 'asc' },
+      }),
+      this.prisma.stockMovement.findMany({
+        where: {
+          companyId,
+          date: { gte: start, lt: end },
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+          date: true,
+          type: true,
+          quantity: true,
+          notes: true,
+          product: { select: { id: true, name: true } },
+        },
+        orderBy: { date: 'asc' },
+      }),
+    ]);
+
+    return { invoices, ledger, stock };
+  }
 
   async getStockReport(
     companyId: string,
     query: { productId?: string; dateFrom?: string; dateTo?: string },
   ) {
+    const { from, to } = this.parseRange(query);
+    const productWhere: Prisma.ProductWhereInput = {
+      companyId,
+      deletedAt: null,
+      ...(query.productId ? { id: query.productId } : {}),
+    };
+
     const products = await this.prisma.product.findMany({
-      where: { companyId, ...(query.productId ? { id: query.productId } : {}) },
+      where: productWhere,
       select: { id: true, name: true, hsnCode: true },
+      orderBy: { name: 'asc' },
     });
 
-    if (products.length === 0) return [];
+    const movementsInPeriod = await this.prisma.stockMovement.findMany({
+      where: {
+        companyId,
+        deletedAt: null,
+        ...(query.productId ? { productId: query.productId } : {}),
+        ...(from || to
+          ? {
+              date: {
+                ...(from ? { gte: from } : {}),
+                ...(to ? { lte: to } : {}),
+              },
+            }
+          : {}),
+      },
+      select: { productId: true, type: true, quantity: true },
+    });
 
-    const productWhere = query.productId ? { productId: query.productId } : {};
-    const [movements, priorMovements] = await Promise.all([
-      this.prisma.stockMovement.findMany({
-        where: {
-          companyId,
-          ...productWhere,
-          ...this.buildMovementDateFilter(query.dateFrom, query.dateTo),
-        },
-        select: {
-          productId: true,
-          type: true,
-          quantity: true,
-        },
-      }),
-      query.dateFrom
-        ? this.prisma.stockMovement.findMany({
-            where: {
-              companyId,
-              ...productWhere,
-              date: { lt: new Date(query.dateFrom) },
-            },
-            select: {
-              productId: true,
-              type: true,
-              quantity: true,
-            },
-          })
-        : Promise.resolve([]),
-    ]);
+    const openingMovements = await this.prisma.stockMovement.findMany({
+      where: {
+        companyId,
+        deletedAt: null,
+        ...(query.productId ? { productId: query.productId } : {}),
+        ...(from ? { date: { lt: from } } : {}),
+      },
+      select: { productId: true, type: true, quantity: true },
+    });
 
-    const openingMap = new Map<string, number>();
-    const inwardMap = new Map<string, number>();
-    const outwardMap = new Map<string, number>();
-
-    for (const movement of priorMovements) {
-      openingMap.set(
-        movement.productId,
-        this.round3(
-          (openingMap.get(movement.productId) ?? 0) +
-            this.getSignedStockQuantity(
-              movement.type,
-              Number(movement.quantity),
-            ),
-        ),
-      );
+    const openingByProduct = new Map<string, number>();
+    for (const row of openingMovements) {
+      const prev = openingByProduct.get(row.productId) ?? 0;
+      openingByProduct.set(row.productId, prev + this.stockSignedQty(row.type, Number(row.quantity)));
     }
 
-    for (const movement of movements) {
-      const targetMap = this.isInboundMovement(movement.type)
-        ? inwardMap
-        : outwardMap;
-
-      targetMap.set(
-        movement.productId,
-        this.round3(
-          (targetMap.get(movement.productId) ?? 0) + Number(movement.quantity),
-        ),
-      );
+    const periodInward = new Map<string, number>();
+    const periodOutward = new Map<string, number>();
+    for (const row of movementsInPeriod) {
+      const qty = Number(row.quantity);
+      if (row.type === MovementType.IN) {
+        periodInward.set(row.productId, (periodInward.get(row.productId) ?? 0) + qty);
+      } else {
+        periodOutward.set(row.productId, (periodOutward.get(row.productId) ?? 0) + qty);
+      }
     }
 
     return products.map((product) => {
-      const opening = openingMap.get(product.id) ?? 0;
-      const inward = inwardMap.get(product.id) ?? 0;
-      const outward = outwardMap.get(product.id) ?? 0;
-
+      const opening = openingByProduct.get(product.id) ?? 0;
+      const inward = periodInward.get(product.id) ?? 0;
+      const outward = periodOutward.get(product.id) ?? 0;
       return {
         productId: product.id,
         productName: product.name,
         hsnCode: product.hsnCode,
-        opening,
-        inward,
-        outward,
+        opening: this.round3(opening),
+        inward: this.round3(inward),
+        outward: this.round3(outward),
         closing: this.round3(opening + inward - outward),
       };
     });
   }
 
-  async getProfitByProductFifo(
-    companyId: string,
-    query: { dateFrom?: string; dateTo?: string },
-  ) {
-    const dateFilter = this.buildDateFilter(query.dateFrom, query.dateTo);
-
-    const [saleItems, purchaseItems] = await Promise.all([
-      this.prisma.invoiceItem.groupBy({
-        by: ['productId'],
-        where: {
-          invoice: {
-            companyId,
-            invoiceType: 'SALE',
-            status: { not: 'CANCELLED' },
-            ...dateFilter,
-          },
-        },
-        _sum: {
-          quantity: true,
-          amount: true,
-        },
-      }),
-      this.prisma.invoiceItem.groupBy({
-        by: ['productId'],
-        where: {
-          invoice: {
-            companyId,
-            invoiceType: 'PURCHASE',
-            status: { not: 'CANCELLED' },
-            ...dateFilter,
-          },
-        },
-        _sum: {
-          quantity: true,
-          amount: true,
-        },
-      }),
-    ]);
-
-    const productIds = Array.from(
-      new Set([
-        ...saleItems.map((item) => item.productId),
-        ...purchaseItems.map((item) => item.productId),
-      ]),
-    );
-
-    const products = await this.prisma.product.findMany({
-      where: { companyId, id: { in: productIds } },
-      select: { id: true, name: true },
-    });
-    const productNameMap = new Map(
-      products.map((product) => [product.id, product.name]),
-    );
-
-    const productMap = new Map<
-      string,
-      {
-        name: string;
-        saleQty: number;
-        saleAmount: number;
-        purchaseQty: number;
-        purchaseAmount: number;
-      }
-    >();
-
-    for (const item of saleItems) {
-      const existing = productMap.get(item.productId) || {
-        name: productNameMap.get(item.productId) || 'Unknown Product',
-        saleQty: 0,
-        saleAmount: 0,
-        purchaseQty: 0,
-        purchaseAmount: 0,
-      };
-      existing.saleQty += Number(item._sum.quantity || 0);
-      existing.saleAmount += Number(item._sum.amount || 0);
-      productMap.set(item.productId, existing);
-    }
-
-    for (const item of purchaseItems) {
-      const existing = productMap.get(item.productId) || {
-        name: productNameMap.get(item.productId) || 'Unknown Product',
-        saleQty: 0,
-        saleAmount: 0,
-        purchaseQty: 0,
-        purchaseAmount: 0,
-      };
-      existing.purchaseQty += Number(item._sum.quantity || 0);
-      existing.purchaseAmount += Number(item._sum.amount || 0);
-      productMap.set(item.productId, existing);
-    }
-
-    return Array.from(productMap.entries()).map(([productId, data]) => ({
-      productId,
-      productName: data.name,
-      saleQty: data.saleQty,
-      saleAmount: Math.round(data.saleAmount * 100) / 100,
-      purchaseQty: data.purchaseQty,
-      purchaseAmount: Math.round(data.purchaseAmount * 100) / 100,
-      profit: Math.round((data.saleAmount - data.purchaseAmount) * 100) / 100,
-      margin:
-        data.saleAmount > 0
-          ? Math.round(
-              ((data.saleAmount - data.purchaseAmount) / data.saleAmount) *
-                10000,
-            ) / 100
-          : 0,
-    }));
-  }
-
-  // ═══════════════ GST REPORTS ═══════════════
-
-  async getGstr1(
-    companyId: string,
-    query: { dateFrom: string; dateTo: string },
-  ) {
-    const invoices = await this.prisma.invoice.findMany({
-      where: {
+  async getProfitByProductFifo(companyId: string, range: DateRangeInput) {
+    const { from, to } = this.parseRange(range);
+    const itemWhereBase: Prisma.InvoiceItemWhereInput = {
+      invoice: {
         companyId,
-        invoiceType: { in: ['SALE', 'SALE_RETURN'] },
-        status: { not: 'CANCELLED' },
-        invoiceDate: {
-          gte: new Date(query.dateFrom),
-          lte: new Date(query.dateTo),
-        },
+        status: { not: InvoiceStatus.CANCELLED },
+        deletedAt: null,
+        ...(from || to
+          ? {
+              invoiceDate: {
+                ...(from ? { gte: from } : {}),
+                ...(to ? { lte: to } : {}),
+              },
+            }
+          : {}),
       },
-      select: {
-        invoiceNumber: true,
-        invoiceDate: true,
-        invoiceType: true,
-        taxableAmount: true,
-        totalCgst: true,
-        totalSgst: true,
-        totalIgst: true,
-        totalTax: true,
-        grandTotal: true,
-        placeOfSupply: true,
-        account: {
-          select: {
-            name: true,
-            gstin: true,
-            gstType: true,
+    };
+
+    const [products, sales, purchases] = await Promise.all([
+      this.prisma.product.findMany({
+        where: { companyId, deletedAt: null },
+        select: { id: true, name: true },
+      }),
+      this.prisma.invoiceItem.groupBy({
+        by: ['productId'],
+        where: {
+          ...itemWhereBase,
+          invoice: {
+            ...(itemWhereBase.invoice as Prisma.InvoiceWhereInput),
+            type: InvoiceType.SALE,
           },
         },
-      },
-      orderBy: { invoiceDate: 'asc' },
-    });
-
-    const b2b: unknown[] = [];
-    const b2c: unknown[] = [];
-    const cdnr: unknown[] = [];
-
-    for (const inv of invoices) {
-      const entry = {
-        invoiceNumber: inv.invoiceNumber,
-        invoiceDate: inv.invoiceDate,
-        partyName: inv.account.name,
-        gstin: inv.account.gstin,
-        taxableAmount: Number(inv.taxableAmount),
-        cgst: Number(inv.totalCgst),
-        sgst: Number(inv.totalSgst),
-        igst: Number(inv.totalIgst),
-        totalTax: Number(inv.totalTax),
-        grandTotal: Number(inv.grandTotal),
-        placeOfSupply: inv.placeOfSupply,
-      };
-
-      if (inv.invoiceType === 'SALE_RETURN') {
-        cdnr.push(entry);
-      } else if (inv.account.gstin && inv.account.gstType === 'REGULAR') {
-        b2b.push(entry);
-      } else {
-        b2c.push(entry);
-      }
-    }
-
-    return {
-      period: { from: query.dateFrom, to: query.dateTo },
-      b2b,
-      b2c,
-      cdnr,
-      summary: {
-        totalTaxable: b2b
-          .concat(b2c)
-          .reduce(
-            (s: number, i: Record<string, number>) => s + i.taxableAmount,
-            0,
-          ),
-        totalCgst: invoices.reduce((s, i) => s + Number(i.totalCgst), 0),
-        totalSgst: invoices.reduce((s, i) => s + Number(i.totalSgst), 0),
-        totalIgst: invoices.reduce((s, i) => s + Number(i.totalIgst), 0),
-        totalTax: invoices.reduce((s, i) => s + Number(i.totalTax), 0),
-      },
-    };
-  }
-
-  async getGstr3b(
-    companyId: string,
-    query: { dateFrom: string; dateTo: string },
-  ) {
-    const dateFilter = {
-      invoiceDate: {
-        gte: new Date(query.dateFrom),
-        lte: new Date(query.dateTo),
-      },
-    };
-
-    const [sales, purchases, saleReturns, purchaseReturns] = await Promise.all([
-      this.prisma.invoice.aggregate({
-        where: {
-          companyId,
-          invoiceType: 'SALE',
-          status: { not: 'CANCELLED' },
-          ...dateFilter,
-        },
-        _sum: {
-          taxableAmount: true,
-          totalCgst: true,
-          totalSgst: true,
-          totalIgst: true,
-          totalTax: true,
-          grandTotal: true,
-        },
+        _sum: { quantity: true, amount: true },
       }),
-      this.prisma.invoice.aggregate({
+      this.prisma.invoiceItem.groupBy({
+        by: ['productId'],
         where: {
-          companyId,
-          invoiceType: 'PURCHASE',
-          status: { not: 'CANCELLED' },
-          ...dateFilter,
+          ...itemWhereBase,
+          invoice: {
+            ...(itemWhereBase.invoice as Prisma.InvoiceWhereInput),
+            type: InvoiceType.PURCHASE,
+          },
         },
-        _sum: {
-          taxableAmount: true,
-          totalCgst: true,
-          totalSgst: true,
-          totalIgst: true,
-          totalTax: true,
-          grandTotal: true,
-        },
-      }),
-      this.prisma.invoice.aggregate({
-        where: {
-          companyId,
-          invoiceType: 'SALE_RETURN',
-          status: { not: 'CANCELLED' },
-          ...dateFilter,
-        },
-        _sum: {
-          taxableAmount: true,
-          totalCgst: true,
-          totalSgst: true,
-          totalIgst: true,
-          totalTax: true,
-          grandTotal: true,
-        },
-      }),
-      this.prisma.invoice.aggregate({
-        where: {
-          companyId,
-          invoiceType: 'PURCHASE_RETURN',
-          status: { not: 'CANCELLED' },
-          ...dateFilter,
-        },
-        _sum: {
-          taxableAmount: true,
-          totalCgst: true,
-          totalSgst: true,
-          totalIgst: true,
-          totalTax: true,
-          grandTotal: true,
-        },
+        _sum: { quantity: true, amount: true },
       }),
     ]);
 
-    const toNum = (v: Decimal | null) => Number(v || 0);
+    const salesMap = new Map(sales.map((row) => [row.productId, row]));
+    const purchaseMap = new Map(purchases.map((row) => [row.productId, row]));
 
-    return {
-      period: { from: query.dateFrom, to: query.dateTo },
-      outwardSupplies: {
-        taxableAmount:
-          toNum(sales._sum.taxableAmount) -
-          toNum(saleReturns._sum.taxableAmount),
-        cgst: toNum(sales._sum.totalCgst) - toNum(saleReturns._sum.totalCgst),
-        sgst: toNum(sales._sum.totalSgst) - toNum(saleReturns._sum.totalSgst),
-        igst: toNum(sales._sum.totalIgst) - toNum(saleReturns._sum.totalIgst),
-      },
-      inwardSupplies: {
-        taxableAmount:
-          toNum(purchases._sum.taxableAmount) -
-          toNum(purchaseReturns._sum.taxableAmount),
-        cgst:
-          toNum(purchases._sum.totalCgst) -
-          toNum(purchaseReturns._sum.totalCgst),
-        sgst:
-          toNum(purchases._sum.totalSgst) -
-          toNum(purchaseReturns._sum.totalSgst),
-        igst:
-          toNum(purchases._sum.totalIgst) -
-          toNum(purchaseReturns._sum.totalIgst),
-      },
-      netTaxPayable: {
-        cgst:
-          toNum(sales._sum.totalCgst) -
-          toNum(saleReturns._sum.totalCgst) -
-          toNum(purchases._sum.totalCgst) +
-          toNum(purchaseReturns._sum.totalCgst),
-        sgst:
-          toNum(sales._sum.totalSgst) -
-          toNum(saleReturns._sum.totalSgst) -
-          toNum(purchases._sum.totalSgst) +
-          toNum(purchaseReturns._sum.totalSgst),
-        igst:
-          toNum(sales._sum.totalIgst) -
-          toNum(saleReturns._sum.totalIgst) -
-          toNum(purchases._sum.totalIgst) +
-          toNum(purchaseReturns._sum.totalIgst),
-      },
-    };
-  }
-
-  async getGstSlabWise(
-    companyId: string,
-    query: { dateFrom: string; dateTo: string },
-  ) {
-    const slabs = await this.prisma.invoiceItem.groupBy({
-      by: ['gstRate'],
-      where: {
-        invoice: {
-          companyId,
-          invoiceType: { in: ['SALE', 'PURCHASE'] },
-          status: { not: 'CANCELLED' },
-          invoiceDate: {
-            gte: new Date(query.dateFrom),
-            lte: new Date(query.dateTo),
-          },
-        },
-      },
-      _sum: {
-        taxableAmount: true,
-        cgstAmount: true,
-        sgstAmount: true,
-        igstAmount: true,
-      },
-      _count: {
-        _all: true,
-      },
-    });
-
-    return slabs
-      .map((slab) => {
-        const taxableAmount = this.round2(Number(slab._sum.taxableAmount || 0));
-        const cgst = this.round2(Number(slab._sum.cgstAmount || 0));
-        const sgst = this.round2(Number(slab._sum.sgstAmount || 0));
-        const igst = this.round2(Number(slab._sum.igstAmount || 0));
-
-        return {
-          gstRate: Number(slab.gstRate),
-          taxableAmount,
-          cgst,
-          sgst,
-          igst,
-          count: slab._count._all,
-          totalTax: this.round2(cgst + sgst + igst),
-        };
-      })
-      .sort((a, b) => a.gstRate - b.gstRate);
-  }
-
-  // ═══════════════ FINANCIAL REPORTS ═══════════════
-
-  async getTrialBalance(
-    companyId: string,
-    query: { dateFrom?: string; dateTo?: string },
-  ) {
-    const where: Record<string, unknown> = { companyId };
-    if (query.dateFrom || query.dateTo) {
-      where.date = {};
-      if (query.dateFrom)
-        (where.date as Record<string, unknown>).gte = new Date(query.dateFrom);
-      if (query.dateTo)
-        (where.date as Record<string, unknown>).lte = new Date(query.dateTo);
-    }
-
-    const result = await this.prisma.ledgerEntry.groupBy({
-      by: ['accountId'],
-      where: where as never,
-      _sum: { debit: true, credit: true },
-    });
-
-    const accountIds = result.map((r) => r.accountId);
-    const accounts = await this.prisma.account.findMany({
-      where: { id: { in: accountIds } },
-      select: {
-        id: true,
-        name: true,
-        group: { select: { name: true, nature: true } },
-      },
-    });
-    const accountMap = new Map(accounts.map((a) => [a.id, a]));
-
-    let totalDebit = 0;
-    let totalCredit = 0;
-
-    const entries = result.map((r) => {
-      const account = accountMap.get(r.accountId);
-      const dr = Number(r._sum.debit || 0);
-      const cr = Number(r._sum.credit || 0);
-      const balance = dr - cr;
-      totalDebit += balance > 0 ? balance : 0;
-      totalCredit += balance < 0 ? Math.abs(balance) : 0;
+    return products.map((product) => {
+      const saleRow = salesMap.get(product.id);
+      const purchaseRow = purchaseMap.get(product.id);
+      const saleAmount = Number(saleRow?._sum.amount ?? 0);
+      const purchaseAmount = Number(purchaseRow?._sum.amount ?? 0);
+      const profit = saleAmount - purchaseAmount;
+      const margin = saleAmount > 0 ? (profit / saleAmount) * 100 : 0;
       return {
-        accountId: r.accountId,
-        accountName: account?.name || 'Unknown',
-        groupName: (account as any)?.group?.name,
-        nature: (account as any)?.group?.nature,
-        debit: Math.round(dr * 100) / 100,
-        credit: Math.round(cr * 100) / 100,
-        closingDebit: balance > 0 ? Math.round(balance * 100) / 100 : 0,
-        closingCredit:
-          balance < 0 ? Math.round(Math.abs(balance) * 100) / 100 : 0,
+        productId: product.id,
+        productName: product.name,
+        saleQty: Number(saleRow?._sum.quantity ?? 0),
+        saleAmount: this.round2(saleAmount),
+        purchaseQty: Number(purchaseRow?._sum.quantity ?? 0),
+        purchaseAmount: this.round2(purchaseAmount),
+        profit: this.round2(profit),
+        margin: this.round2(margin),
       };
     });
-
-    return {
-      entries,
-      totalDebit: Math.round(totalDebit * 100) / 100,
-      totalCredit: Math.round(totalCredit * 100) / 100,
-    };
   }
-
-  async getProfitAndLoss(
-    companyId: string,
-    query: { dateFrom?: string; dateTo?: string },
-  ) {
-    const trialBalance = await this.getTrialBalance(companyId, query);
-
-    const income = trialBalance.entries.filter((e) => e.nature === 'Income');
-    const expense = trialBalance.entries.filter((e) => e.nature === 'Expense');
-
-    const totalIncome = income.reduce(
-      (s, e) => s + e.closingCredit - e.closingDebit,
-      0,
-    );
-    const totalExpense = expense.reduce(
-      (s, e) => s + e.closingDebit - e.closingCredit,
-      0,
-    );
-
-    return {
-      income: income.map((e) => ({
-        ...e,
-        amount: e.closingCredit - e.closingDebit,
-      })),
-      expense: expense.map((e) => ({
-        ...e,
-        amount: e.closingDebit - e.closingCredit,
-      })),
-      totalIncome: Math.round(totalIncome * 100) / 100,
-      totalExpense: Math.round(totalExpense * 100) / 100,
-      netProfit: Math.round((totalIncome - totalExpense) * 100) / 100,
-    };
-  }
-
-  async getBalanceSheet(companyId: string, query: { dateTo?: string }) {
-    const trialBalance = await this.getTrialBalance(companyId, {
-      dateTo: query.dateTo,
-    });
-
-    const assets = trialBalance.entries.filter((e) => e.nature === 'Asset');
-    const liabilities = trialBalance.entries.filter(
-      (e) => e.nature === 'Liability',
-    );
-
-    const totalAssets = assets.reduce(
-      (s, e) => s + e.closingDebit - e.closingCredit,
-      0,
-    );
-    const totalLiabilities = liabilities.reduce(
-      (s, e) => s + e.closingCredit - e.closingDebit,
-      0,
-    );
-
-    // P&L balance
-    const pnl = await this.getProfitAndLoss(companyId, {
-      dateTo: query.dateTo,
-    });
-
-    return {
-      assets: assets.map((e) => ({
-        ...e,
-        amount: e.closingDebit - e.closingCredit,
-      })),
-      liabilities: liabilities.map((e) => ({
-        ...e,
-        amount: e.closingCredit - e.closingDebit,
-      })),
-      totalAssets: Math.round(totalAssets * 100) / 100,
-      totalLiabilities:
-        Math.round((totalLiabilities + pnl.netProfit) * 100) / 100,
-      netProfit: pnl.netProfit,
-    };
-  }
-
-  // ═══════════════ PRODUCT REPORTS ═══════════════
 
   async getProductDetails(
     companyId: string,
     query: { productId?: string; dateFrom?: string; dateTo?: string },
   ) {
-    const dateFilter = this.buildDateFilter(query.dateFrom, query.dateTo);
-
-    const items = await this.prisma.invoiceItem.findMany({
+    const { from, to } = this.parseRange(query);
+    return this.prisma.invoiceItem.findMany({
       where: {
         ...(query.productId ? { productId: query.productId } : {}),
-        invoice: { companyId, status: { not: 'CANCELLED' }, ...dateFilter },
+        invoice: {
+          companyId,
+          status: { not: InvoiceStatus.CANCELLED },
+          deletedAt: null,
+          ...(from || to
+            ? {
+                invoiceDate: {
+                  ...(from ? { gte: from } : {}),
+                  ...(to ? { lte: to } : {}),
+                },
+              }
+            : {}),
+        },
       },
       select: {
         quantity: true,
         rate: true,
         amount: true,
-        taxableAmount: true,
+        taxRate: true,
+        taxAmount: true,
         product: { select: { id: true, name: true, hsnCode: true } },
         invoice: {
           select: {
             invoiceNumber: true,
             invoiceDate: true,
-            invoiceType: true,
-            account: { select: { name: true } },
+            type: true,
+            account: {
+              select: {
+                party: { select: { name: true } },
+              },
+            },
           },
         },
       },
       orderBy: { invoice: { invoiceDate: 'asc' } },
     });
-
-    return items.map((i) => ({
-      invoiceNumber: i.invoice.invoiceNumber,
-      invoiceDate: i.invoice.invoiceDate,
-      invoiceType: i.invoice.invoiceType,
-      partyName: i.invoice.account.name,
-      productName: i.product.name,
-      hsnCode: i.product.hsnCode,
-      quantity: Number(i.quantity),
-      rate: Number(i.rate),
-      amount: Number(i.amount),
-      taxableAmount: Number(i.taxableAmount),
-    }));
   }
 
   async getProductDetailsByCustomer(
     companyId: string,
     query: { productId: string; dateFrom?: string; dateTo?: string },
   ) {
-    const conditions = [
-      Prisma.sql`ii."productId" = ${query.productId}`,
-      Prisma.sql`i."companyId" = ${companyId}`,
-      Prisma.sql`i."invoiceType" = 'SALE'`,
-      Prisma.sql`i."status" <> 'CANCELLED'`,
-    ];
+    const rows = await this.getProductDetails(companyId, query);
+    const grouped = new Map<
+      string,
+      { accountId: string; accountName: string; totalQty: number; totalAmount: number }
+    >();
 
-    if (query.dateFrom) {
-      conditions.push(
-        Prisma.sql`i."invoiceDate" >= ${new Date(query.dateFrom)}`,
-      );
+    for (const row of rows) {
+      const accountId = row.invoice.account?.party?.name ?? 'unknown';
+      const key = accountId;
+      const existing = grouped.get(key) ?? {
+        accountId: key,
+        accountName: row.invoice.account?.party?.name ?? 'Unknown',
+        totalQty: 0,
+        totalAmount: 0,
+      };
+
+      existing.totalQty += Number(row.quantity);
+      existing.totalAmount += Number(row.amount);
+      grouped.set(key, existing);
     }
-    if (query.dateTo) {
-      conditions.push(Prisma.sql`i."invoiceDate" <= ${new Date(query.dateTo)}`);
-    }
 
-    const rows = await this.prisma.$queryRaw<
-      Array<{
-        accountId: string;
-        accountName: string;
-        totalQty: Decimal | number;
-        totalAmount: Decimal | number;
-      }>
-    >(Prisma.sql`
-      SELECT
-        i."accountId" AS "accountId",
-        a."name" AS "accountName",
-        COALESCE(SUM(ii."quantity"), 0) AS "totalQty",
-        COALESCE(SUM(ii."amount"), 0) AS "totalAmount"
-      FROM "InvoiceItem" ii
-      INNER JOIN "Invoice" i ON i."id" = ii."invoiceId"
-      INNER JOIN "Account" a ON a."id" = i."accountId"
-      WHERE ${Prisma.join(conditions, ' AND ')}
-      GROUP BY i."accountId", a."name"
-      ORDER BY a."name" ASC
-    `);
-
-    return rows.map((row) => ({
-      accountId: row.accountId,
-      accountName: row.accountName,
-      totalQty: this.round3(Number(row.totalQty ?? 0)),
-      totalAmount: this.round2(Number(row.totalAmount ?? 0)),
+    return Array.from(grouped.values()).map((row) => ({
+      ...row,
+      totalQty: this.round3(row.totalQty),
+      totalAmount: this.round2(row.totalAmount),
     }));
   }
 
-  // ═══════════════ DASHBOARD KPIs ═══════════════
+  async getGstr1(companyId: string, range: { dateFrom: string; dateTo: string }) {
+    const { from, to } = this.parseRange(range);
+    return this.prisma.invoice.findMany({
+      where: {
+        companyId,
+        type: { in: [InvoiceType.SALE, InvoiceType.SALE_RETURN] },
+        status: { not: InvoiceStatus.CANCELLED },
+        deletedAt: null,
+        invoiceDate: {
+          ...(from ? { gte: from } : {}),
+          ...(to ? { lte: to } : {}),
+        },
+      },
+      select: {
+        invoiceNumber: true,
+        invoiceDate: true,
+        type: true,
+        subTotal: true,
+        taxAmount: true,
+        discountAmount: true,
+        totalAmount: true,
+        account: {
+          select: {
+            party: {
+              select: { name: true, gstin: true },
+            },
+          },
+        },
+      },
+      orderBy: { invoiceDate: 'asc' },
+    });
+  }
 
-  async getDashboardKpis(companyId: string) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-
-    const [todayTotals, lifetimeTotals, totalProducts] = await Promise.all([
-      this.prisma.invoice.groupBy({
-        by: ['invoiceType'],
+  async getGstr3b(companyId: string, range: { dateFrom: string; dateTo: string }) {
+    const { from, to } = this.parseRange(range);
+    const [sales, purchases] = await Promise.all([
+      this.prisma.invoice.aggregate({
         where: {
           companyId,
-          invoiceType: { in: ['SALE', 'PURCHASE'] },
-          status: { not: 'CANCELLED' },
-          invoiceDate: { gte: today, lt: tomorrow },
+          type: { in: [InvoiceType.SALE, InvoiceType.SALE_RETURN] },
+          status: { not: InvoiceStatus.CANCELLED },
+          deletedAt: null,
+          invoiceDate: {
+            ...(from ? { gte: from } : {}),
+            ...(to ? { lte: to } : {}),
+          },
         },
-        _sum: { grandTotal: true },
+        _sum: { subTotal: true, taxAmount: true, totalAmount: true },
       }),
-      this.prisma.invoice.groupBy({
-        by: ['invoiceType'],
+      this.prisma.invoice.aggregate({
         where: {
           companyId,
-          invoiceType: { in: ['SALE', 'PURCHASE'] },
-          status: { not: 'CANCELLED' },
+          type: { in: [InvoiceType.PURCHASE, InvoiceType.PURCHASE_RETURN] },
+          status: { not: InvoiceStatus.CANCELLED },
+          deletedAt: null,
+          invoiceDate: {
+            ...(from ? { gte: from } : {}),
+            ...(to ? { lte: to } : {}),
+          },
         },
-        _sum: { grandTotal: true, paidAmount: true },
-      }),
-      this.prisma.product.count({
-        where: { companyId },
+        _sum: { subTotal: true, taxAmount: true, totalAmount: true },
       }),
     ]);
 
-    const saleToday = this.getInvoiceSummary(todayTotals, 'SALE');
-    const purchaseToday = this.getInvoiceSummary(todayTotals, 'PURCHASE');
-    const saleLifetime = this.getInvoiceSummary(lifetimeTotals, 'SALE');
-    const purchaseLifetime = this.getInvoiceSummary(lifetimeTotals, 'PURCHASE');
-
     return {
-      todaySales: this.round2(saleToday.grandTotal),
-      todayPurchases: this.round2(purchaseToday.grandTotal),
-      outstandingReceivable: this.round2(
-        saleLifetime.grandTotal - saleLifetime.paidAmount,
-      ),
-      outstandingPayable: this.round2(
-        purchaseLifetime.grandTotal - purchaseLifetime.paidAmount,
-      ),
-      totalProducts,
+      outward: {
+        taxableValue: Number(sales._sum.subTotal ?? 0),
+        tax: Number(sales._sum.taxAmount ?? 0),
+        total: Number(sales._sum.totalAmount ?? 0),
+      },
+      inward: {
+        taxableValue: Number(purchases._sum.subTotal ?? 0),
+        tax: Number(purchases._sum.taxAmount ?? 0),
+        total: Number(purchases._sum.totalAmount ?? 0),
+      },
     };
   }
 
-  async getMonthlySalesChart(companyId: string, year: number) {
-    const yearStart = new Date(year, 0, 1);
-    const nextYearStart = new Date(year + 1, 0, 1);
-
-    const rows = await this.prisma.$queryRaw<MonthlyInvoiceChartRow[]>(
-      Prisma.sql`
-        SELECT
-          EXTRACT(MONTH FROM "invoiceDate")::int AS "monthIndex",
-          "invoiceType" AS "invoiceType",
-          COALESCE(SUM("grandTotal"), 0) AS "total"
-        FROM "Invoice"
-        WHERE "companyId" = ${companyId}
-          AND "invoiceType" IN ('SALE', 'PURCHASE')
-          AND "status" <> 'CANCELLED'
-          AND "invoiceDate" >= ${yearStart}
-          AND "invoiceDate" < ${nextYearStart}
-        GROUP BY EXTRACT(MONTH FROM "invoiceDate"), "invoiceType"
-        ORDER BY EXTRACT(MONTH FROM "invoiceDate") ASC, "invoiceType" ASC
-      `,
-    );
-
-    return this.buildMonthlyChartSeries(rows);
-  }
-
-  private buildDateFilter(dateFrom?: string, dateTo?: string) {
-    if (!dateFrom && !dateTo) return {};
-    const filter: Record<string, unknown> = { invoiceDate: {} };
-    if (dateFrom)
-      (filter.invoiceDate as Record<string, unknown>).gte = new Date(dateFrom);
-    if (dateTo)
-      (filter.invoiceDate as Record<string, unknown>).lte = new Date(dateTo);
-    return filter;
-  }
-
-  private buildMovementDateFilter(dateFrom?: string, dateTo?: string) {
-    if (!dateFrom && !dateTo) return {};
-    const filter: Record<string, unknown> = { date: {} };
-    if (dateFrom)
-      (filter.date as Record<string, unknown>).gte = new Date(dateFrom);
-    if (dateTo) (filter.date as Record<string, unknown>).lte = new Date(dateTo);
-    return filter;
-  }
-
-  private isInboundMovement(type: string) {
-    return ['IN', 'ADJUSTMENT_IN', 'OPENING'].includes(type);
-  }
-
-  private getInvoiceSummary(
-    rows: InvoiceTypeSummaryRow[],
-    invoiceType: string,
-  ) {
-    const match = rows.find((row) => row.invoiceType === invoiceType);
-
-    return {
-      grandTotal: Number(match?._sum.grandTotal ?? 0),
-      paidAmount: Number(match?._sum.paidAmount ?? 0),
-    };
-  }
-
-  private buildMonthlyChartSeries(rows: MonthlyInvoiceChartRow[]) {
-    const totals = new Map<string, number>();
-
-    rows.forEach((row) => {
-      totals.set(
-        `${row.monthIndex}:${row.invoiceType}`,
-        this.round2(Number(row.total ?? 0)),
-      );
+  async getGstSlabWise(companyId: string, range: { dateFrom: string; dateTo: string }) {
+    const { from, to } = this.parseRange(range);
+    const slabs = await this.prisma.invoiceItem.groupBy({
+      by: ['taxRate'],
+      where: {
+        invoice: {
+          companyId,
+          type: { in: [InvoiceType.SALE, InvoiceType.PURCHASE] },
+          status: { not: InvoiceStatus.CANCELLED },
+          deletedAt: null,
+          invoiceDate: {
+            ...(from ? { gte: from } : {}),
+            ...(to ? { lte: to } : {}),
+          },
+        },
+      },
+      _sum: {
+        amount: true,
+        taxAmount: true,
+      },
+      _count: { _all: true },
     });
 
-    return MONTH_LABELS.map((month, index) => ({
-      month,
-      sales: totals.get(`${index + 1}:SALE`) ?? 0,
-      purchases: totals.get(`${index + 1}:PURCHASE`) ?? 0,
+    return slabs.map((slab) => ({
+      gstRate: Number(slab.taxRate),
+      taxableAmount: Number(slab._sum.amount ?? 0),
+      taxAmount: Number(slab._sum.taxAmount ?? 0),
+      count: slab._count._all,
     }));
   }
 
-  private getSignedStockQuantity(type: string, quantity: number) {
-    return this.isInboundMovement(type) ? quantity : -quantity;
+  async getTrialBalance(companyId: string, range: DateRangeInput) {
+    const { from, to } = this.parseRange(range);
+    const grouped = await this.prisma.ledgerEntry.groupBy({
+      by: ['accountId'],
+      where: {
+        companyId,
+        deletedAt: null,
+        ...(from || to
+          ? {
+              date: {
+                ...(from ? { gte: from } : {}),
+                ...(to ? { lte: to } : {}),
+              },
+            }
+          : {}),
+      },
+      _sum: { debit: true, credit: true },
+    });
+
+    const accounts = await this.prisma.account.findMany({
+      where: { id: { in: grouped.map((row) => row.accountId) } },
+      select: {
+        id: true,
+        group: true,
+        party: { select: { name: true } },
+      },
+    });
+    const accountMap = new Map(accounts.map((row) => [row.id, row]));
+
+    return grouped.map((row) => {
+      const account = accountMap.get(row.accountId);
+      const debit = Number(row._sum.debit ?? 0);
+      const credit = Number(row._sum.credit ?? 0);
+      return {
+        accountId: row.accountId,
+        accountName: account?.party?.name ?? 'Unknown',
+        group: account?.group ?? null,
+        debit: this.round2(debit),
+        credit: this.round2(credit),
+        balance: this.round2(debit - credit),
+      };
+    });
+  }
+
+  async getProfitAndLoss(companyId: string, range: DateRangeInput) {
+    const { from, to } = this.parseRange(range);
+    const [sales, saleReturns, purchases, purchaseReturns] = await Promise.all([
+      this.sumByType(companyId, InvoiceType.SALE, from, to),
+      this.sumByType(companyId, InvoiceType.SALE_RETURN, from, to),
+      this.sumByType(companyId, InvoiceType.PURCHASE, from, to),
+      this.sumByType(companyId, InvoiceType.PURCHASE_RETURN, from, to),
+    ]);
+
+    const revenue = sales - saleReturns;
+    const expenses = purchases - purchaseReturns;
+    return {
+      revenue: this.round2(revenue),
+      expenses: this.round2(expenses),
+      netProfit: this.round2(revenue - expenses),
+    };
+  }
+
+  async getBalanceSheet(companyId: string, query: { dateTo?: string }) {
+    const trial = await this.getTrialBalance(companyId, {
+      dateTo: query.dateTo,
+    });
+
+    const assets = trial
+      .filter((row) =>
+        ['SUNDRY_DEBTORS', 'BANK', 'CASH'].includes(String(row.group)),
+      )
+      .reduce((sum, row) => sum + row.balance, 0);
+    const liabilities = trial
+      .filter((row) =>
+        ['SUNDRY_CREDITORS', 'CAPITAL'].includes(String(row.group)),
+      )
+      .reduce((sum, row) => sum + Math.abs(row.balance), 0);
+
+    return {
+      assets: this.round2(assets),
+      liabilities: this.round2(liabilities),
+      difference: this.round2(assets - liabilities),
+      rows: trial,
+    };
+  }
+
+  private async computeOutstanding(companyId: string) {
+    const invoices = await this.prisma.invoice.findMany({
+      where: {
+        companyId,
+        deletedAt: null,
+        status: { not: InvoiceStatus.CANCELLED },
+      },
+      select: {
+        id: true,
+        type: true,
+        totalAmount: true,
+      },
+    });
+
+    const groupedPayments = await this.prisma.ledgerEntry.groupBy({
+      by: ['invoiceId'],
+      where: {
+        companyId,
+        invoiceId: { not: null },
+      },
+      _sum: { credit: true },
+    });
+
+    const paidMap = new Map(
+      groupedPayments.map((row) => [row.invoiceId ?? '', Number(row._sum.credit ?? 0)]),
+    );
+
+    let receivable = 0;
+    let payable = 0;
+
+    for (const invoice of invoices) {
+      const paid = paidMap.get(invoice.id) ?? 0;
+      const remaining = Math.max(0, Number(invoice.totalAmount) - paid);
+      if (invoice.type === InvoiceType.SALE || invoice.type === InvoiceType.SALE_RETURN) {
+        receivable += remaining;
+      } else {
+        payable += remaining;
+      }
+    }
+
+    return {
+      receivable: this.round2(receivable),
+      payable: this.round2(payable),
+    };
+  }
+
+  private async getOutstandingByType(
+    companyId: string,
+    type: InvoiceType,
+    range: DateRangeInput,
+  ) {
+    const { from, to } = this.parseRange(range);
+    const invoices = await this.prisma.invoice.findMany({
+      where: {
+        companyId,
+        type,
+        status: { not: InvoiceStatus.CANCELLED },
+        deletedAt: null,
+        ...(from || to
+          ? {
+              invoiceDate: {
+                ...(from ? { gte: from } : {}),
+                ...(to ? { lte: to } : {}),
+              },
+            }
+          : {}),
+      },
+      select: {
+        id: true,
+        accountId: true,
+        totalAmount: true,
+      },
+    });
+
+    const groupedPayments = await this.prisma.ledgerEntry.groupBy({
+      by: ['invoiceId'],
+      where: {
+        companyId,
+        invoiceId: { in: invoices.map((invoice) => invoice.id) },
+      },
+      _sum: { credit: true },
+    });
+    const paidMap = new Map(
+      groupedPayments.map((row) => [row.invoiceId ?? '', Number(row._sum.credit ?? 0)]),
+    );
+
+    const groupedByAccount = new Map<string, { totalDue: number; invoiceCount: number }>();
+    for (const invoice of invoices) {
+      const paid = paidMap.get(invoice.id) ?? 0;
+      const due = Math.max(0, Number(invoice.totalAmount) - paid);
+      const existing = groupedByAccount.get(invoice.accountId) ?? {
+        totalDue: 0,
+        invoiceCount: 0,
+      };
+      existing.totalDue += due;
+      existing.invoiceCount += 1;
+      groupedByAccount.set(invoice.accountId, existing);
+    }
+
+    const accounts = await this.prisma.account.findMany({
+      where: { id: { in: Array.from(groupedByAccount.keys()) } },
+      select: {
+        id: true,
+        party: {
+          select: { name: true, gstin: true, address: true },
+        },
+      },
+    });
+    const accountMap = new Map(accounts.map((row) => [row.id, row]));
+
+    return Array.from(groupedByAccount.entries()).map(([accountId, summary]) => {
+      const account = accountMap.get(accountId);
+      return {
+        id: accountId,
+        name: account?.party?.name ?? 'Unknown',
+        gstin: account?.party?.gstin ?? null,
+        address: account?.party?.address ?? null,
+        totalDue: this.round2(summary.totalDue),
+        invoiceCount: summary.invoiceCount,
+      };
+    });
+  }
+
+  private async sumByType(
+    companyId: string,
+    type: InvoiceType,
+    from?: Date,
+    to?: Date,
+  ) {
+    const aggregate = await this.prisma.invoice.aggregate({
+      where: {
+        companyId,
+        type,
+        status: { not: InvoiceStatus.CANCELLED },
+        deletedAt: null,
+        ...(from || to
+          ? {
+              invoiceDate: {
+                ...(from ? { gte: from } : {}),
+                ...(to ? { lte: to } : {}),
+              },
+            }
+          : {}),
+      },
+      _sum: { totalAmount: true },
+    });
+    return Number(aggregate._sum.totalAmount ?? 0);
+  }
+
+  private parseRange(input: DateRangeInput) {
+    return {
+      from: input.dateFrom ? new Date(input.dateFrom) : undefined,
+      to: input.dateTo ? new Date(input.dateTo) : undefined,
+    };
+  }
+
+  private stockSignedQty(type: MovementType, quantity: number) {
+    return type === MovementType.IN ? quantity : -quantity;
   }
 
   private round2(value: number) {

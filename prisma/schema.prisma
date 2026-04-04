@@ -1,4 +1,8 @@
-// TextileBill SaaS — Complete Database Schema
+// ==========================================
+// PRISMA SCHEMA — TEXTILEBOOK ERP
+// Multi-Tenant | PostgreSQL | Production-Ready
+// Target: 1k+ users, financial accuracy, audit trail
+// ==========================================
 
 generator client {
   provider = "prisma-client-js"
@@ -9,918 +13,545 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// SAAS LAYER
-// ═══════════════════════════════════════════════════════════════════
+// ------------------------------------------
+// ENUMS
+// ------------------------------------------
 
-model Plan {
-  id            String         @id @default(uuid())
-  name          String         @unique             // "monthly", "6-month", "annual"
-  displayName   String
-  durationDays  Int                                 // 30, 180, 365
-  price         Decimal        @db.Decimal(10, 2)
-  currency      String         @default("INR")
-  maxUsers      Int            @default(5)
-  maxCompanies  Int            @default(3)
-  isActive      Boolean        @default(true)
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-
-  subscriptions Subscription[]
+enum UserRole {
+  OWNER // full access, can manage users
+  ADMIN // manage company settings
+  MANAGER // create/edit invoices
+  ACCOUNTANT // read + ledger
+  VIEWER // read only
 }
 
+enum InvoiceStatus {
+  DRAFT
+  ACTIVE
+  CANCELLED
+}
+
+enum InvoiceType {
+  SALE
+  PURCHASE
+  SALE_RETURN
+  PURCHASE_RETURN
+}
+
+enum EntityStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum MovementType {
+  IN
+  OUT
+}
+
+enum AccountGroupType {
+  SUNDRY_DEBTORS
+  SUNDRY_CREDITORS
+  BANK
+  CASH
+  CAPITAL
+  EXPENSE
+}
+
+enum VoucherType {
+  SALE
+  PURCHASE
+  SALE_RETURN
+  PURCHASE_RETURN
+  PAYMENT
+  RECEIPT
+  JOURNAL
+}
+
+enum OtpPurpose {
+  LOGIN
+  RESET_PASSWORD
+  VERIFY_EMAIL
+}
+
+// ------------------------------------------
+// TENANT  (root of every relation)
+// ------------------------------------------
+
 model Tenant {
-  id            String         @id @default(uuid())
-  name          String                              // Business name
-  slug          String         @unique              // URL-safe identifier
-  gstin         String?
-  address       String?
-  city          String?
-  state         String?        @default("Gujarat")
-  pincode       String?
-  phone         String?
-email         String?
-  logoUrl       String?                             // S3 URL
-  isActive      Boolean        @default(true)
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  id        String       @id @default(uuid())
+  name      String
+  slug      String       @unique
+  status    EntityStatus @default(ACTIVE)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  deletedAt DateTime?
 
-  users         User[]
-  passwordTokens PasswordLifecycleToken[]
-  companies     Company[]
+  companies        Company[]
+  subscriptions    Subscription[]
+  users            User[]
+  userCompanies    UserCompany[]
+  parties          Party[]
+  products         Product[]
+  accounts         Account[]
+  invoices         Invoice[]
+  invoiceItems     InvoiceItem[]
+  ledgerEntries    LedgerEntry[]
+  stockMovements   StockMovement[]
+  refreshTokens    RefreshToken[]
+  financialYears   FinancialYear[]
+  voucherSequences VoucherSequence[]
+  otpChallenges    OtpChallenge[]
+
+  @@index([deletedAt])
+}
+
+// ------------------------------------------
+// COMPANY
+// ------------------------------------------
+
+model Company {
+  id        String       @id @default(uuid())
+  tenantId  String
+  name      String
+  gstin     String?
+  address   String?
+  phone     String?
+  email     String?
+  logoUrl   String?
+  status    EntityStatus @default(ACTIVE)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  deletedAt DateTime?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  userCompanies    UserCompany[]
+  accounts         Account[]
+  invoices         Invoice[]
+  invoiceItems     InvoiceItem[]
+  financialYears   FinancialYear[]
+  voucherSequences VoucherSequence[]
+  ledgerEntries    LedgerEntry[]
+  stockMovements   StockMovement[]
+  products         Product[]
+
+  @@unique([id, tenantId])
+  @@index([tenantId, status])
+  @@index([deletedAt])
+}
+
+// ------------------------------------------
+// USER
+// ------------------------------------------
+
+model User {
+  id           String       @id @default(uuid())
+  tenantId     String
+  email        String       @unique
+  passwordHash String
+  name         String
+  phone        String?
+  status       EntityStatus @default(ACTIVE)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  deletedAt    DateTime?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  userCompanies UserCompany[]
+  refreshTokens RefreshToken[]
+  otpChallenges OtpChallenge[]
+  // SQL: CREATE UNIQUE INDEX ON "User"(tenantId, LOWER(email)) WHERE "deletedAt" IS NULL;
+
+  @@unique([id, tenantId])
+  @@index([tenantId, email])
+  @@index([deletedAt])
+}
+
+// Per-company role — a user can be MANAGER in Company A, VIEWER in Company B
+model UserCompany {
+  id        String   @id @default(uuid())
+  tenantId  String
+  userId    String
+  companyId String
+  role      UserRole
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user    User    @relation(fields: [userId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  company Company @relation(fields: [companyId, tenantId], references: [id, tenantId], onDelete: Restrict)
+
+  @@unique([userId, companyId])
+  @@index([tenantId, companyId])
+}
+
+// ------------------------------------------
+// AUTH
+// ------------------------------------------
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  tenantId  String
+  userId    String
+  tokenHash String    @unique
+  deviceId  String?
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user   User   @relation(fields: [userId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  // SQL: CREATE INDEX ON "RefreshToken"("expiresAt") WHERE "revokedAt" IS NULL;
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+}
+
+model OtpChallenge {
+  id        String     @id @default(uuid())
+  tenantId  String
+  userId    String
+  purpose   OtpPurpose
+  otpHash   String
+  expiresAt DateTime
+  usedAt    DateTime?
+  attempts  Int        @default(0) // brute-force guard
+  createdAt DateTime   @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user   User   @relation(fields: [userId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  // SQL: CREATE UNIQUE INDEX ON "OtpChallenge"("userId", "purpose") WHERE "usedAt" IS NULL;
+  // SQL: ALTER TABLE "OtpChallenge" ADD CONSTRAINT chk_attempts CHECK (attempts <= 5);
+
+  @@index([userId, purpose])
+}
+
+// ------------------------------------------
+// PARTY & ACCOUNT
+// ------------------------------------------
+
+model Party {
+  id        String    @id @default(uuid())
+  tenantId  String
+  name      String
+  gstin     String?
+  phone     String?
+  email     String?
+  address   String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  accounts Account[]
+  // SQL: CREATE UNIQUE INDEX ON "Party"(tenantId, LOWER(gstin)) WHERE gstin IS NOT NULL AND "deletedAt" IS NULL;
+
+  @@unique([id, tenantId])
+  @@index([tenantId, name])
+  @@index([deletedAt])
+}
+
+model Account {
+  id             String           @id @default(uuid())
+  tenantId       String
+  companyId      String
+  partyId        String
+  group          AccountGroupType
+  openingBalance Decimal          @default(0) @db.Decimal(14, 2)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  deletedAt      DateTime?
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  party   Party   @relation(fields: [partyId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  company Company @relation(fields: [companyId, tenantId], references: [id, tenantId], onDelete: Restrict)
+
+  invoices      Invoice[]
+  ledgerEntries LedgerEntry[]
+  // SQL: CREATE UNIQUE INDEX ON "Account"("companyId", "partyId") WHERE "deletedAt" IS NULL;
+
+  @@unique([id, tenantId])
+  @@index([tenantId, companyId])
+  @@index([deletedAt])
+}
+
+// ------------------------------------------
+// PRODUCT
+// ------------------------------------------
+
+model Product {
+  id        String    @id @default(uuid())
+  tenantId  String
+  companyId String
+  name      String
+  sku       String?
+  unit      String    @default("MTR") // MTR | KG | PCS | BOX
+  price     Decimal   @db.Decimal(14, 2)
+  taxRate   Decimal   @default(0) @db.Decimal(5, 2) // GST %
+  hsnCode   String? // HSN for GST filing
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company Company @relation(fields: [companyId, tenantId], references: [id, tenantId], onDelete: Restrict)
+
+  invoiceItems   InvoiceItem[]
+  stockMovements StockMovement[]
+  // SQL: CREATE UNIQUE INDEX ON "Product"("companyId", LOWER(sku)) WHERE sku IS NOT NULL AND "deletedAt" IS NULL;
+
+  @@unique([id, tenantId])
+  @@index([tenantId, companyId])
+  @@index([deletedAt])
+}
+
+// ------------------------------------------
+// FINANCIAL YEAR
+// ------------------------------------------
+
+model FinancialYear {
+  id        String   @id @default(uuid())
+  tenantId  String
+  companyId String
+  startDate DateTime @db.Date
+  endDate   DateTime @db.Date
+  isLocked  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company Company @relation(fields: [companyId, tenantId], references: [id, tenantId], onDelete: Restrict)
+
+  voucherSequences VoucherSequence[]
+  invoices         Invoice[]
+  // SQL: ALTER TABLE "FinancialYear" ADD CONSTRAINT chk_dates CHECK ("endDate" > "startDate");
+
+  @@unique([id, tenantId])
+  @@unique([companyId, startDate, endDate])
+  @@index([tenantId])
+}
+
+// Atomic counter per voucher type per FY — use SELECT FOR UPDATE when incrementing
+model VoucherSequence {
+  id              String      @id @default(uuid())
+  tenantId        String
+  companyId       String
+  financialYearId String
+  type            VoucherType
+  prefix          String
+  currentValue    Int         @default(0)
+
+  tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company       Company       @relation(fields: [companyId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  financialYear FinancialYear @relation(fields: [financialYearId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  // SQL: ALTER TABLE "VoucherSequence" ADD CONSTRAINT chk_seq CHECK ("currentValue" >= 0);
+
+  @@unique([companyId, financialYearId, type])
+  @@index([tenantId])
+}
+
+// ------------------------------------------
+// INVOICE  (immutable versioning pattern)
+// Edit = cancel current + create new version pointing to originalId
+// ------------------------------------------
+
+model Invoice {
+  id              String        @id @default(uuid())
+  tenantId        String
+  companyId       String
+  accountId       String
+  financialYearId String
+  invoiceNumber   String
+  invoiceDate     DateTime      @db.Date
+  dueDate         DateTime?     @db.Date
+  type            InvoiceType   @default(SALE)
+  status          InvoiceStatus @default(ACTIVE)
+  version         Int           @default(1)
+  originalId      String? // null on v1; subsequent versions point to root
+  isLatest        Boolean       @default(true)
+  notes           String?
+  subTotal        Decimal       @db.Decimal(14, 2)
+  taxAmount       Decimal       @db.Decimal(14, 2)
+  discountAmount  Decimal       @default(0) @db.Decimal(14, 2)
+  totalAmount     Decimal       @db.Decimal(14, 2)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  deletedAt       DateTime?
+
+  tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company       Company       @relation(fields: [companyId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  account       Account       @relation(fields: [accountId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  financialYear FinancialYear @relation(fields: [financialYearId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  original      Invoice?      @relation("InvoiceVersions", fields: [originalId], references: [id])
+  versions      Invoice[]     @relation("InvoiceVersions")
+
+  items          InvoiceItem[]
+  ledgerEntries  LedgerEntry[]
+  stockMovements StockMovement[]
+
+  // SQL:
+  // CREATE UNIQUE INDEX ON "Invoice"("companyId", "financialYearId", "invoiceNumber", version)
+  //   WHERE "deletedAt" IS NULL;
+  // CREATE UNIQUE INDEX ON "Invoice"("originalId")
+  //   WHERE "isLatest" = true AND "originalId" IS NOT NULL;
+  // ALTER TABLE "Invoice" ADD CONSTRAINT chk_total
+  //   CHECK ("totalAmount" = "subTotal" + "taxAmount" - "discountAmount");
+  // ALTER TABLE "Invoice" ADD CONSTRAINT chk_version CHECK (version >= 1);
+  // ALTER TABLE "Invoice" ADD CONSTRAINT chk_amounts
+  //   CHECK ("subTotal" >= 0 AND "taxAmount" >= 0 AND "discountAmount" >= 0);
+
+  @@unique([id, tenantId])
+  @@index([tenantId, companyId, invoiceDate])
+  @@index([tenantId, companyId, accountId])
+  @@index([tenantId, status, isLatest])
+  @@index([originalId])
+  @@index([deletedAt])
+}
+
+// ------------------------------------------
+// INVOICE ITEMS
+// ------------------------------------------
+
+model InvoiceItem {
+  id        String  @id @default(uuid())
+  tenantId  String
+  companyId String
+  invoiceId String
+  productId String
+  quantity  Decimal @db.Decimal(12, 3)
+  rate      Decimal @db.Decimal(14, 2)
+  taxRate   Decimal @default(0) @db.Decimal(5, 2)
+  taxAmount Decimal @default(0) @db.Decimal(14, 2)
+  amount    Decimal @db.Decimal(14, 2) // quantity × rate (excl. tax)
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company Company @relation(fields: [companyId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  // SQL: ALTER TABLE "InvoiceItem" ADD CONSTRAINT chk_item
+  //   CHECK (quantity > 0 AND rate >= 0 AND amount >= 0);
+
+  @@index([tenantId, invoiceId])
+  @@index([tenantId, productId])
+}
+
+// ------------------------------------------
+// LEDGER  (double-entry, one-sided rows)
+// ------------------------------------------
+
+model LedgerEntry {
+  id        String    @id @default(uuid())
+  tenantId  String
+  companyId String
+  accountId String
+  invoiceId String?
+  date      DateTime  @db.Date
+  debit     Decimal   @default(0) @db.Decimal(14, 2)
+  credit    Decimal   @default(0) @db.Decimal(14, 2)
+  narration String?
+  createdAt DateTime  @default(now())
+  deletedAt DateTime?
+
+  tenant  Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company Company  @relation(fields: [companyId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  account Account  @relation(fields: [accountId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  invoice Invoice? @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+
+  // SQL:
+  // ALTER TABLE "LedgerEntry" ADD CONSTRAINT chk_ledger_sides
+  //   CHECK (debit >= 0 AND credit >= 0 AND (debit > 0 OR credit > 0));
+  // ALTER TABLE "LedgerEntry" ADD CONSTRAINT chk_no_mixed_entry
+  //   CHECK (NOT (debit > 0 AND credit > 0)); -- one-sided rows only
+
+  @@index([tenantId, accountId, date])
+  @@index([tenantId, companyId, date])
+  @@index([invoiceId])
+  @@index([deletedAt])
+}
+
+// ------------------------------------------
+// STOCK
+// ------------------------------------------
+
+model StockMovement {
+  id        String       @id @default(uuid())
+  tenantId  String
+  companyId String
+  productId String
+  invoiceId String? // null = manual adjustment
+  type      MovementType
+  quantity  Decimal      @db.Decimal(12, 3)
+  date      DateTime     @db.Date
+  notes     String?
+  createdAt DateTime     @default(now())
+  deletedAt DateTime?
+
+  tenant  Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company Company  @relation(fields: [companyId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  product Product  @relation(fields: [productId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  invoice Invoice? @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  // SQL: ALTER TABLE "StockMovement" ADD CONSTRAINT chk_qty CHECK (quantity > 0);
+
+  @@index([tenantId, companyId, productId, date])
+  @@index([invoiceId])
+  @@index([deletedAt])
+}
+
+// ------------------------------------------
+// PLAN & SUBSCRIPTION
+// ------------------------------------------
+
+enum SubscriptionStatus {
+  ACTIVE
+  EXPIRED
+  CANCELLED
+  PENDING
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+model Plan {
+  id           String       @id @default(uuid())
+  name         String       @unique
+  description  String?
+  price        Decimal      @db.Decimal(10, 2)
+  durationDays Int // e.g., 30 for 1 month, 90 for 3 months
+  maxUsers     Int          @default(0) // 0 for unlimited
+  maxCompanies Int          @default(0) // 0 for unlimited
+  features     Json? // Optional JSON for fine-grained feature toggles
+  status       EntityStatus @default(ACTIVE)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
   subscriptions Subscription[]
-
-  @@index([slug])
 }
 
 model Subscription {
   id            String             @id @default(uuid())
   tenantId      String
   planId        String
-  status        SubscriptionStatus @default(ACTIVE)
-  startDate     DateTime
+  startDate     DateTime           @default(now())
   endDate       DateTime
-  amount        Decimal            @db.Decimal(10, 2)
-  currency      String             @default("INR")
-  createdAt     DateTime           @default(now())
-  updatedAt     DateTime           @updatedAt
+  status        SubscriptionStatus @default(ACTIVE)
+  paymentStatus PaymentStatus      @default(PAID)
+  amountPaid    Decimal            @default(0) @db.Decimal(10, 2)
+  reference     String? // Payment or transaction reference
 
-  tenant        Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  plan          Plan               @relation(fields: [planId], references: [id])
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 
-  @@index([tenantId, status])
-  @@index([endDate])
-  @@index([tenantId, endDate, status])
-}
-
-enum SubscriptionStatus {
-  ACTIVE
-  EXPIRED
-  CANCELLED
-  TRIAL
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// USER LAYER
-// ═══════════════════════════════════════════════════════════════════
-
-model User {
-  id                String    @id @default(uuid())
-  tenantId          String
-  email             String    @unique
-  username          String    @unique
-  passwordHash      String
-  role              UserRole  @default(STAFF)
-  firstName         String?
-  lastName          String?
-  phone             String?
-  emailVerifiedAt   DateTime?
-  phoneVerifiedAt   DateTime?
-  avatarUrl            String?
-  isActive             Boolean   @default(true)
-  inviteToken          String?   @unique
-  inviteTokenExpiresAt DateTime?
-  lastLoginAt          DateTime?
-  passwordChangedAt    DateTime?
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
-
-  tenant            Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  refreshTokens     RefreshToken[]
-  passwordTokens    PasswordLifecycleToken[]
-  companyAccess     UserCompanyAccess[]
-  auditLogs         AuditLog[]
-  invoicesCreated   Invoice[]        @relation("InvoiceCreatedBy")
-  otpChallenges     OtpChallenge[]
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  plan   Plan   @relation(fields: [planId], references: [id], onDelete: Restrict)
 
   @@index([tenantId])
-  @@index([email])
-  @@index([username])
-}
-
-model PasswordLifecycleToken {
-  id                  String              @id @default(uuid())
-  tenantId            String
-  userId              String
-  tokenHash           String              @unique
-  type                PasswordTokenType
-  status              PasswordTokenStatus @default(ACTIVE)
-  expiresAt           DateTime
-  usedAt              DateTime?
-  resendCount         Int                 @default(0)
-  maxResends          Int                 @default(3)
-  requestedByRole     String?
-  requestedByUserId   String?
-  createdAt           DateTime            @default(now())
-  updatedAt           DateTime            @updatedAt
-
-  tenant              Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  user                User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId, type, status])
-  @@index([tenantId, status, expiresAt])
-  @@index([expiresAt])
-  @@index([createdAt])
-}
-
-enum PasswordTokenType {
-  SETUP_PASSWORD
-  RESET_PASSWORD
-}
-
-enum PasswordTokenStatus {
-  ACTIVE
-  USED
-  EXPIRED
-  REVOKED
-}
-
-enum UserRole {
-  SUPER_ADMIN
-  TENANT_ADMIN
-  MANAGER
-  STAFF
-  ACCOUNTANT
-  VIEWER
-}
-
-model RefreshToken {
-  id          String    @id @default(uuid())
-  userId      String
-  token       String?   @unique
-  tokenHash   String?   @unique
-  deviceId    String?
-  userAgent   String?
-  ipAddress   String?
-  lastUsedAt  DateTime?
-  expiresAt   DateTime
-  createdAt   DateTime  @default(now())
-  revokedAt   DateTime?
-
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([token])
-  @@index([tokenHash])
-  @@index([userId])
-  @@index([userId, revokedAt, expiresAt])
-  @@index([expiresAt])
-}
-
-model OtpChallenge {
-  id               String              @id @default(uuid())
-  userId           String
-  purpose          OtpPurpose
-  requestedChannel OtpDeliveryChannel
-  deliveredChannel OtpDeliveryChannel
-  targetIdentifier String
-  expiresAt        DateTime
-  attempts         Int                 @default(0)
-  resendCount      Int                 @default(0)
-  lastSentAt       DateTime            @default(now())
-  verifiedAt       DateTime?
-  createdAt        DateTime            @default(now())
-  updatedAt        DateTime            @updatedAt
-
-  user             User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId, purpose, verifiedAt])
-  @@index([expiresAt])
-}
-
-enum OtpPurpose {
-  LOGIN
-  VERIFY_EMAIL
-  VERIFY_WHATSAPP
-  PASSWORD_RESET
-}
-
-enum OtpDeliveryChannel {
-  EMAIL
-  WHATSAPP
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// COMPANY / MULTI-COMPANY LAYER
-// ═══════════════════════════════════════════════════════════════════
-
-model Company {
-  id              String    @id @default(uuid())
-  tenantId        String
-  name            String
-  gstin           String?
-  address         String?
-  city            String?
-  state           String?   @default("Gujarat")
-  pincode         String?
-  phone           String?
-email           String?
-  logoUrl         String?
-  bankName        String?
-  bankAccountNo   String?
-  bankIfsc        String?
-  bankBranch      String?
-  isActive        Boolean   @default(true)
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-
-  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  userAccess      UserCompanyAccess[]
-  financialYears  FinancialYear[]
-  settings        CompanySettings?
-  products        Product[]
-  accounts        Account[]
-  invoices        Invoice[]
-  cashBookEntries CashBookEntry[]
-  bankBookEntries BankBookEntry[]
-  journalEntries  JournalEntry[]
-  ledgerEntries   LedgerEntry[]
-  stockMovements  StockMovement[]
-  invoiceNumberConfigs InvoiceNumberConfig[]
-  voucherSequences VoucherSequence[]
-  auditLogs       AuditLog[]
-
-  @@index([tenantId])
-}
-
-model UserCompanyAccess {
-  id          String  @id @default(uuid())
-  userId      String
-  companyId   String
-  createdAt   DateTime @default(now())
-
-  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  company     Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, companyId])
-  @@index([userId])
-  @@index([companyId])
-  @@index([companyId, userId])
-}
-
-model FinancialYear {
-  id          String    @id @default(uuid())
-  companyId   String
-  name        String                          // "2024-25"
-  startDate   DateTime
-  endDate     DateTime
-  isActive    Boolean   @default(false)
-  createdAt   DateTime  @default(now())
-
-  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  invoices    Invoice[]
-  voucherSequences VoucherSequence[]
-
-  @@index([companyId])
-  @@index([companyId, isActive])
-  @@unique([companyId, name])
-}
-
-model CompanySettings {
-  id                    String    @id @default(uuid())
-  companyId             String    @unique
-  defaultFinancialYearId String?
-  primaryBankBookAccount String?
-  defaultDateFilter     String?   @default("date-wise")
-  defaultFilterDays     Int?      @default(30)
-  showAllFyInvoices     Boolean   @default(false)
-  pdfFontFamily         String?   @default("Roboto")
-  pdfFontSize           Int?      @default(10)
-  ewayBillUsername      String?
-  ewayBillPassword      String?
-  ewayBillPasswordEnc   String?
-  einvoiceUsername       String?
-  einvoicePassword      String?
-  einvoicePasswordEnc   String?
-  discountMode          String?   @default("percentage")
-  showRevenueAccount    Boolean   @default(false)
-  showShipping          Boolean   @default(false)
-  showPlaceOfSupply     Boolean   @default(true)
-  changeTaxPerProduct   Boolean   @default(false)
-  allowNegativeStock    Boolean   @default(false)
-  priceSelection        String?   @default("retail")
-  partyWisePricing      Boolean   @default(false)
-  posRateMode           Boolean   @default(false)
-  currency              String?   @default("INR")
-  currencySymbol        String?   @default("₹")
-  closingStockMethod    String?   @default("FIFO")
-  language              String?   @default("en")
-  chequePrintLeft       Int?      @default(0)
-  chequePrintRight      Int?      @default(0)
-  chequePrintTop        Int?      @default(0)
-  chequePrintBottom     Int?      @default(0)
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
-
-  company               Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// MASTER DATA — PRODUCTS & INVENTORY
-// ═══════════════════════════════════════════════════════════════════
-
-model ProductCategory {
-  id          String    @id @default(uuid())
-  companyId   String
-  name        String
-  createdAt   DateTime  @default(now())
-
-  products    Product[]
-
-  @@unique([companyId, name])
-}
-
-model Brand {
-  id          String    @id @default(uuid())
-  companyId   String
-  name        String
-  createdAt   DateTime  @default(now())
-
-  products    Product[]
-
-  @@unique([companyId, name])
-}
-
-model UnitOfMeasurement {
-  id          String    @id @default(uuid())
-  name        String                           // "PCS", "MTR", "KGS"
-  fullName    String?                          // "Pieces", "Meters", "Kilograms"
-  isDefault   Boolean   @default(false)
-  createdAt   DateTime  @default(now())
-
-  products    Product[]
-
-  @@unique([name])
-}
-
-model Product {
-  id                String    @id @default(uuid())
-  companyId         String
-  name              String
-  searchCode        String?
-  hsnCode           String?
-  sacCode           String?
-  description       String?
-  retailPrice       Decimal?  @db.Decimal(12, 2)
-  buyingPrice       Decimal?  @db.Decimal(12, 2)
-  mrp               Decimal?  @db.Decimal(12, 2)
-  wholesalerPrice   Decimal?  @db.Decimal(12, 2)
-  distributorPrice  Decimal?  @db.Decimal(12, 2)
-  gstRate           Decimal   @default(0) @db.Decimal(5, 2)
-  uomId             String?
-  type              ProductType @default(GOODS)
-  gstConsiderAs     GstConsiderAs @default(TAXABLE)
-  categoryId        String?
-  brandId           String?
-  defaultQty        Decimal?  @db.Decimal(12, 3) @default(1)
-  defaultDiscount   Decimal?  @db.Decimal(5, 2) @default(0)
-  minimumQty        Decimal?  @db.Decimal(12, 3) @default(0)
-  customField1      String?
-  customField2      String?
-  customField3      String?
-  customField4      String?
-  customField5      String?
-  customField6      String?
-  version           Int       @default(1)
-  isActive          Boolean   @default(true)
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-
-  company           Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  uom               UnitOfMeasurement? @relation(fields: [uomId], references: [id])
-  category          ProductCategory? @relation(fields: [categoryId], references: [id])
-  brand             Brand?           @relation(fields: [brandId], references: [id])
-  invoiceItems      InvoiceItem[]
-  stockMovements    StockMovement[]
-  openingStocks     OpeningStock[]
-
-  @@index([companyId])
-  @@index([name])
-  @@index([hsnCode])
-  @@index([searchCode])
-}
-
-enum ProductType {
-  GOODS
-  SERVICES
-}
-
-enum GstConsiderAs {
-  TAXABLE
-  NIL_RATED
-  EXEMPTED
-  ZERO_RATED
-  NON_GST
-  REVERSE_CHARGE
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// MASTER DATA — ACCOUNTS (CUSTOMERS / SUPPLIERS)
-// ═══════════════════════════════════════════════════════════════════
-
-model AccountGroup {
-  id          String    @id @default(uuid())
-  name        String    @unique
-  parentId    String?
-  nature      String?
-  isDefault   Boolean   @default(false)
-  createdAt   DateTime  @default(now())
-
-  parent      AccountGroup?  @relation("AccountGroupTree", fields: [parentId], references: [id])
-  children    AccountGroup[] @relation("AccountGroupTree")
-  accounts    Account[]
-}
-
-model Broker {
-  id          String    @id @default(uuid())
-  companyId   String
-  name        String
-  phone       String?
-email       String?
-  marginRate  Decimal?  @db.Decimal(5, 2)
-  isActive    Boolean   @default(true)
-  createdAt   DateTime  @default(now())
-
-  accounts    Account[]
-  invoices    Invoice[]
-
-  @@index([companyId])
-}
-
-model Account {
-  id                    String    @id @default(uuid())
-  companyId             String
-  name                  String
-  searchCode            String?
-  groupId               String?
-  gstin                 String?
-  gstType               GstType?  @default(REGULAR)
-  priceSelection        String?   @default("retail")
-  address               String?
-  city                  String?
-  state                 String?   @default("Gujarat")
-  country               String?   @default("India")
-  pincode               String?
-  shippingAddress       String?
-  shippingCity          String?
-  shippingState         String?
-  shippingPincode       String?
-  contactPerson         String?
-  phone                 String?
-email                 String?
-  pan                   String?
-  aadhar                String?
-  brokerId              String?
-  openingBalance        Decimal?  @db.Decimal(14, 2) @default(0)
-  openingBalanceType    String?   @default("DR")
-  openingBalanceRemark  String?
-  creditLimit           Decimal?  @db.Decimal(14, 2)
-  paymentDays           Int?
-  dateOfBirth           DateTime?
-  marriageAnniversary   DateTime?
-  bankName              String?
-  bankAccountNo         String?
-  bankAccountType       String?
-  bankIfsc              String?
-  bankBranch            String?
-  defaultInvoiceType    String?
-  partyDiscountRate     Decimal?  @db.Decimal(5, 2)
-  isActive              Boolean   @default(true)
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
-
-  company               Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  group                 AccountGroup?  @relation(fields: [groupId], references: [id])
-  broker                Broker?        @relation(fields: [brokerId], references: [id])
-  invoices              Invoice[]
-  ledgerEntries         LedgerEntry[]
-  cashBookEntries       CashBookEntry[]
-  bankBookEntries       BankBookEntry[]
-
-  @@index([companyId])
-  @@index([companyId, name])
-  @@index([name])
-  @@index([gstin])
-  @@index([groupId])
-}
-
-enum GstType {
-  REGULAR
-  UNREGISTERED
-  COMPOSITION
-  CONSUMER
-  SEZ
-  NA
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// INVOICE / VOUCHER LAYER
-// ═══════════════════════════════════════════════════════════════════
-
-model InvoiceNumberConfig {
-  id              String      @id @default(uuid())
-  companyId       String
-  invoiceType     InvoiceType
-  prefix          String?
-  suffix          String?
-  startingNumber  Int         @default(1)
-  currentNumber   Int         @default(0)
-  isAutoNumber    Boolean     @default(true)
-  gstType         String?
-  stockEffect     Boolean     @default(true)
-  ledgerEffect    Boolean     @default(true)
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
-
-  company         Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  @@unique([companyId, invoiceType])
-}
-
-model Invoice {
-  id                  String      @id @default(uuid())
-  companyId           String
-  financialYearId     String?
-  invoiceType         InvoiceType
-  invoiceNumber       String
-  invoiceDate         DateTime
-  accountId           String
-  brokerId            String?
-  coChallanNo         String?
-  partyChallanNo      String?
-  hsnCodeHeader       String?
-  taxInclusiveRate    Boolean     @default(false)
-  narration           String?
-  termsAndConditions  String?
-  placeOfSupply       String?
-  subtotal            Decimal     @db.Decimal(14, 2) @default(0)
-  totalDiscount       Decimal     @db.Decimal(14, 2) @default(0)
-  taxableAmount       Decimal     @db.Decimal(14, 2) @default(0)
-  totalCgst           Decimal     @db.Decimal(14, 2) @default(0)
-  totalSgst           Decimal     @db.Decimal(14, 2) @default(0)
-  totalIgst           Decimal     @db.Decimal(14, 2) @default(0)
-  totalTax            Decimal     @db.Decimal(14, 2) @default(0)
-  roundOff            Decimal     @db.Decimal(10, 2) @default(0)
-  grandTotal          Decimal     @db.Decimal(14, 2) @default(0)
-  paidAmount          Decimal     @db.Decimal(14, 2) @default(0)
-  remainingAmount     Decimal     @db.Decimal(14, 2) @default(0)
-  receivedAmount      Decimal?    @db.Decimal(14, 2) @default(0)
-  paymentMode         String?
-  paymentBookName     String?
-  paymentNarration    String?
-  status              InvoiceStatus @default(ACTIVE)
-  convertedFromId     String?
-  pdfUrl              String?
-  createdById         String?
-  createdAt           DateTime    @default(now())
-  updatedAt           DateTime    @updatedAt
-
-  company             Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  financialYear       FinancialYear? @relation(fields: [financialYearId], references: [id])
-  account             Account        @relation(fields: [accountId], references: [id])
-  broker              Broker?        @relation(fields: [brokerId], references: [id])
-  createdBy           User?          @relation("InvoiceCreatedBy", fields: [createdById], references: [id])
-  items               InvoiceItem[]
-  payments            InvoicePayment[]
-  ledgerEntries       LedgerEntry[]
-  stockMovements      StockMovement[]
-
-  @@unique([companyId, invoiceType, invoiceNumber])
-  @@index([companyId])
-  @@index([accountId])
-  @@index([invoiceType])
-  @@index([invoiceDate])
-  @@index([invoiceNumber])
-  @@index([status])
-  @@index([companyId, invoiceType, invoiceDate])
-  @@index([companyId, accountId, invoiceDate])
-  @@index([companyId, invoiceType, status, invoiceDate])
-}
-
-enum InvoiceType {
-  SALE
-  PURCHASE
-  QUOTATION
-  CHALLAN
-  PROFORMA
-  SALE_RETURN
-  PURCHASE_RETURN
-  JOB_IN
-  JOB_OUT
-}
-
-enum InvoiceStatus {
-  ACTIVE
-  PARTIALLY_PAID
-  PAID
-  CANCELLED
-  DRAFT
-}
-
-enum VoucherSeries {
-  CB
-  BB
-  JV
-  OB
-}
-
-model InvoiceItem {
-  id              String    @id @default(uuid())
-  invoiceId       String
-  productId       String
-  description     String?
-  quantity        Decimal   @db.Decimal(12, 3)
-  rate            Decimal   @db.Decimal(14, 2)
-  amount          Decimal   @db.Decimal(14, 2)
-  discountAmount  Decimal   @db.Decimal(14, 2) @default(0)
-  discountPercent Decimal   @db.Decimal(5, 2) @default(0)
-  taxableAmount   Decimal   @db.Decimal(14, 2)
-  gstRate         Decimal   @db.Decimal(5, 2)
-  cgstAmount      Decimal   @db.Decimal(14, 2) @default(0)
-  sgstAmount      Decimal   @db.Decimal(14, 2) @default(0)
-  igstAmount      Decimal   @db.Decimal(14, 2) @default(0)
-  totalAmount     Decimal   @db.Decimal(14, 2)
-  sortOrder       Int       @default(0)
-  createdAt       DateTime  @default(now())
-
-  invoice         Invoice   @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  product         Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
-
-  @@index([invoiceId])
-  @@index([productId])
-}
-
-model InvoicePayment {
-  id              String    @id @default(uuid())
-  invoiceId       String
-  paymentDate     DateTime
-  amount          Decimal   @db.Decimal(14, 2)
-  paymentMode     String
-  bookName        String?
-  chequeNumber    String?
-  narration       String?
-  createdAt       DateTime  @default(now())
-
-  invoice         Invoice   @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-
-  @@index([invoiceId])
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// ACCOUNTING LAYER
-// ═══════════════════════════════════════════════════════════════════
-
-model VoucherSequence {
-  id              String        @id @default(uuid())
-  companyId       String
-  financialYearId String
-  series          VoucherSeries
-  currentNumber   Int           @default(0)
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-
-  company         Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  financialYear   FinancialYear @relation(fields: [financialYearId], references: [id], onDelete: Cascade)
-
-  @@unique([companyId, financialYearId, series])
-  @@index([companyId, financialYearId])
-}
-
-model LedgerEntry {
-  id              String    @id @default(uuid())
-  companyId       String
-  accountId       String
-  invoiceId       String?
-  voucherType     String
-  voucherNumber   String?
-  date            DateTime
-  debit           Decimal   @db.Decimal(14, 2) @default(0)
-  credit          Decimal   @db.Decimal(14, 2) @default(0)
-  narration       String?
-  createdAt       DateTime  @default(now())
-
-  company         Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  account         Account   @relation(fields: [accountId], references: [id])
-  invoice         Invoice?  @relation(fields: [invoiceId], references: [id])
-
-  @@index([companyId])
-  @@index([accountId])
-  @@index([date])
-  @@index([voucherType])
-  @@index([companyId, date])
-  @@index([companyId, accountId, date])
-  @@index([companyId, voucherType, voucherNumber])
-}
-
-model CashBookEntry {
-  id              String    @id @default(uuid())
-  companyId       String
-  bookName        String    @default("Cash Book")
-  voucherNumber   String?
-  date            DateTime
-  accountId       String
-  type            String
-  amount          Decimal   @db.Decimal(14, 2)
-  invoiceId       String?
-  narration       String?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-
-  company         Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  account         Account   @relation(fields: [accountId], references: [id])
-
-  @@index([companyId])
-  @@index([date])
-  @@index([bookName])
-  @@index([companyId, date])
-  @@index([companyId, bookName, date])
-}
-
-model BankBookEntry {
-  id              String    @id @default(uuid())
-  companyId       String
-  bookName        String    @default("Bank Book")
-  voucherNumber   String?
-  date            DateTime
-  accountId       String
-  type            String
-  amount          Decimal   @db.Decimal(14, 2)
-  chequeNumber    String?
-  invoiceId       String?
-  narration       String?
-  isReconciled    Boolean   @default(false)
-  reconciledDate  DateTime?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-
-  company         Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  account         Account   @relation(fields: [accountId], references: [id])
-
-  @@index([companyId])
-  @@index([date])
-  @@index([bookName])
-  @@index([companyId, date])
-  @@index([companyId, bookName, date])
-}
-
-model JournalEntry {
-  id              String    @id @default(uuid())
-  companyId       String
-  voucherNumber   String?
-  date            DateTime
-  narration       String?
-  totalAmount     Decimal   @db.Decimal(14, 2) @default(0)
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-
-  company         Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  lines           JournalEntryLine[]
-
-  @@index([companyId])
-  @@index([date])
-  @@index([companyId, date])
-}
-
-model JournalEntryLine {
-  id              String    @id @default(uuid())
-  journalEntryId  String
-  accountId       String
-  type            String
-  amount          Decimal   @db.Decimal(14, 2)
-  narration       String?
-
-  journalEntry    JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
-
-  @@index([journalEntryId])
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// STOCK / INVENTORY LAYER
-// ═══════════════════════════════════════════════════════════════════
-
-model StockMovement {
-  id              String    @id @default(uuid())
-  companyId       String
-  productId       String
-  invoiceId       String?
-  type            StockMovementType
-  quantity        Decimal   @db.Decimal(12, 3)
-  rate            Decimal?  @db.Decimal(14, 2)
-  date            DateTime
-  reference       String?
-  createdAt       DateTime  @default(now())
-
-  company         Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  product         Product   @relation(fields: [productId], references: [id])
-  invoice         Invoice?  @relation(fields: [invoiceId], references: [id])
-
-  @@index([companyId])
-  @@index([productId])
-  @@index([date])
-  @@index([companyId, productId, date])
-}
-
-enum StockMovementType {
-  IN
-  OUT
-  ADJUSTMENT_IN
-  ADJUSTMENT_OUT
-  OPENING
-}
-
-model OpeningStock {
-  id          String    @id @default(uuid())
-  companyId   String
-  productId   String
-  quantity    Decimal   @db.Decimal(12, 3)
-  rate        Decimal   @db.Decimal(14, 2)
-  date        DateTime
-  createdAt   DateTime  @default(now())
-
-  product     Product   @relation(fields: [productId], references: [id])
-
-  @@index([companyId])
-  @@index([productId])
-  @@index([companyId, createdAt])
-}
-
-model StockAdjustment {
-  id          String    @id @default(uuid())
-  companyId   String
-  productId   String
-  type        String
-  quantity    Decimal   @db.Decimal(12, 3)
-  reason      String?
-  date        DateTime
-  createdAt   DateTime  @default(now())
-
-  @@index([companyId])
-  @@index([companyId, date])
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// ACCESS CONTROL & AUDIT
-// ═══════════════════════════════════════════════════════════════════
-
-model ModulePermission {
-  id          String    @id @default(uuid())
-  companyId   String
-  role        UserRole
-  module      String
-  canEntry    Boolean   @default(false)
-  canEdit     Boolean   @default(false)
-  canDelete   Boolean   @default(false)
-  canList     Boolean   @default(true)
-  canPayment  Boolean   @default(false)
-  canReminder Boolean   @default(false)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  @@unique([companyId, role, module])
-  @@index([companyId])
-}
-
-model AuditLog {
-  id          String    @id @default(uuid())
-  tenantId    String?
-  companyId   String?
-  userId      String?
-  action      String
-  entity      String
-  entityId    String?
-  oldValue    Json?
-  newValue    Json?
-  ipAddress   String?
-  userAgent   String?
-  createdAt   DateTime  @default(now())
-
-  company     Company?  @relation(fields: [companyId], references: [id])
-  user        User?     @relation(fields: [userId], references: [id])
-
-  @@index([companyId])
-  @@index([userId])
-  @@index([entity])
-  @@index([createdAt])
-  @@index([tenantId, createdAt])
-  @@index([companyId, entity, createdAt])
-  @@index([entityId, entity])
+  @@index([planId])
+  @@index([status, endDate])
 }

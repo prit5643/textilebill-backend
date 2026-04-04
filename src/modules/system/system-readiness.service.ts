@@ -66,14 +66,21 @@ export class SystemReadinessService implements OnApplicationBootstrap {
 
     try {
       const requiredTables = [
-        'Plan',
         'Tenant',
-        'User',
         'Company',
-        'CompanySettings',
-        'FinancialYear',
+        'User',
+        'UserCompany',
+        'RefreshToken',
+        'OtpChallenge',
+        'Party',
+        'Account',
         'Product',
-        'AccountGroup',
+        'FinancialYear',
+        'VoucherSequence',
+        'Invoice',
+        'InvoiceItem',
+        'LedgerEntry',
+        'StockMovement',
       ];
 
       const tableRows = await this.prisma.$queryRawUnsafe<
@@ -106,8 +113,9 @@ export class SystemReadinessService implements OnApplicationBootstrap {
 
     try {
       const requiredColumns = [
-        { table: 'Product', column: 'version' },
-        { table: 'Plan', column: 'maxCompanies' },
+        { table: 'Product', column: 'taxRate' },
+        { table: 'Invoice', column: 'version' },
+        { table: 'VoucherSequence', column: 'currentValue' },
       ];
 
       const columnRows = await this.prisma.$queryRawUnsafe<
@@ -118,9 +126,11 @@ export class SystemReadinessService implements OnApplicationBootstrap {
           FROM information_schema.columns
           WHERE table_schema = 'public'
             AND (
-              (table_name = 'Product' AND column_name = 'version')
+              (table_name = 'Product' AND column_name = 'taxRate')
               OR
-              (table_name = 'Plan' AND column_name = 'maxCompanies')
+              (table_name = 'Invoice' AND column_name = 'version')
+              OR
+              (table_name = 'VoucherSequence' AND column_name = 'currentValue')
             )
         `,
       );
@@ -145,43 +155,17 @@ export class SystemReadinessService implements OnApplicationBootstrap {
     }
 
     try {
-      const superAdminCount = await this.prisma.user.count({
-        where: { role: 'SUPER_ADMIN', isActive: true },
+      const activeUserCount = await this.prisma.user.count({
+        where: { status: 'ACTIVE', deletedAt: null },
       });
-      if (superAdminCount === 0) {
-        issues.push(
-          'No active SUPER_ADMIN user found. Run bootstrap defaults (prisma db seed).',
+      if (activeUserCount === 0) {
+        this.logger.warn(
+          'No active users found. Login will remain unavailable until a user is provisioned.',
         );
       }
     } catch (error: any) {
       issues.push(
-        `Unable to validate SUPER_ADMIN user: ${error?.message ?? 'unknown database error'}.`,
-      );
-    }
-
-    try {
-      const requiredGroups = [
-        'Cash-in-Hand',
-        'Bank Accounts',
-        'Sundry Debtors',
-        'Sundry Creditors',
-      ];
-      const found = await this.prisma.accountGroup.findMany({
-        where: { name: { in: requiredGroups } },
-        select: { name: true },
-      });
-      const foundSet = new Set(found.map((g) => g.name));
-      const missingGroups = requiredGroups.filter(
-        (name) => !foundSet.has(name),
-      );
-      if (missingGroups.length > 0) {
-        issues.push(
-          `Missing required account groups: ${missingGroups.join(', ')}. Run bootstrap defaults (prisma db seed).`,
-        );
-      }
-    } catch (error: any) {
-      issues.push(
-        `Unable to validate account groups: ${error?.message ?? 'unknown database error'}.`,
+        `Unable to validate active users: ${error?.message ?? 'unknown database error'}.`,
       );
     }
 

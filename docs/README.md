@@ -1,18 +1,31 @@
 # TextileBill Backend Documentation
 
-> Backend documentation lives in this folder.
+This folder is the backend documentation index for the schema-aligned codebase.
 
-## Quick Links
+## Canonical Docs
 
-| Doc | Location |
+| Topic | File |
 |---|---|
-| Features implemented | [`features.md`](./features.md) |
-| App workflow guide | [`app-workflow-and-behavior-guide.md`](./app-workflow-and-behavior-guide.md) |
-| Code navigation | [`code-navigation.md`](./code-navigation.md) |
-| Database schema | [`database-schema.md`](./database-schema.md) |
-| Database operations | [`database-operations.md`](./database-operations.md) |
-| Data validation | [`data-validation.md`](./data-validation.md) |
-| Security & observability | [`security-observability.md`](./security-observability.md) |
-| Regression playbook | [`regression-playbook.md`](./regression-playbook.md) |
-| Test scenarios | [`test-scenarios.md`](./test-scenarios.md) |
-| Auth origin design spec | [`auth-origin-check-removal-design.md`](./auth-origin-check-removal-design.md) |
+| API contract | `API_CONTRACT.md` |
+| Database schema | `database-schema.md` |
+| Authentication | `authentication-flows.md` |
+| Setup | `setup-guide.md` |
+| Database operations | `database-operations.md` |
+| Operations handbook | `backend-operations-handbook.md` |
+| Validation and error handling | `data-validation.md` |
+| App behavior | `app-workflow-and-behavior-guide.md` |
+| Feature inventory | `features.md` |
+| Test scenarios | `test-scenarios.md` |
+| Tech stack | `TECH_STACK_CURRENT.md` |
+| Environment variables | `env-variables-reference.md` |
+
+## Historical / Audit Docs
+
+These are kept for change history, not as field-level source of truth:
+
+- `DOCUMENTATION_AUDIT_2026-03-21.md`
+- `DOCUMENTATION_UPDATE_SUMMARY.md`
+- `USER_DB_RELATIONS_AND_SIMPLE_MIGRATION.md`
+- root migration tracker docs in the workspace
+
+Use `prisma/schema.prisma` and the canonical docs above when there is any conflict.

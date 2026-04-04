@@ -15,13 +15,15 @@ import {
 
 describe('Admin tenant GST sync (e2e)', () => {
   let app: INestApplication;
-  let companyUpdateMany: jest.Mock;
+  let companyUpdate: jest.Mock;
+  let companyFindFirst: jest.Mock;
   let jwtGuardSpy: jest.SpyInstance;
   let subscriptionGuardSpy: jest.SpyInstance;
   let rolesGuardSpy: jest.SpyInstance;
 
   beforeEach(async () => {
-    companyUpdateMany = jest.fn().mockResolvedValue({ count: 1 });
+    companyUpdate = jest.fn().mockResolvedValue({ id: 'company-1' });
+    companyFindFirst = jest.fn().mockResolvedValue({ id: 'company-1' });
 
     const prisma = {
       tenant: {
@@ -37,10 +39,13 @@ describe('Admin tenant GST sync (e2e)', () => {
           gstin: '27ABCDE1234F2Z5',
         }),
       },
+      user: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
       company: {
-        updateMany: companyUpdateMany,
+        findFirst: companyFindFirst,
         findMany: jest.fn().mockResolvedValue([{ id: 'company-1' }]),
-        update: jest.fn().mockResolvedValue({ id: 'company-1' }),
+        update: companyUpdate,
       },
       $transaction: jest.fn().mockImplementation(async (callback) => {
         const tx = {
@@ -48,7 +53,7 @@ describe('Admin tenant GST sync (e2e)', () => {
             update: prisma.tenant.update,
           },
           company: {
-            updateMany: prisma.company.updateMany,
+            findFirst: prisma.company.findFirst,
             findMany: prisma.company.findMany,
             update: prisma.company.update,
           },
@@ -105,10 +110,18 @@ describe('Admin tenant GST sync (e2e)', () => {
       .send({ gstin: '27ABCDE1234F2Z5' })
       .expect(200);
 
-    expect(companyUpdateMany).toHaveBeenCalledWith({
+    expect(companyFindFirst).toHaveBeenCalledWith({
       where: {
         tenantId: 'tenant-1',
-        OR: [{ gstin: null }, { gstin: '' }],
+        deletedAt: null,
+      },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true },
+    });
+
+    expect(companyUpdate).toHaveBeenCalledWith({
+      where: {
+        id: 'company-1',
       },
       data: {
         gstin: '27ABCDE1234F2Z5',

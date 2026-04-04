@@ -1,8 +1,19 @@
-# TextileBill Backend API
+# TextileBill Backend
 
-Multi-tenant SaaS backend API for textile business management.
+NestJS 10 + Prisma 5 backend for the TextileBill multi-tenant ERP platform.
 
-## Local (Without Docker)
+## Current Status
+
+- Prisma schema source of truth: `prisma/schema.prisma`
+- Runtime database model is aligned to the new schema as of `2026-03-30`
+- Verified locally:
+  - `npx prisma validate --schema prisma/schema.prisma`
+  - `npx tsc --noEmit`
+  - `npm run build`
+  - `npm test -- --runInBand`
+  - `npm run test:e2e -- --runInBand`
+
+## Quick Start
 
 ```bash
 npm install
@@ -11,52 +22,40 @@ npm run db:setup
 npm run start:dev
 ```
 
-API: `http://localhost:3001`  
+Backend URL: `http://localhost:3001`  
 Swagger: `http://localhost:3001/api/docs`
 
-## Docker Setup
+## Important Runtime Notes
 
-1. Create env file:
+- Runtime must not auto-run Prisma migrations.
+- Apply DB changes with `npm run db:migrate:deploy`.
+- Seed/bootstrap is idempotent and runs through `npm run db:bootstrap`.
+- Redis is optional for local development but recommended for realistic auth, rate-limit, and idempotency behavior.
 
-```bash
-cp .env.example .env
-```
-
-2. Update `.env` with your Supabase connection:
-
-- `DATABASE_URL` = Supabase pooled URL (port `6543`) for runtime
-- `DATABASE_DIRECT_URL` = Supabase direct URL (port `5432`) for migrations (optional but recommended)
-
-3. Start stack (API + Redis, with Supabase as external DB):
+## Main Commands
 
 ```bash
-docker compose up --build -d
+# local setup
+npm run db:setup
+
+# start API
+npm run start:dev
+
+# compile/build
+npx tsc --noEmit
+npm run build
+
+# tests
+npm test -- --runInBand
+npm run test:e2e -- --runInBand
 ```
-
-4. Follow logs:
-
-```bash
-docker compose logs -f api
-```
-
-5. Stop stack:
-
-```bash
-docker compose down
-```
-
-### Docker Dev Mode (Hot Reload)
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
-```
-
-This mode starts the API with `npm run start:dev` and mounts your local source.  
-If `DATABASE_DIRECT_URL` is set, migrations are applied on container startup; otherwise migration step is skipped.
 
 ## Documentation
 
+- `docs/README.md`
 - `docs/API_CONTRACT.md`
-- `docs/TECH_STACK_CURRENT.md`
+- `docs/database-schema.md`
+- `docs/authentication-flows.md`
 - `docs/setup-guide.md`
-- `docs/deployment`
+- `docs/database-operations.md`
+- `docs/backend-operations-handbook.md`

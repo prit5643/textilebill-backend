@@ -1,200 +1,163 @@
 # Test Scenarios Guide
 
-## Test Environment Baseline
+Last updated: `2026-03-30`
 
-Run once before functional scenarios:
+This guide reflects the schema-aligned backend and the current frontend/browser checks.
+
+## Baseline Commands
+
+Backend:
 
 ```bash
+cd textilebill-backend
 npm run db:setup
-```
-
-Then start API:
-
-```bash
 npm run start:dev
 ```
 
-## Scenario 1: First-Run Readiness
+Frontend:
 
-Goal:
+```bash
+cd textilebill-frontend
+npm run dev
+```
 
-- Ensure app blocks normal traffic when required schema/data is missing.
+## Scenario 1: Health and Readiness
 
-Checks:
+Verify:
 
-1. `GET /api/system/health` -> `200`
-2. `GET /api/system/readiness` -> `200` when ready, `503` when setup missing
-3. Regular protected API should return `503` when readiness fails
-
-Expected:
-
-- Backend logs detailed cause.
-- Client sees sanitized message only.
+1. `GET /api/health` returns `200`
+2. `GET /api/system/health` returns `200`
+3. `GET /api/system/readiness` returns `200` when schema/defaults are ready
+4. protected requests fail closed with `503` when readiness is not satisfied
 
 ## Scenario 2: Bootstrap Idempotency
 
-Goal:
+Run:
 
-- Ensure bootstrap does not overwrite existing data.
+```bash
+npm run db:bootstrap
+npm run db:bootstrap
+```
 
-Steps:
+Verify:
 
-1. Run `npm run db:bootstrap`
-2. Run `npm run db:bootstrap` again
-3. Verify:
-   - no duplicate super admin
-   - no duplicate account groups
-   - no existing user/company settings overwritten
+- no duplicate bootstrap tenant/company
+- no duplicate owner user for the configured bootstrap email
+- no duplicate `UserCompany` mapping
+- no duplicate `VoucherSequence` rows
 
-## Scenario 3: Invoice Create (Core Happy Path)
+## Scenario 3: Auth Session Lifecycle
 
-Prerequisites (required):
+Verify:
 
-1. Authenticated user with valid company access.
-2. Active financial year selected.
-3. Company has GSTIN configured.
-4. At least one account (customer/supplier).
-5. At least one product.
-6. Valid invoice items with quantity/rate.
+1. login sets auth cookies
+2. `GET /api/auth/me` returns current session
+3. refresh rotates session state
+4. logout clears cookies
+5. revoked sessions cannot refresh
 
-Optional:
+## Scenario 4: Invite / Reset / OTP Flows
 
-- broker
-- narration
-- payment mode/book
-- place of supply (if omitted, default intra-state logic applies)
+Verify:
 
-Main API:
+- OTP request, resend, and verify work through `OtpChallenge`
+- password reset OTP flow works
+- password reset link flow works
+- invite/password-setup routes work without relying on removed legacy tables
 
-- `POST /api/invoices`
+## Scenario 5: Company and Financial Year
 
-Validate after create:
+Verify:
 
-1. Invoice exists with expected totals.
-2. Invoice items created.
-3. Stock movements created when config says stock effect.
-4. Ledger entries created when config says ledger effect.
+- company create/list/update works
+- compatibility settings endpoints still return valid payloads
+- financial year create/list/activate works
+- FY lock behavior is enforced where applicable
 
-## Scenario 4: Invoice Validation Fail Cases
+## Scenario 6: Account and Product Masters
 
-Case A:
+Verify:
 
-- Missing GSTIN on company.
-- Expect: `400` with business-safe message.
+- account CRUD works through `Account + Party`
+- account grouping uses `AccountGroupType`
+- product CRUD works through current product fields
+- selector/list payloads remain stable for frontend dropdowns
 
-Case B:
+## Scenario 7: Invoice Happy Path
 
-- Auto-numbering disabled and no invoice number provided.
-- Expect: `400`.
+Prerequisites:
 
-Case C:
+- authenticated user with company access
+- active company selected
+- active financial year
+- at least one account
+- at least one product
 
-- Invalid item payload (negative qty/rate).
-- Expect: validation failure from DTO.
+Verify after `POST /api/invoices`:
 
-Case D:
+- invoice row created
+- invoice items created
+- stock movements created when required
+- ledger entries created when required
+- invoice summary/report endpoints reflect the new invoice
 
-- Concurrency conflict (`Product.version` mismatch).
-- Expect: `409` conflict.
+## Scenario 8: Invoice Failure Cases
 
-## Scenario 5: Authorization
+Verify:
 
-Goal:
+- invalid item payload returns validation error
+- invalid or missing company/account/product context returns business-safe error
+- invoice versioning/update rules hold
+- payment edge cases stay sanitized
 
-- Ensure role and subscription checks are enforced.
+## Scenario 9: Accounting and Voucher Sequences
 
-Checks:
+Verify:
 
-1. User without required role -> `403`
-2. Non-super-admin without active subscription -> `403`
-3. Deactivated account -> blocked at auth strategy
+- accounting endpoints write through `LedgerEntry` and `StockMovement`
+- voucher numbering increments per FY and `VoucherType`
+- ledger running balances stay stable across pagination
 
-## Scenario 6: Accounting Prerequisites
+## Scenario 10: Reports
 
-For cash/bank operations:
+Verify:
 
-- required account groups must exist:
-  - `Cash-in-Hand`
-  - `Bank Accounts`
+- dashboard and monthly chart
+- debtors/creditors
+- day book
+- stock and product detail reports
+- GST reports
+- trial balance, profit/loss, balance sheet
 
-If missing:
+All report queries must be based on current schema fields only.
 
-- expect controlled business error (no raw SQL/Prisma leak).
+## Scenario 11: Frontend Integration
 
-## Scenario 7: Voucher Number Sequence + Ledger Carry-Forward
+Verify:
 
-Goal:
+- frontend unit suite
+- frontend production build
+- Playwright flows for:
+  - authentication
+  - billing/subscription
+  - dashboard data visibility
+  - business flows
+  - forms validation
 
-- Ensure numbering is deterministic and collision-safe.
-- Ensure running balances remain correct across paginated ledger pages.
+## Current Verified Snapshot
 
-Checks:
+Validated locally on `2026-03-30`:
 
-1. Create multiple cash/bank/journal entries in the same FY + series.
-2. Verify voucher numbers increment monotonically (`<SERIES>-<FY>-<NNNN>`).
-3. Create entries in a new FY and verify the sequence resets to `0001`.
-4. Query ledger with pagination and verify page-N opening balance equals page-(N-1) closing balance.
+- backend unit/integration: `57/57` suites passed, `252/252` tests
+- backend e2e: `11` suites passed, `1` skipped, `56` tests passed, `1` skipped
+- frontend unit: `26/26` suites passed, `112/112` tests
+- frontend Playwright: `49/49` tests passed
 
-Expected:
-
-- No duplicate voucher numbers under normal concurrent load.
-- Ledger running balance is stable and mathematically correct across pages.
-
-## Scenario 8: Auth Abuse Protection + Secret Handling
-
-Goal:
-
-- Ensure sensitive data is not exposed and high-risk auth endpoints are throttled.
-
-Checks:
-
-1. Trigger repeated requests against:
-   - `POST /api/auth/login`
-   - `POST /api/auth/forgot-password`
-   - `POST /api/auth/reset-password`
-2. Verify throttling returns `429` with a structured JSON body.
-3. Verify forgot-password flow does not log OTP secrets.
-4. Verify user/tenant creation responses never include temporary password values.
-
-Expected:
-
-- Auth abuse is rate-limited consistently.
-- Secrets are not returned or logged.
-
-## Scenario 9: Hot Endpoint Lightweight Views
-
-Goal:
-
-- Ensure selector/header endpoints return only required fields.
-
-Checks:
-
-1. `GET /api/accounts?view=selector`
-2. `GET /api/products?view=selector`
-3. `GET /api/companies?view=header`
-4. Compare payload shape against UI needs (dropdown/header use-cases).
-
-Expected:
-
-- Lightweight view responses contain only minimal list fields.
-- Default list endpoints remain backward compatible for full list pages.
-
-## Failure Meaning (for all scenarios)
+## Failure Meaning
 
 Treat as failure if:
 
-1. Frontend receives raw DB/Prisma details.
-2. API returns `500` for known business validation conditions.
-3. Duplicate baseline records are created by repeated bootstrap.
-4. Existing baseline data is overwritten by bootstrap.
-
-## Code Pointers For Scenario Assertions
-
-- Invoice flow: `src/modules/invoice/invoice.service.ts`
-- Accounting flow: `src/modules/accounting/accounting.service.ts`
-- Voucher sequencing: `src/modules/accounting/voucher-number.service.ts`
-- DTO validation: `src/modules/**/dto/*.ts`
-- Error sanitization: `src/common/filters/global-exception.filter.ts`
-- Readiness gate: `src/modules/system/*`
-- Auth throttling: `src/modules/auth/auth-rate-limit.util.ts`, `src/main.ts`
-- Request observability: `src/common/interceptors/logging.interceptor.ts`
+1. client receives raw Prisma or SQL details
+2. known business validation returns generic `500`
+3. bootstrap duplicates baseline records
+4. a route still depends on removed legacy persistence

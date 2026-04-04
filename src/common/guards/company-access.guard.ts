@@ -109,20 +109,33 @@ export class CompanyAccessGuard implements CanActivate {
     user: NonNullable<AuthenticatedRequest['user']>,
     companyId: string,
   ): Promise<boolean> {
-    const where: Prisma.CompanyWhereInput =
-      user.role === 'SUPER_ADMIN'
-        ? { id: companyId }
-        : user.role === 'TENANT_ADMIN'
-          ? { id: companyId, tenantId: user.tenantId }
-          : {
-              id: companyId,
-              tenantId: user.tenantId,
-              userAccess: {
-                some: {
-                  userId: user.id,
-                },
+    const isGlobalAdmin = user.role === 'SUPER_ADMIN';
+    const isTenantWideRole =
+      user.role === 'TENANT_ADMIN' ||
+      user.role === 'OWNER' ||
+      user.role === 'ADMIN';
+
+    const where: Prisma.CompanyWhereInput = isGlobalAdmin
+      ? { id: companyId, status: 'ACTIVE', deletedAt: null }
+      : isTenantWideRole
+        ? {
+            id: companyId,
+            tenantId: user.tenantId,
+            status: 'ACTIVE',
+            deletedAt: null,
+          }
+        : {
+            id: companyId,
+            tenantId: user.tenantId,
+            status: 'ACTIVE',
+            deletedAt: null,
+            userCompanies: {
+              some: {
+                userId: user.id,
+                tenantId: user.tenantId,
               },
-            };
+            },
+          };
 
     const company = await this.prisma.company.findFirst({
       where,

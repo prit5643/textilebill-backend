@@ -10,6 +10,7 @@ import {
   getRetryDelayMs,
   hasConnectionLimit,
   isPgBouncerConnection,
+  normalizeDatabaseUrl,
   redactDatabaseUrl,
 } from './prisma-connection.util';
 
@@ -22,11 +23,13 @@ export class PrismaService
   private readonly databaseUrl: string;
 
   constructor(private readonly configService: ConfigService) {
-    const databaseUrl =
+    const configuredDatabaseUrl =
       configService.get<string>('database.url') ?? process.env.DATABASE_URL;
-    if (!databaseUrl) {
+    if (!configuredDatabaseUrl) {
       throw new Error('DATABASE_URL is required.');
     }
+
+    const databaseUrl = normalizeDatabaseUrl(configuredDatabaseUrl);
 
     super({
       datasources: {
@@ -42,6 +45,12 @@ export class PrismaService
     });
 
     this.databaseUrl = databaseUrl;
+
+    if (configuredDatabaseUrl !== databaseUrl) {
+      this.logger.warn(
+        'Normalized DATABASE_URL for Supabase pooler (pgbouncer=true, connection_limit=1).',
+      );
+    }
   }
 
   private async delay(ms: number): Promise<void> {

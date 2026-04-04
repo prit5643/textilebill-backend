@@ -1,60 +1,139 @@
 # Database Schema Reference
 
-Primary schema file: `prisma/schema.prisma`
+Primary source of truth: `prisma/schema.prisma`
 
-DBA deep-dive reference:
-- `docs/USER_DB_RELATIONS_AND_SIMPLE_MIGRATION.md` (relations, index inventory, performance diagnostics, migration safety workflow)
+Last updated: `2026-03-30`
 
-## Domain Areas
+## Active Enums
 
-1. SaaS Layer
-   - `Plan`, `Tenant`, `Subscription`
-2. Identity Layer
-   - `User`, `RefreshToken`, `UserCompanyAccess`
-3. Company Layer
-   - `Company`, `CompanySettings`, `FinancialYear`
-4. Product & Inventory
-   - `Product`, `ProductCategory`, `Brand`, `UnitOfMeasurement`, `StockMovement`, `OpeningStock`, `StockAdjustment`
-5. Accounting & Ledger
-   - `AccountGroup`, `Account`, `Broker`, `LedgerEntry`, `CashBookEntry`, `BankBookEntry`, `JournalEntry`, `JournalEntryLine`
-6. Invoice & Payments
-   - `InvoiceNumberConfig`, `Invoice`, `InvoiceItem`, `InvoicePayment`
-7. Security/Audit
-   - `ModulePermission`, `AuditLog`
+- `UserRole`: `OWNER`, `ADMIN`, `MANAGER`, `ACCOUNTANT`, `VIEWER`
+- `InvoiceStatus`: `DRAFT`, `ACTIVE`, `CANCELLED`
+- `InvoiceType`: `SALE`, `PURCHASE`, `SALE_RETURN`, `PURCHASE_RETURN`
+- `EntityStatus`: `ACTIVE`, `INACTIVE`
+- `MovementType`: `IN`, `OUT`
+- `AccountGroupType`: `SUNDRY_DEBTORS`, `SUNDRY_CREDITORS`, `BANK`, `CASH`, `CAPITAL`, `EXPENSE`
+- `VoucherType`: `SALE`, `PURCHASE`, `SALE_RETURN`, `PURCHASE_RETURN`, `PAYMENT`, `RECEIPT`, `JOURNAL`
+- `OtpPurpose`: `LOGIN`, `RESET_PASSWORD`, `VERIFY_EMAIL`
+- `SubscriptionStatus`: `ACTIVE`, `EXPIRED`, `CANCELLED`, `PENDING`
+- `PaymentStatus`: `PENDING`, `PAID`, `FAILED`, `REFUNDED`
 
-## Critical Runtime Schema Requirements
+## Active Models
 
-The readiness check currently verifies that these exist:
+### Identity and tenancy
 
-- Tables:
-  - `Plan`
-  - `Tenant`
-  - `User`
-  - `Company`
-  - `CompanySettings`
-  - `FinancialYear`
-  - `Product`
-  - `AccountGroup`
-- Columns:
-  - `Product.version`
-  - `Plan.maxCompanies`
+- `Tenant`
+- `Company`
+- `User`
+- `UserCompany`
+- `RefreshToken`
+- `OtpChallenge`
 
-Missing any of these should be treated as deployment/migration drift.
+### Master data
 
-## Migration Ownership Rules
+- `Party`
+- `Account`
+- `Product`
+- `FinancialYear`
+- `VoucherSequence`
 
-- Add/modify tables and columns only through Prisma migrations.
-- Do not patch production schema manually except emergency hotfixes.
-- After emergency SQL, create a tracked migration to re-align environments.
+### Transactions
 
-## Adding New Fields Safely
+- `Invoice`
+- `InvoiceItem`
+- `LedgerEntry`
+- `StockMovement`
 
-When adding a new field:
+### SaaS billing
 
-1. Update `prisma/schema.prisma`.
-2. Generate migration:
-   - `npx prisma migrate dev --name <change_name>` (dev)
-3. Commit migration SQL.
-4. Deploy with:
-   - `npm run db:migrate:deploy`
-5. Add or update bootstrap data only if feature requires baseline reference data.
+- `Plan`
+- `Subscription`
+
+## Core Relationship Shape
+
+- `Tenant` is the top isolation boundary.
+- `Company` belongs to one `Tenant`.
+- `User` belongs to one `Tenant`.
+- `UserCompany` holds per-company role assignments.
+- `Account` is company-scoped and backed by `Party`.
+- `Product` is company-scoped.
+- `Invoice` belongs to `Company`, `Account`, and `FinancialYear`.
+- `InvoiceItem` links `Invoice` to `Product`.
+- `LedgerEntry` and `StockMovement` are the durable accounting and inventory ledgers.
+- `Plan` and `Subscription` remain part of the active schema and are used by admin/subscription flows.
+
+## Key Field Conventions
+
+### User
+
+- Identity is email-first.
+- Passwords are stored as `passwordHash`.
+- Activity state uses `status` plus `deletedAt`.
+- Display name is stored in `name`.
+
+### Company
+
+- Settings-like fields now live directly on `Company`.
+- There is no separate `CompanySettings` model.
+
+### Account
+
+- Grouping is enum-based through `Account.group`.
+- Party details such as `name`, `gstin`, `phone`, `email`, `address` live on `Party`.
+
+### Product
+
+- Core fields are `name`, `sku`, `unit`, `price`, `taxRate`, `hsnCode`.
+- Soft deletion uses `deletedAt`.
+
+### Invoice
+
+- Immutable versioning uses `version`, `originalId`, and `isLatest`.
+- Totals are stored as `subTotal`, `taxAmount`, `discountAmount`, `totalAmount`.
+
+### Ledger and stock
+
+- `LedgerEntry` is one-sided per row using `debit` or `credit`.
+- `StockMovement` uses `type` (`IN` or `OUT`) plus positive `quantity`.
+
+## Removed Legacy Models
+
+These models are not part of the current schema and must not be treated as active persistence:
+
+- `UserCompanyAccess`
+- `PasswordLifecycleToken`
+- `CompanySettings`
+- `ModulePermission`
+- `AuditLog`
+- `AccountGroup`
+- `Broker`
+- `ProductCategory`
+- `Brand`
+- `UnitOfMeasurement`
+- `InvoicePayment`
+- `InvoiceNumberConfig`
+- `CashBookEntry`
+- `BankBookEntry`
+- `JournalEntry`
+- `OpeningStock`
+- `StockAdjustment`
+
+Some routes still exist as compatibility surfaces, but they are implemented on top of current models or return explicit deprecation responses.
+
+## Readiness Expectations
+
+Readiness checks validate the presence of the current tables and required bootstrap data:
+
+- `Tenant`, `Company`, `User`, `UserCompany`, `RefreshToken`, `OtpChallenge`
+- `Party`, `Account`, `Product`
+- `FinancialYear`, `VoucherSequence`
+- `Invoice`, `InvoiceItem`, `LedgerEntry`, `StockMovement`
+
+## Required Post-Change Validation
+
+After any schema edit:
+
+```bash
+npx prisma validate --schema prisma/schema.prisma
+npx prisma generate --schema prisma/schema.prisma
+npx tsc --noEmit
+```

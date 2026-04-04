@@ -23,9 +23,9 @@ import {
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
-    private configService: ConfigService,
-    private prisma: PrismaService,
-    private redisService: RedisService,
+    private readonly configService: ConfigService,
+    private readonly prisma: PrismaService,
+    private readonly redisService: RedisService,
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromExtractors([
@@ -42,7 +42,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('Invalid token payload');
     }
 
-    const user = await this.getUserAuthContext(payload.sub, payload.sessionId);
+    const user = await this.getUserAuthContext(
+      payload.sub,
+      payload.sessionId,
+      payload.role,
+    );
 
     if (!user) {
       throw new UnauthorizedException('User not found');
@@ -63,14 +67,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       }
     }
 
-    if (
-      payload.iat &&
-      user.passwordChangedAt &&
-      user.passwordChangedAt.getTime() > payload.iat * 1000
-    ) {
-      throw new UnauthorizedException('Session expired. Please sign in again.');
-    }
-
     return {
       id: user.id,
       email: user.email,
@@ -80,18 +76,17 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     };
   }
 
-  private async getUserAuthContext(userId: string, sessionId: string) {
+  private async getUserAuthContext(
+    userId: string,
+    sessionId: string,
+    roleFromToken: string,
+  ) {
     const cached = parseCachedJson<CachedUserAuthContext>(
       await this.redisService.get(getUserAuthCacheKey(userId, sessionId)),
     );
 
     if (cached) {
-      return {
-        ...cached,
-        passwordChangedAt: cached.passwordChangedAt
-          ? new Date(cached.passwordChangedAt)
-          : null,
-      };
+      return cached;
     }
 
     const user = await this.prisma.user.findUnique({
@@ -99,11 +94,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       select: {
         id: true,
         email: true,
-        isActive: true,
-        role: true,
+        status: true,
+        deletedAt: true,
         tenantId: true,
-        passwordChangedAt: true,
-        tenant: { select: { isActive: true } },
       },
     });
 
@@ -111,28 +104,31 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       return null;
     }
 
+    const context: CachedUserAuthContext = {
+      id: user.id,
+      email: user.email,
+      role: roleFromToken,
+      tenantId: user.tenantId,
+      isActive: user.status === 'ACTIVE' && user.deletedAt === null,
+      passwordChangedAt: null,
+    };
+
     await this.redisService.set(
       getUserAuthCacheKey(userId, sessionId),
-      JSON.stringify({
-        id: user.id,
-        email: user.email,
-        role: user.role,
-        tenantId: user.tenantId,
-        isActive: user.isActive,
-        passwordChangedAt: user.passwordChangedAt?.toISOString() ?? null,
-      } satisfies CachedUserAuthContext),
+      JSON.stringify(context),
       USER_AUTH_CACHE_TTL_SECONDS,
     );
 
-    if (user.role !== 'SUPER_ADMIN' && user.tenantId && user.tenant) {
+    if (roleFromToken !== 'SUPER_ADMIN' && user.tenantId) {
+      const tenantIsActive = await this.getTenantActiveState(user.tenantId);
       await this.redisService.set(
         getTenantActiveCacheKey(user.tenantId),
-        user.tenant.isActive ? '1' : '0',
+        tenantIsActive ? '1' : '0',
         TENANT_ACTIVE_CACHE_TTL_SECONDS,
       );
     }
 
-    return user;
+    return context;
   }
 
   private async getTenantActiveState(tenantId: string) {
@@ -150,10 +146,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
-      select: { isActive: true },
+      select: { status: true, deletedAt: true },
     });
 
-    const isActive = tenant?.isActive ?? false;
+    const isActive =
+      tenant?.status === 'ACTIVE' && (tenant?.deletedAt ?? null) === null;
 
     await this.redisService.set(
       getTenantActiveCacheKey(tenantId),

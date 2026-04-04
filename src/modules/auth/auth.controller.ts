@@ -54,7 +54,7 @@ export class AuthController {
   // JwtStrategy.validate() which checks user.isActive & tenant.isActive,
   // so polling this endpoint is enough to detect deactivation.
   @Get('me')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, SubscriptionGuard)
   @ApiBearerAuth('access-token')
   @ApiOperation({ summary: 'Get current authenticated user info' })
   async getMe(@CurrentUser('id') userId: string) {

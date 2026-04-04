@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { Prisma, VoucherSeries } from '@prisma/client';
+import { Prisma, VoucherType } from '@prisma/client';
 
 @Injectable()
 export class VoucherNumberService {
@@ -7,46 +7,71 @@ export class VoucherNumberService {
     tx: Prisma.TransactionClient,
     params: {
       companyId: string;
-      series: VoucherSeries;
+      series: string;
       voucherDate: Date;
     },
   ): Promise<string> {
+    const company = await tx.company.findUnique({
+      where: { id: params.companyId },
+      select: { id: true, tenantId: true },
+    });
+    if (!company) {
+      throw new BadRequestException('Company not found');
+    }
+
     const financialYear = await this.resolveFinancialYear(
       tx,
-      params.companyId,
+      company.id,
       params.voucherDate,
     );
+    const voucherType = this.resolveVoucherType(params.series);
+    const defaultPrefix = `${params.series}-`;
 
     const sequence = await tx.voucherSequence.upsert({
       where: {
-        companyId_financialYearId_series: {
-          companyId: params.companyId,
+        companyId_financialYearId_type: {
+          companyId: company.id,
           financialYearId: financialYear.id,
-          series: params.series,
+          type: voucherType,
         },
       },
       update: {
-        currentNumber: {
-          increment: 1,
-        },
+        currentValue: { increment: 1 },
       },
       create: {
-        companyId: params.companyId,
+        tenantId: company.tenantId,
+        companyId: company.id,
         financialYearId: financialYear.id,
-        series: params.series,
-        currentNumber: 1,
+        type: voucherType,
+        prefix: defaultPrefix,
+        currentValue: 1,
       },
       select: {
-        currentNumber: true,
+        prefix: true,
+        currentValue: true,
       },
     });
 
-    const fyLabel = this.formatFinancialYearLabel(
-      financialYear.startDate,
-      financialYear.endDate,
-    );
+    return `${sequence.prefix}${String(sequence.currentValue).padStart(4, '0')}`;
+  }
 
-    return `${params.series}-${fyLabel}-${String(sequence.currentNumber).padStart(4, '0')}`;
+  private resolveVoucherType(series: string): VoucherType {
+    const normalized = series.trim().toUpperCase();
+
+    if (Object.values(VoucherType).includes(normalized as VoucherType)) {
+      return normalized as VoucherType;
+    }
+
+    switch (normalized) {
+      case 'CB':
+        return VoucherType.RECEIPT;
+      case 'BB':
+        return VoucherType.PAYMENT;
+      case 'JV':
+      case 'OB':
+      default:
+        return VoucherType.JOURNAL;
+    }
   }
 
   private async resolveFinancialYear(
@@ -54,57 +79,22 @@ export class VoucherNumberService {
     companyId: string,
     voucherDate: Date,
   ) {
-    const financialYearByRange = await tx.financialYear.findFirst({
+    const financialYear = await tx.financialYear.findFirst({
       where: {
         companyId,
         startDate: { lte: voucherDate },
         endDate: { gte: voucherDate },
       },
       orderBy: { startDate: 'desc' },
-      select: {
-        id: true,
-        startDate: true,
-        endDate: true,
-      },
+      select: { id: true },
     });
 
-    if (financialYearByRange) {
-      return financialYearByRange;
+    if (!financialYear) {
+      throw new BadRequestException(
+        `No financial year found for voucher date ${voucherDate.toISOString().slice(0, 10)}.`,
+      );
     }
 
-    const financialYearName = this.buildFinancialYearNameForDate(voucherDate);
-    const financialYearByName = await tx.financialYear.findFirst({
-      where: {
-        companyId,
-        name: financialYearName,
-      },
-      select: {
-        id: true,
-        startDate: true,
-        endDate: true,
-      },
-    });
-
-    if (financialYearByName) {
-      return financialYearByName;
-    }
-
-    throw new BadRequestException(
-      `No financial year found for voucher date ${voucherDate.toISOString().slice(0, 10)}.`,
-    );
-  }
-
-  private formatFinancialYearLabel(startDate: Date, endDate: Date): string {
-    const startYear = startDate.getUTCFullYear();
-    const endYear = endDate.getUTCFullYear();
-    return `${startYear}-${String(endYear).slice(-2)}`;
-  }
-
-  private buildFinancialYearNameForDate(voucherDate: Date): string {
-    const year = voucherDate.getUTCFullYear();
-    const month = voucherDate.getUTCMonth();
-    const startYear = month >= 3 ? year : year - 1;
-    const endYear = startYear + 1;
-    return `${startYear}-${String(endYear).slice(-2)}`;
+    return financialYear;
   }
 }

@@ -54,7 +54,7 @@ describe('CompanyAccessGuard', () => {
 
   it('skips routes without company-access metadata', async () => {
     const context = createContext(
-      { user: { id: 'user-1', role: 'STAFF', tenantId: 'tenant-1' } },
+      { user: { id: 'user-1', role: 'MANAGER', tenantId: 'tenant-1' } },
       PublicController,
     );
 
@@ -64,7 +64,7 @@ describe('CompanyAccessGuard', () => {
 
   it('rejects header-scoped routes without a company header', async () => {
     const context = createContext(
-      { user: { id: 'user-1', role: 'STAFF', tenantId: 'tenant-1' } },
+      { user: { id: 'user-1', role: 'MANAGER', tenantId: 'tenant-1' } },
       HeaderScopedController,
     );
 
@@ -76,7 +76,7 @@ describe('CompanyAccessGuard', () => {
   it('allows cached access without hitting the database', async () => {
     const request = {
       companyId: 'company-1',
-      user: { id: 'user-1', role: 'STAFF', tenantId: 'tenant-1' },
+      user: { id: 'user-1', role: 'MANAGER', tenantId: 'tenant-1' },
     };
     redisService.get.mockResolvedValueOnce('1');
 
@@ -87,7 +87,7 @@ describe('CompanyAccessGuard', () => {
     expect(request.companyId).toBe('company-1');
   });
 
-  it('validates param-scoped company access for tenant admins', async () => {
+  it('validates param-scoped company access for tenant-wide admins', async () => {
     (prisma.company.findFirst as jest.Mock).mockResolvedValueOnce({
       id: 'company-9',
     });
@@ -95,14 +95,19 @@ describe('CompanyAccessGuard', () => {
     const context = createContext(
       {
         params: { id: 'company-9' },
-        user: { id: 'admin-1', role: 'TENANT_ADMIN', tenantId: 'tenant-1' },
+        user: { id: 'admin-1', role: 'ADMIN', tenantId: 'tenant-1' },
       },
       ParamScopedController,
     );
 
     await expect(guard.canActivate(context)).resolves.toBe(true);
     expect(prisma.company.findFirst).toHaveBeenCalledWith({
-      where: { id: 'company-9', tenantId: 'tenant-1' },
+      where: {
+        id: 'company-9',
+        tenantId: 'tenant-1',
+        status: 'ACTIVE',
+        deletedAt: null,
+      },
       select: { id: true },
     });
   });
@@ -113,7 +118,7 @@ describe('CompanyAccessGuard', () => {
     const context = createContext(
       {
         body: { companyId: 'company-7' },
-        user: { id: 'staff-1', role: 'STAFF', tenantId: 'tenant-1' },
+        user: { id: 'staff-1', role: 'MANAGER', tenantId: 'tenant-1' },
       },
       BodyScopedController,
     );
@@ -125,9 +130,12 @@ describe('CompanyAccessGuard', () => {
       where: {
         id: 'company-7',
         tenantId: 'tenant-1',
-        userAccess: {
+        status: 'ACTIVE',
+        deletedAt: null,
+        userCompanies: {
           some: {
             userId: 'staff-1',
+            tenantId: 'tenant-1',
           },
         },
       },
@@ -155,7 +163,7 @@ describe('CompanyAccessGuard', () => {
 
     await expect(guard.canActivate(context)).resolves.toBe(true);
     expect(prisma.company.findFirst).toHaveBeenCalledWith({
-      where: { id: 'company-1' },
+      where: { id: 'company-1', status: 'ACTIVE', deletedAt: null },
       select: { id: true },
     });
     expect(redisService.set).toHaveBeenCalledWith(

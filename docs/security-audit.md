@@ -1,5 +1,7 @@
 # 🔒 TEXTILLEBILL - COMPREHENSIVE SECURITY & ARCHITECTURE AUDIT REPORT
 
+> Historical audit note refreshed on `2026-03-30`. Some model and architecture references below predate the Prisma schema migration and should be treated as historical context, not current schema truth. For current behavior, use `docs/database-schema.md`, `docs/authentication-flows.md`, and `docs/TECH_STACK_CURRENT.md`.
+
 **Report Date:** March 19, 2026  
 **Audited By:** Security & Architecture Analysis System  
 **Application:** TextileBill - Multi-tenant Billing & Invoicing SaaS  
@@ -1247,7 +1249,7 @@ private sanitizeObject(obj: any): any {
 ```
 Tenant (Multi-tenancy root)
 ├── Company (Tenant-scoped businesses)
-│   ├── Users (via UserCompanyAccess)
+│   ├── Users (current model: User + UserCompany)
 │   ├── Customers
 │   ├── Items
 │   ├── Invoices

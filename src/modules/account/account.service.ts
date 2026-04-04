@@ -4,7 +4,7 @@ import {
   Logger,
   ConflictException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { AccountGroupType, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAccountDto } from './dto/create-account.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
@@ -18,15 +18,27 @@ type AccountListView = 'default' | 'selector';
 
 const ACCOUNT_LIST_DEFAULT_SELECT = {
   id: true,
+  tenantId: true,
   companyId: true,
-  name: true,
-  gstin: true,
-  city: true,
-  phone: true,
+  group: true,
   openingBalance: true,
-  openingBalanceType: true,
-  isActive: true,
-  group: {
+  deletedAt: true,
+  party: {
+    select: {
+      id: true,
+      name: true,
+      gstin: true,
+      phone: true,
+      email: true,
+    },
+  },
+} satisfies Prisma.AccountSelect;
+
+const ACCOUNT_LIST_SELECTOR_SELECT = {
+  id: true,
+  group: true,
+  deletedAt: true,
+  party: {
     select: {
       id: true,
       name: true,
@@ -34,11 +46,29 @@ const ACCOUNT_LIST_DEFAULT_SELECT = {
   },
 } satisfies Prisma.AccountSelect;
 
-const ACCOUNT_LIST_SELECTOR_SELECT = {
+const ACCOUNT_DETAIL_SELECT = {
   id: true,
-  name: true,
-  city: true,
-  isActive: true,
+  tenantId: true,
+  companyId: true,
+  partyId: true,
+  group: true,
+  openingBalance: true,
+  createdAt: true,
+  updatedAt: true,
+  deletedAt: true,
+  party: {
+    select: {
+      id: true,
+      name: true,
+      gstin: true,
+      phone: true,
+      email: true,
+      address: true,
+      createdAt: true,
+      updatedAt: true,
+      deletedAt: true,
+    },
+  },
 } satisfies Prisma.AccountSelect;
 
 @Injectable()
@@ -47,63 +77,73 @@ export class AccountService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  // ═══════════════════════════════════════════════════
-  // ACCOUNTS (parties — customers / suppliers)
-  // ═══════════════════════════════════════════════════
-
   private getListSelect(view: AccountListView): Prisma.AccountSelect {
     return view === 'selector'
       ? ACCOUNT_LIST_SELECTOR_SELECT
       : ACCOUNT_LIST_DEFAULT_SELECT;
   }
 
-  async createAccount(companyId: string, dto: CreateAccountDto) {
-    const account = await this.prisma.account.create({
-      data: {
-        companyId,
-        name: dto.name,
-        searchCode: dto.searchCode,
-        groupId: dto.groupId,
-        gstin: dto.gstin,
-        gstType: dto.gstType as any,
-        priceSelection: dto.priceSelection,
-        address: dto.address,
-        city: dto.city,
-        state: dto.state ?? 'Gujarat',
-        country: dto.country ?? 'India',
-        pincode: dto.pincode,
-        shippingAddress: dto.shippingAddress,
-        shippingCity: dto.shippingCity,
-        shippingState: dto.shippingState,
-        shippingPincode: dto.shippingPincode,
-        contactPerson: dto.contactPerson,
-        phone: dto.phone,
-        email: dto.email,
-        pan: dto.pan,
-        aadhar: dto.aadhar,
-        brokerId: dto.brokerId,
-        openingBalance: dto.openingBalance,
-        openingBalanceType: dto.openingBalanceType ?? 'DR',
-        openingBalanceRemark: dto.openingBalanceRemark,
-        creditLimit: dto.creditLimit,
-        paymentDays: dto.paymentDays,
-        dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : undefined,
-        marriageAnniversary: dto.marriageAnniversary
-          ? new Date(dto.marriageAnniversary)
-          : undefined,
-        bankName: dto.bankName,
-        bankAccountNo: dto.bankAccountNo,
-        bankAccountType: dto.bankAccountType,
-        bankIfsc: dto.bankIfsc,
-        bankBranch: dto.bankBranch,
-        defaultInvoiceType: dto.defaultInvoiceType,
-        partyDiscountRate: dto.partyDiscountRate,
-      },
-      include: { group: true, broker: true },
+  private resolveAccountGroup(
+    rawGroup?: string,
+    fallback: AccountGroupType = AccountGroupType.SUNDRY_DEBTORS,
+  ): AccountGroupType {
+    const normalized = rawGroup?.trim().toUpperCase();
+    if (!normalized) {
+      return fallback;
+    }
+
+    if (
+      Object.values(AccountGroupType).includes(normalized as AccountGroupType)
+    ) {
+      return normalized as AccountGroupType;
+    }
+
+    return fallback;
+  }
+
+  private async getCompanyContext(companyId: string) {
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { id: true, tenantId: true, deletedAt: true },
     });
 
-    this.logger.log(`Account created: ${account.name} (${account.id})`);
-    return account;
+    if (!company || company.deletedAt) {
+      throw new NotFoundException('Company not found');
+    }
+
+    return company;
+  }
+
+  async createAccount(companyId: string, dto: CreateAccountDto) {
+    const company = await this.getCompanyContext(companyId);
+    const group = this.resolveAccountGroup(dto.groupId);
+
+    const created = await this.prisma.$transaction(async (tx) => {
+      const party = await tx.party.create({
+        data: {
+          tenantId: company.tenantId,
+          name: dto.name.trim(),
+          gstin: dto.gstin?.trim().toUpperCase(),
+          phone: dto.phone?.trim(),
+          email: dto.email?.trim().toLowerCase(),
+          address: dto.address?.trim(),
+        },
+      });
+
+      return tx.account.create({
+        data: {
+          tenantId: company.tenantId,
+          companyId: company.id,
+          partyId: party.id,
+          group,
+          openingBalance: dto.openingBalance ?? 0,
+        },
+        select: ACCOUNT_DETAIL_SELECT,
+      });
+    });
+
+    this.logger.log(`Account created: ${created.id} (${created.party.name})`);
+    return created;
   }
 
   async findAllAccounts(
@@ -122,25 +162,50 @@ export class AccountService {
       limit: options?.limit,
     });
 
-    const where: any = { companyId };
+    const where: Prisma.AccountWhereInput = { companyId };
+
     if (options?.search) {
       where.OR = [
-        { name: { contains: options.search, mode: 'insensitive' } },
-        { searchCode: { contains: options.search, mode: 'insensitive' } },
-        { gstin: { contains: options.search, mode: 'insensitive' } },
-        { phone: { contains: options.search, mode: 'insensitive' } },
-        { city: { contains: options.search, mode: 'insensitive' } },
+        {
+          party: {
+            name: { contains: options.search, mode: 'insensitive' },
+          },
+        },
+        {
+          party: {
+            gstin: { contains: options.search, mode: 'insensitive' },
+          },
+        },
+        {
+          party: {
+            phone: { contains: options.search, mode: 'insensitive' },
+          },
+        },
       ];
     }
-    if (options?.groupId) where.groupId = options.groupId;
-    if (options?.isActive !== undefined) where.isActive = options.isActive;
+
+    if (options?.groupId) {
+      where.group = this.resolveAccountGroup(options.groupId);
+    }
+
+    if (options?.isActive === true) {
+      where.deletedAt = null;
+    } else if (options?.isActive === false) {
+      where.deletedAt = { not: null };
+    } else {
+      where.deletedAt = null;
+    }
 
     const [data, total] = await Promise.all([
       this.prisma.account.findMany({
         where,
         skip,
         take,
-        orderBy: { name: 'asc' },
+        orderBy: {
+          party: {
+            name: 'asc',
+          },
+        },
         select: this.getListSelect(options?.view ?? 'default'),
       }),
       this.prisma.account.count({ where }),
@@ -152,24 +217,60 @@ export class AccountService {
   async findAccountById(id: string, companyId: string) {
     const account = await this.prisma.account.findFirst({
       where: { id, companyId },
-      include: { group: true, broker: true },
+      select: ACCOUNT_DETAIL_SELECT,
     });
     if (!account) throw new NotFoundException('Account not found');
     return account;
   }
 
   async updateAccount(id: string, companyId: string, dto: UpdateAccountDto) {
-    await this.findAccountById(id, companyId);
+    const account = await this.findAccountById(id, companyId);
 
-    const data: any = { ...dto };
-    if (dto.dateOfBirth) data.dateOfBirth = new Date(dto.dateOfBirth);
-    if (dto.marriageAnniversary)
-      data.marriageAnniversary = new Date(dto.marriageAnniversary);
+    const partyPatch: Prisma.PartyUpdateInput = {};
+    if (typeof dto.name === 'string') partyPatch.name = dto.name.trim();
+    if (typeof dto.gstin === 'string') partyPatch.gstin = dto.gstin.trim().toUpperCase();
+    if (typeof dto.phone === 'string') partyPatch.phone = dto.phone.trim();
+    if (typeof dto.email === 'string') partyPatch.email = dto.email.trim().toLowerCase();
+    if (typeof dto.address === 'string') partyPatch.address = dto.address.trim();
 
-    return this.prisma.account.update({
-      where: { id },
-      data,
-      include: { group: true, broker: true },
+    const accountPatch: Prisma.AccountUpdateInput = {};
+    if (dto.groupId) {
+      accountPatch.group = this.resolveAccountGroup(dto.groupId, account.group);
+    }
+    if (typeof dto.openingBalance === 'number') {
+      accountPatch.openingBalance = dto.openingBalance;
+    }
+    if (dto.isActive === true) {
+      accountPatch.deletedAt = null;
+    }
+    if (dto.isActive === false) {
+      accountPatch.deletedAt = new Date();
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      if (Object.keys(partyPatch).length > 0) {
+        await tx.party.update({
+          where: { id: account.partyId },
+          data: partyPatch,
+        });
+      }
+
+      if (Object.keys(accountPatch).length > 0) {
+        await tx.account.update({
+          where: { id: account.id },
+          data: accountPatch,
+        });
+      }
+
+      const refreshed = await tx.account.findUnique({
+        where: { id: account.id },
+        select: ACCOUNT_DETAIL_SELECT,
+      });
+      if (!refreshed) {
+        throw new NotFoundException('Account not found');
+      }
+
+      return refreshed;
     });
   }
 
@@ -177,16 +278,37 @@ export class AccountService {
     await this.findAccountById(id, companyId);
     return this.prisma.account.update({
       where: { id },
-      data: { isActive: false },
+      data: { deletedAt: new Date() },
+      select: ACCOUNT_DETAIL_SELECT,
     });
   }
 
   async removeAccountPermanently(id: string, companyId: string) {
-    await this.findAccountById(id, companyId);
+    const account = await this.prisma.account.findFirst({
+      where: { id, companyId },
+      select: { id: true, partyId: true },
+    });
+    if (!account) {
+      throw new NotFoundException('Account not found');
+    }
 
     try {
-      return await this.prisma.account.delete({
-        where: { id },
+      return await this.prisma.$transaction(async (tx) => {
+        const deleted = await tx.account.delete({
+          where: { id: account.id },
+        });
+
+        const remainingAccounts = await tx.account.count({
+          where: { partyId: account.partyId },
+        });
+
+        if (remainingAccounts === 0) {
+          await tx.party.delete({
+            where: { id: account.partyId },
+          });
+        }
+
+        return deleted;
       });
     } catch (err: any) {
       if (err?.code === 'P2003') {
@@ -198,82 +320,48 @@ export class AccountService {
     }
   }
 
-  // ═══════════════════════════════════════════════════
-  // BROKERS
-  // ═══════════════════════════════════════════════════
-
-  async createBroker(companyId: string, dto: CreateBrokerDto) {
-    return this.prisma.broker.create({
-      data: {
-        companyId,
-        name: dto.name,
-        phone: dto.phone,
-        email: dto.email,
-        marginRate: dto.marginRate,
-      },
-    });
+  // Broker model was removed in schema v2; keep endpoints explicit and safe.
+  async createBroker(_companyId: string, _dto: CreateBrokerDto) {
+    throw new ConflictException(
+      'Broker APIs are deprecated. Use parties/accounts with account groups instead.',
+    );
   }
 
-  async findAllBrokers(companyId: string) {
-    return this.prisma.broker.findMany({
-      where: { companyId },
-      orderBy: { name: 'asc' },
-      include: { _count: { select: { accounts: true, invoices: true } } },
-    });
+  async findAllBrokers(_companyId: string) {
+    return [];
   }
 
-  async findBrokerById(id: string, companyId: string) {
-    const broker = await this.prisma.broker.findFirst({
-      where: { id, companyId },
-    });
-    if (!broker) throw new NotFoundException('Broker not found');
-    return broker;
+  async findBrokerById(_id: string, _companyId: string) {
+    throw new NotFoundException('Broker not found');
   }
 
-  async updateBroker(id: string, companyId: string, dto: UpdateBrokerDto) {
-    await this.findBrokerById(id, companyId);
-    return this.prisma.broker.update({
-      where: { id },
-      data: dto as any,
-    });
+  async updateBroker(_id: string, _companyId: string, _dto: UpdateBrokerDto) {
+    throw new ConflictException(
+      'Broker APIs are deprecated. Use parties/accounts with account groups instead.',
+    );
   }
 
-  async removeBroker(id: string, companyId: string) {
-    await this.findBrokerById(id, companyId);
-    return this.prisma.broker.update({
-      where: { id },
-      data: { isActive: false },
-    });
+  async removeBroker(_id: string, _companyId: string) {
+    throw new ConflictException(
+      'Broker APIs are deprecated. Use parties/accounts with account groups instead.',
+    );
   }
-
-  // ═══════════════════════════════════════════════════
-  // ACCOUNT GROUPS (read-only tree from seed)
-  // ═══════════════════════════════════════════════════
 
   async findAllGroups() {
-    return this.prisma.accountGroup.findMany({
-      where: { parentId: null },
-      orderBy: { name: 'asc' },
-      include: {
-        children: {
-          orderBy: { name: 'asc' },
-          include: {
-            children: { orderBy: { name: 'asc' } },
-          },
-        },
-      },
-    });
+    return Object.values(AccountGroupType).map((group) => ({
+      id: group,
+      name: group.replace(/_/g, ' '),
+      value: group,
+    }));
   }
 
   async findGroupById(id: string) {
-    const group = await this.prisma.accountGroup.findUnique({
-      where: { id },
-      include: {
-        children: { orderBy: { name: 'asc' } },
-        accounts: { take: 10, orderBy: { name: 'asc' } },
-      },
-    });
+    const group = Object.values(AccountGroupType).find((value) => value === id);
     if (!group) throw new NotFoundException('Account group not found');
-    return group;
+    return {
+      id: group,
+      name: group.replace(/_/g, ' '),
+      value: group,
+    };
   }
 }

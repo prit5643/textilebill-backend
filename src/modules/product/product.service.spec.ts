@@ -13,15 +13,19 @@ describe('ProductService', () => {
 
   beforeEach(async () => {
     prisma = {
+      company: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'c1',
+          tenantId: 't1',
+          deletedAt: null,
+        }),
+      } as any,
       product: {
         create: jest.fn(),
         findMany: jest.fn(),
         count: jest.fn(),
         findFirst: jest.fn(),
         update: jest.fn(),
-      } as any,
-      productCategory: {
-        create: jest.fn(),
       } as any,
     };
 
@@ -32,123 +36,80 @@ describe('ProductService', () => {
     service = module.get<ProductService>(ProductService);
   });
 
-  describe('createProduct', () => {
-    it('should create and return a new product', async () => {
-      const mockProduct = { id: 'p1', name: 'Test Product', companyId: 'c1' };
-      (prisma.product!.create as jest.Mock).mockResolvedValueOnce(mockProduct);
-
-      const result = await service.createProduct('c1', {
-        name: 'Test Product',
-        searchCode: 'TST',
-        hsnCode: '1234',
-        retailPrice: 100,
-        buyingPrice: 80,
-        uomId: 'uom1',
-        categoryId: 'cat1',
-        brandId: 'brand1',
-      });
-
-      expect(prisma.product!.create).toHaveBeenCalled();
-      expect(result).toEqual(mockProduct);
+  it('creates products with schema-v2 fields', async () => {
+    (prisma.product!.findFirst as jest.Mock).mockResolvedValueOnce(null);
+    (prisma.product!.create as jest.Mock).mockResolvedValueOnce({
+      id: 'p1',
+      name: 'Test Product',
+      companyId: 'c1',
     });
 
-    it('should reject when active company is missing', async () => {
-      await expect(
-        service.createProduct(undefined as unknown as string, {
+    const result = await service.createProduct('c1', {
+      name: 'Test Product',
+      searchCode: 'TST',
+      hsnCode: '1234',
+      retailPrice: 100,
+      gstRate: 5,
+    });
+
+    expect(prisma.product!.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          tenantId: 't1',
+          companyId: 'c1',
           name: 'Test Product',
+          sku: 'TST',
+          price: 100,
+          taxRate: 5,
         }),
-      ).rejects.toThrow(BadRequestException);
-
-      expect(prisma.product!.create).not.toHaveBeenCalled();
-    });
+      }),
+    );
+    expect(result).toEqual({ id: 'p1', name: 'Test Product', companyId: 'c1' });
   });
 
-  describe('createCategory', () => {
-    it('should throw ConflictException if the category already exists via Prisma error P2002', async () => {
-      const prismaError = new Error('Unique constraint failed') as any;
-      prismaError.code = 'P2002';
-
-      (prisma.productCategory!.create as jest.Mock).mockRejectedValueOnce(
-        prismaError,
-      );
-
-      await expect(
-        service.createCategory('c1', 'Existing Category'),
-      ).rejects.toThrow(ConflictException);
-    });
-
-    it('should successfully create a new category', async () => {
-      const mockCategory = { id: 'cat1', name: 'New Category' };
-      (prisma.productCategory!.create as jest.Mock).mockResolvedValueOnce(
-        mockCategory,
-      );
-
-      const result = await service.createCategory('c1', 'New Category');
-
-      expect(result).toEqual(mockCategory);
-    });
+  it('rejects when company context is missing', async () => {
+    await expect(
+      service.createProduct(undefined as unknown as string, { name: 'Test' }),
+    ).rejects.toThrow(BadRequestException);
   });
 
-  describe('findProductById', () => {
-    it('should throw NotFoundException if product does not exist', async () => {
-      (prisma.product!.findFirst as jest.Mock).mockResolvedValueOnce(null);
+  it('throws conflict when duplicate active product exists', async () => {
+    (prisma.product!.findFirst as jest.Mock).mockResolvedValueOnce({ id: 'p1' });
 
-      await expect(service.findProductById('invalid', 'c1')).rejects.toThrow(
-        NotFoundException,
-      );
-    });
+    await expect(
+      service.createProduct('c1', { name: 'Dup Product' }),
+    ).rejects.toThrow(ConflictException);
   });
 
-  describe('findAllProducts view projections', () => {
-    it('uses selector projection for dropdown payloads', async () => {
-      (prisma.product!.findMany as jest.Mock).mockResolvedValueOnce([]);
-      (prisma.product!.count as jest.Mock).mockResolvedValueOnce(0);
+  it('throws not found when product is missing by id', async () => {
+    (prisma.product!.findFirst as jest.Mock).mockResolvedValueOnce(null);
 
-      await service.findAllProducts('c1', {
-        page: 1,
-        limit: 25,
-        view: 'selector',
-      });
+    await expect(service.findProductById('missing', 'c1')).rejects.toThrow(
+      NotFoundException,
+    );
+  });
 
-      const queryArg = (prisma.product!.findMany as jest.Mock).mock.calls[0][0];
-      expect(queryArg.select).toEqual(
-        expect.objectContaining({
-          id: true,
-          name: true,
-          hsnCode: true,
-          retailPrice: true,
-          gstRate: true,
-          isActive: true,
-        }),
-      );
-      expect(queryArg.select.category).toBeUndefined();
-      expect(queryArg.select.brand).toBeUndefined();
+  it('uses selector projection for lightweight dropdown payloads', async () => {
+    (prisma.product!.findMany as jest.Mock).mockResolvedValueOnce([]);
+    (prisma.product!.count as jest.Mock).mockResolvedValueOnce(0);
+
+    await service.findAllProducts('c1', {
+      page: 1,
+      limit: 25,
+      view: 'selector',
     });
 
-    it('uses default list projection and avoids heavy includes', async () => {
-      (prisma.product!.findMany as jest.Mock).mockResolvedValueOnce([]);
-      (prisma.product!.count as jest.Mock).mockResolvedValueOnce(0);
-
-      await service.findAllProducts('c1', {
-        page: 1,
-        limit: 25,
-      });
-
-      const queryArg = (prisma.product!.findMany as jest.Mock).mock.calls[0][0];
-      expect(queryArg.select).toEqual(
-        expect.objectContaining({
-          id: true,
-          companyId: true,
-          name: true,
-          hsnCode: true,
-          retailPrice: true,
-          gstRate: true,
-          isActive: true,
-          category: { select: { id: true, name: true } },
-          brand: { select: { id: true, name: true } },
-        }),
-      );
-      expect(queryArg.include).toBeUndefined();
-    });
+    const queryArg = (prisma.product!.findMany as jest.Mock).mock.calls[0][0];
+    expect(queryArg.select).toEqual(
+      expect.objectContaining({
+        id: true,
+        name: true,
+        hsnCode: true,
+        price: true,
+        taxRate: true,
+        unit: true,
+        deletedAt: true,
+      }),
+    );
   });
 });

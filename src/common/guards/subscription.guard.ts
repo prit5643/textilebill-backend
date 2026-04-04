@@ -7,6 +7,7 @@ import {
 import { PrismaService } from '../../modules/prisma/prisma.service';
 import { RedisService } from '../../modules/redis/redis.service';
 import {
+  TENANT_ACTIVE_CACHE_TTL_SECONDS,
   getActiveSubscriptionCacheTtlSeconds,
   getTenantSubscriptionCacheKey,
   SUBSCRIPTION_NEGATIVE_CACHE_TTL_SECONDS,
@@ -47,7 +48,7 @@ export class SubscriptionGuard implements CanActivate {
 
     if (cached === '0') {
       throw new ForbiddenException(
-        'Your plan has ended. You cannot create invoices until renewal.',
+        'Your tenant is inactive or has no active subscription. Contact your administrator.',
       );
     }
 
@@ -55,15 +56,18 @@ export class SubscriptionGuard implements CanActivate {
     const activeSubscription = await this.prisma.subscription.findFirst({
       where: {
         tenantId: user.tenantId,
+        deletedAt: null,
         status: 'ACTIVE',
         endDate: {
           gte: now,
         },
-      },
-      orderBy: {
-        endDate: 'asc',
+        tenant: {
+          status: 'ACTIVE',
+          deletedAt: null,
+        },
       },
       select: {
+        id: true,
         endDate: true,
       },
     });
@@ -75,14 +79,17 @@ export class SubscriptionGuard implements CanActivate {
         SUBSCRIPTION_NEGATIVE_CACHE_TTL_SECONDS,
       );
       throw new ForbiddenException(
-        'Your plan has ended. You cannot create invoices until renewal.',
+        'Your tenant is inactive or has no active subscription. Contact your administrator.',
       );
     }
 
     await this.redisService.set(
       cacheKey,
       '1',
-      getActiveSubscriptionCacheTtlSeconds(activeSubscription.endDate, now),
+      Math.min(
+        TENANT_ACTIVE_CACHE_TTL_SECONDS,
+        getActiveSubscriptionCacheTtlSeconds(activeSubscription.endDate, now),
+      ),
     );
 
     return true;

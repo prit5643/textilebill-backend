@@ -14,9 +14,9 @@ import { Transform } from 'class-transformer';
 import { MOBILE_REGEX } from '../../../common/utils/validation.util';
 
 export enum UserRoleEnum {
-  TENANT_ADMIN = 'TENANT_ADMIN',
+  OWNER = 'OWNER',
+  ADMIN = 'ADMIN',
   MANAGER = 'MANAGER',
-  STAFF = 'STAFF',
   ACCOUNTANT = 'ACCOUNTANT',
   VIEWER = 'VIEWER',
 }
@@ -27,7 +27,11 @@ export class CreateUserDto {
   @IsNotEmpty()
   email: string;
 
-  @ApiPropertyOptional({ example: 'john_doe' })
+  @ApiPropertyOptional({
+    example: 'john_doe',
+    description:
+      'Deprecated. Username is no longer stored in the new schema and this value is ignored.',
+  })
   @IsString()
   @IsOptional()
   username?: string;
@@ -38,7 +42,7 @@ export class CreateUserDto {
   @MinLength(8)
   password?: string;
 
-  @ApiPropertyOptional({ enum: UserRoleEnum, default: UserRoleEnum.STAFF })
+  @ApiPropertyOptional({ enum: UserRoleEnum, default: UserRoleEnum.MANAGER })
   @IsEnum(UserRoleEnum)
   @IsOptional()
   role?: UserRoleEnum;

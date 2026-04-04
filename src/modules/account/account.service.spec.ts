@@ -35,12 +35,12 @@ describe('AccountService', () => {
     expect(queryArg.select).toEqual(
       expect.objectContaining({
         id: true,
-        name: true,
-        city: true,
-        isActive: true,
+        group: true,
+        deletedAt: true,
+        party: { select: { id: true, name: true } },
       }),
     );
-    expect(queryArg.select.group).toBeUndefined();
+    expect(queryArg.include).toBeUndefined();
   });
 
   it('uses trimmed default projection for account list pages', async () => {
@@ -56,15 +56,20 @@ describe('AccountService', () => {
     expect(queryArg.select).toEqual(
       expect.objectContaining({
         id: true,
+        tenantId: true,
         companyId: true,
-        name: true,
-        gstin: true,
-        city: true,
-        phone: true,
+        group: true,
         openingBalance: true,
-        openingBalanceType: true,
-        isActive: true,
-        group: { select: { id: true, name: true } },
+        deletedAt: true,
+        party: {
+          select: {
+            id: true,
+            name: true,
+            gstin: true,
+            phone: true,
+            email: true,
+          },
+        },
       }),
     );
     expect(queryArg.include).toBeUndefined();

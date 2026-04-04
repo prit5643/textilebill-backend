@@ -6,6 +6,10 @@ function safeParseUrl(value: string): URL | null {
   }
 }
 
+function isSupabasePoolerHost(hostname: string): boolean {
+  return hostname.toLowerCase().endsWith('.pooler.supabase.com');
+}
+
 export function redactDatabaseUrl(rawUrl: string): string {
   const parsed = safeParseUrl(rawUrl);
   if (!parsed) return '<invalid-database-url>';
@@ -16,6 +20,29 @@ export function redactDatabaseUrl(rawUrl: string): string {
   return parsed.toString();
 }
 
+export function normalizeDatabaseUrl(rawUrl: string): string {
+  const parsed = safeParseUrl(rawUrl);
+  if (!parsed) {
+    return rawUrl;
+  }
+
+  if (!isSupabasePoolerHost(parsed.hostname)) {
+    return rawUrl;
+  }
+
+  if (parsed.searchParams.get('pgbouncer')?.toLowerCase() !== 'true') {
+    parsed.searchParams.set('pgbouncer', 'true');
+  }
+
+  const connectionLimit = parsed.searchParams.get('connection_limit');
+  const parsedLimit = connectionLimit ? Number.parseInt(connectionLimit, 10) : NaN;
+  if (!Number.isFinite(parsedLimit) || parsedLimit <= 0) {
+    parsed.searchParams.set('connection_limit', '1');
+  }
+
+  return parsed.toString();
+}
+
 export function isPgBouncerConnection(rawUrl: string): boolean {
   const parsed = safeParseUrl(rawUrl);
   if (!parsed) return false;
@@ -23,8 +50,9 @@ export function isPgBouncerConnection(rawUrl: string): boolean {
   const usesPgBouncerFlag =
     parsed.searchParams.get('pgbouncer')?.toLowerCase() === 'true';
   const usesDefaultPgBouncerPort = parsed.port === '6432';
+  const usesSupabasePooler = isSupabasePoolerHost(parsed.hostname);
 
-  return usesPgBouncerFlag || usesDefaultPgBouncerPort;
+  return usesPgBouncerFlag || usesDefaultPgBouncerPort || usesSupabasePooler;
 }
 
 export function hasConnectionLimit(rawUrl: string): boolean {
