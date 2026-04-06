@@ -149,6 +149,12 @@ export class AdminController {
     return this.adminService.updateSubscription(id, dto);
   }
 
+  @Delete('subscriptions/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  deleteSubscription(@Param('id') id: string) {
+    return this.adminService.deleteSubscription(id);
+  }
+
   // ─── Cross-tenant Users ───
   @Get('users')
   @ApiQuery({ name: 'page', required: false })

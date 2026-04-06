@@ -9,6 +9,13 @@ import {
 import { Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
 
+type PrismaLikeKnownError = {
+  code: string;
+  message: string;
+  meta?: unknown;
+  stack?: string;
+};
+
 @Catch()
 export class GlobalExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(GlobalExceptionFilter.name);
@@ -56,6 +63,49 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     return normalizedMessage;
   }
 
+  private asPrismaKnownRequestError(
+    exception: unknown,
+  ): PrismaLikeKnownError | null {
+    if (!exception || typeof exception !== 'object') {
+      return null;
+    }
+
+    const candidate = exception as {
+      code?: unknown;
+      message?: unknown;
+      stack?: unknown;
+      meta?: unknown;
+    };
+
+    if (
+      typeof candidate.code !== 'string' ||
+      !/^P\d{4}$/.test(candidate.code) ||
+      typeof candidate.message !== 'string'
+    ) {
+      return null;
+    }
+
+    return {
+      code: candidate.code,
+      message: candidate.message,
+      meta: candidate.meta,
+      stack: typeof candidate.stack === 'string' ? candidate.stack : undefined,
+    };
+  }
+
+  private isPrismaValidationError(exception: unknown): boolean {
+    if (exception instanceof Prisma.PrismaClientValidationError) {
+      return true;
+    }
+
+    if (!exception || typeof exception !== 'object') {
+      return false;
+    }
+
+    const name = (exception as { name?: unknown }).name;
+    return name === 'PrismaClientValidationError';
+  }
+
   catch(exception: unknown, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
@@ -91,32 +141,52 @@ export class GlobalExceptionFilter implements ExceptionFilter {
           exception.stack,
         );
       }
-    } else if (exception instanceof Prisma.PrismaClientKnownRequestError) {
+    } else if (
+      exception instanceof Prisma.PrismaClientKnownRequestError ||
+      this.asPrismaKnownRequestError(exception)
+    ) {
+      const prismaError =
+        exception instanceof Prisma.PrismaClientKnownRequestError
+          ? exception
+          : this.asPrismaKnownRequestError(exception);
+
+      if (!prismaError) {
+        status = HttpStatus.INTERNAL_SERVER_ERROR;
+        message = this.getDefaultMessageForStatus(status);
+      } else {
       // Log full Prisma error details for debugging
       this.logger.error(
-        `Prisma Error [${exception.code}] on ${request.method} ${request.url}\n` +
-          `  Message : ${exception.message}\n` +
-          `  Meta    : ${JSON.stringify(exception.meta)}`,
-        exception.stack,
+        `Prisma Error [${prismaError.code}] on ${request.method} ${request.url}\n` +
+          `  Message : ${prismaError.message}\n` +
+          `  Meta    : ${JSON.stringify(prismaError.meta)}`,
+        prismaError.stack,
       );
       // Map common Prisma errors to meaningful HTTP responses
-      if (exception.code === 'P2002') {
+      if (prismaError.code === 'P2002') {
         status = HttpStatus.CONFLICT;
         message = 'A record with these details already exists.';
-      } else if (exception.code === 'P2025') {
+      } else if (prismaError.code === 'P2025') {
         status = HttpStatus.NOT_FOUND;
         message = 'The requested information was not found.';
-      } else if (exception.code === 'P2003') {
+      } else if (prismaError.code === 'P2003') {
         status = HttpStatus.BAD_REQUEST;
         message = 'This request could not be completed due to related data.';
+      } else if (prismaError.code === 'P2000') {
+        status = HttpStatus.BAD_REQUEST;
+        message = 'One or more fields contain invalid values.';
       } else {
         message = this.getDefaultMessageForStatus(
           HttpStatus.INTERNAL_SERVER_ERROR,
         );
       }
-    } else if (exception instanceof Prisma.PrismaClientValidationError) {
+      }
+    } else if (this.isPrismaValidationError(exception)) {
+      const prismaValidationMessage =
+        exception instanceof Error
+          ? exception.message
+          : 'Prisma validation error';
       this.logger.error(
-        `Prisma Validation Error on ${request.method} ${request.url}:\n${exception.message}`,
+        `Prisma Validation Error on ${request.method} ${request.url}:\n${prismaValidationMessage}`,
       );
       status = HttpStatus.BAD_REQUEST;
       message = this.getDefaultMessageForStatus(HttpStatus.BAD_REQUEST);

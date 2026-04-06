@@ -39,11 +39,21 @@ export class InvoiceService {
     const invoiceType = this.normalizeInvoiceType(dto.invoiceType);
     const company = await this.getCompanyContext(companyId);
     const invoiceDate = new Date(dto.invoiceDate);
+    await this.ensureAccountBelongsToCompany(companyId, dto.accountId);
+
+    if (financialYearId) {
+      await this.ensureFinancialYearBelongsToCompany(
+        companyId,
+        financialYearId,
+        invoiceDate,
+      );
+    }
+
     const fyId =
       financialYearId ??
       (await this.resolveFinancialYearId(companyId, invoiceDate));
 
-    return this.prisma.$transaction(async (tx) => {
+    const createdInvoiceId = await this.prisma.$transaction(async (tx) => {
       const items = await this.prepareItems(tx, companyId, dto.items);
       const totals = this.computeTotals(items);
 
@@ -91,8 +101,10 @@ export class InvoiceService {
         });
       }
 
-      return this.findById(companyId, invoice.id, tx);
+      return invoice.id;
     });
+
+    return this.findById(companyId, createdInvoiceId);
   }
 
   async findAll(
@@ -269,7 +281,7 @@ export class InvoiceService {
     const existing = await this.findById(companyId, id);
     const company = await this.getCompanyContext(companyId);
 
-    return this.prisma.$transaction(async (tx) => {
+    const updatedInvoiceId = await this.prisma.$transaction(async (tx) => {
       let totals = {
         subTotal: Number(existing.subTotal),
         taxAmount: Number(existing.taxAmount),
@@ -314,8 +326,10 @@ export class InvoiceService {
         },
       });
 
-      return this.findById(companyId, id, tx);
+      return id;
     });
+
+    return this.findById(companyId, updatedInvoiceId);
   }
 
   async remove(companyId: string, id: string) {
@@ -453,6 +467,52 @@ export class InvoiceService {
       );
     }
     return financialYear.id;
+  }
+
+  private async ensureAccountBelongsToCompany(
+    companyId: string,
+    accountId: string,
+  ) {
+    const account = await this.prisma.account.findFirst({
+      where: {
+        id: accountId,
+        companyId,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+
+    if (!account) {
+      throw new BadRequestException(
+        'Selected account is invalid for this company. Choose an active account and try again.',
+      );
+    }
+  }
+
+  private async ensureFinancialYearBelongsToCompany(
+    companyId: string,
+    financialYearId: string,
+    invoiceDate: Date,
+  ) {
+    const financialYear = await this.prisma.financialYear.findFirst({
+      where: {
+        id: financialYearId,
+        companyId,
+      },
+      select: { startDate: true, endDate: true },
+    });
+
+    if (!financialYear) {
+      throw new BadRequestException(
+        'Selected financial year is invalid for this company. Choose a valid financial year and try again.',
+      );
+    }
+
+    if (invoiceDate < financialYear.startDate || invoiceDate > financialYear.endDate) {
+      throw new BadRequestException(
+        'Invoice date is outside the selected financial year. Choose a date within the selected financial year.',
+      );
+    }
   }
 
   private normalizeInvoiceType(value: string): InvoiceType {

@@ -620,15 +620,29 @@ export class AuthService {
       throw new UnauthorizedException('User not found');
     }
 
+    const emailVerification = await this.prisma.otpChallenge.findFirst({
+      where: {
+        userId,
+        purpose: PrismaOtpPurpose.VERIFY_EMAIL,
+        usedAt: { not: null },
+      },
+      select: { usedAt: true },
+      orderBy: { usedAt: 'desc' },
+    });
+
+    const emailVerified = Boolean(emailVerification?.usedAt);
+    const whatsappVerified = false;
+
     return {
       email: {
         value: user.email,
-        verified: false,
+        verified: emailVerified,
       },
-      phone: {
+      whatsapp: {
         value: user.phone,
-        verified: false,
+        verified: whatsappVerified,
       },
+      hasVerifiedContact: emailVerified || whatsappVerified,
     };
   }
 
@@ -1076,12 +1090,17 @@ export class AuthService {
   }
 
   private resolvePublicAppUrl(): string {
-    const appUrl = this.configService.get<string>('app.url')?.trim();
-    if (!appUrl) {
+    const appUrl = this.configService.get<string>('app.url');
+    const baseUrl = appUrl
+      ?.split(',')
+      .map((value) => value.trim())
+      .find((value) => value.length > 0);
+
+    if (!baseUrl) {
       throw new Error('APP_URL is required to build password links.');
     }
 
-    return appUrl.replace(/\/+$/, '');
+    return baseUrl.replace(/\/+$/, '');
   }
 
   private buildPublicLink(path: '/accept-invite' | '/reset-password', token: string): string {

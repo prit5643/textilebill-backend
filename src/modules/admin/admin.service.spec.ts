@@ -15,11 +15,15 @@ describe('AdminService', () => {
   beforeEach(async () => {
     prisma = {
       tenant: {
+        findMany: jest.fn(),
+        count: jest.fn(),
         findUnique: jest.fn(),
         findFirst: jest.fn(),
         update: jest.fn(),
       },
       user: {
+        groupBy: jest.fn(),
+        count: jest.fn(),
         findUnique: jest.fn(),
         findMany: jest.fn(),
         update: jest.fn(),
@@ -38,6 +42,10 @@ describe('AdminService', () => {
         updateMany: jest.fn(),
         update: jest.fn(),
         create: jest.fn(),
+      },
+      auditLog: {
+        findMany: jest.fn(),
+        count: jest.fn(),
       },
       $transaction: jest.fn().mockImplementation(async (callback: any) => {
         return callback(prisma);
@@ -314,6 +322,184 @@ describe('AdminService', () => {
         })
       })
     );
+  });
+
+  it('listTenants should count only users with company access in tenant table payload', async () => {
+    prisma.tenant.findMany.mockResolvedValueOnce([
+      {
+        id: 'tenant-1',
+        name: 'Tenant One',
+        _count: { users: 3, companies: 1 },
+        companies: [],
+      },
+      {
+        id: 'tenant-2',
+        name: 'Tenant Two',
+        _count: { users: 4, companies: 1 },
+        companies: [],
+      },
+    ]);
+    prisma.tenant.count.mockResolvedValueOnce(2);
+    prisma.user.groupBy.mockResolvedValueOnce([
+      { tenantId: 'tenant-1', _count: { _all: 1 } },
+      { tenantId: 'tenant-2', _count: { _all: 2 } },
+    ]);
+
+    const result = await service.listTenants({ page: 1, limit: 10 });
+
+    expect(prisma.user.groupBy).toHaveBeenCalledWith({
+      by: ['tenantId'],
+      where: {
+        tenantId: { in: ['tenant-1', 'tenant-2'] },
+        deletedAt: null,
+        userCompanies: { some: {} },
+        NOT: {
+          userCompanies: {
+            some: {
+              role: 'OWNER',
+            },
+          },
+        },
+      },
+      _count: { _all: true },
+    });
+    expect(result.data[0]._count.users).toBe(1);
+    expect(result.data[1]._count.users).toBe(2);
+  });
+
+  it('getTenant should request only users who have company access', async () => {
+    prisma.tenant.findUnique.mockResolvedValueOnce({
+      id: 'tenant-1',
+      deletedAt: null,
+      users: [],
+      companies: [],
+    });
+
+    await service.getTenant('tenant-1');
+
+    expect(prisma.tenant.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'tenant-1' },
+        include: expect.objectContaining({
+          users: expect.objectContaining({
+            where: {
+              deletedAt: null,
+              userCompanies: {
+                some: {},
+              },
+              NOT: {
+                userCompanies: {
+                  some: {
+                    role: 'OWNER',
+                  },
+                },
+              },
+            },
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('listAllUsers should include only tenant users with company access', async () => {
+    prisma.user.findMany.mockResolvedValueOnce([
+      {
+        id: 'user-1',
+        tenantId: 'tenant-1',
+        email: 'tenant@demo.test',
+        name: 'Tenant User',
+        phone: null,
+        status: 'ACTIVE',
+        createdAt: new Date('2026-04-01T00:00:00.000Z'),
+        _count: {
+          refreshTokens: 1,
+        },
+        refreshTokens: [{ createdAt: new Date('2026-04-02T00:00:00.000Z') }],
+        tenant: { id: 'tenant-1', name: 'Tenant One', status: 'ACTIVE' },
+        userCompanies: [{ role: 'ADMIN', company: { id: 'company-1', name: 'Main' } }],
+      },
+    ]);
+    prisma.user.count.mockResolvedValueOnce(1);
+
+    const result = await service.listAllUsers({ page: 1, limit: 10 });
+
+    expect(prisma.user.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          deletedAt: null,
+          userCompanies: {
+            some: {},
+          },
+          NOT: {
+            userCompanies: {
+              some: {
+                role: 'OWNER',
+              },
+            },
+          },
+        }),
+      }),
+    );
+    expect(prisma.user.count).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          deletedAt: null,
+          userCompanies: {
+            some: {},
+          },
+          NOT: {
+            userCompanies: {
+              some: {
+                role: 'OWNER',
+              },
+            },
+          },
+        }),
+      }),
+    );
+    expect(result.data).toHaveLength(1);
+    expect(result.data[0].email).toBe('tenant@demo.test');
+    expect(result.data[0].passwordSetupStatus).toBe('SETUP_COMPLETED');
+    expect(result.data[0].lastLoginAt).toEqual(new Date('2026-04-02T00:00:00.000Z'));
+  });
+
+  it('getAuditLogs should return paginated rows from persisted audit logs', async () => {
+    prisma.auditLog.findMany.mockResolvedValueOnce([
+      {
+        id: 'log-1',
+        action: 'POST USERS',
+        entity: 'USERS',
+        entityId: 'user-1',
+        method: 'POST',
+        path: '/admin/users',
+        statusCode: 201,
+        createdAt: new Date('2026-04-06T10:00:00.000Z'),
+        user: { id: 'user-1', email: 'admin@test.com', name: 'Admin' },
+        company: { id: 'company-1', name: 'Acme' },
+      },
+    ]);
+    prisma.auditLog.count.mockResolvedValueOnce(1);
+
+    const result = await service.getAuditLogs({
+      page: 1,
+      limit: 50,
+      companyId: 'company-1',
+      entity: 'USERS',
+    });
+
+    expect(prisma.auditLog.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          companyId: 'company-1',
+          entity: {
+            equals: 'USERS',
+            mode: 'insensitive',
+          },
+        }),
+      }),
+    );
+    expect(result.data).toHaveLength(1);
+    expect(result.meta.total).toBe(1);
   });
 
 });

@@ -21,6 +21,9 @@ describe('InvoiceService', () => {
           email: null,
         }),
       } as any,
+      account: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'account-1' }),
+      } as any,
       financialYear: {
         findFirst: jest.fn().mockResolvedValue({ id: 'fy-1' }),
       } as any,
@@ -57,6 +60,18 @@ describe('InvoiceService', () => {
   });
 
   it('creates invoice with computed totals and generated number', async () => {
+    (prisma.invoice!.findFirst as jest.Mock).mockResolvedValueOnce({
+      id: 'invoice-1',
+      invoiceNumber: 'SAL-0001',
+      accountId: 'account-1',
+      subTotal: 1000,
+      taxAmount: 50,
+      discountAmount: 0,
+      totalAmount: 1050,
+      items: [],
+      account: { party: { name: 'Party' } },
+    });
+
     (prisma.$transaction as jest.Mock).mockImplementationOnce(async (cb) => {
       const tx = {
         product: {
@@ -67,17 +82,6 @@ describe('InvoiceService', () => {
         invoice: {
           create: jest.fn().mockResolvedValue({
             id: 'invoice-1',
-          }),
-          findFirst: jest.fn().mockResolvedValue({
-            id: 'invoice-1',
-            invoiceNumber: 'SAL-0001',
-            accountId: 'account-1',
-            subTotal: 1000,
-            taxAmount: 50,
-            discountAmount: 0,
-            totalAmount: 1050,
-            items: [],
-            account: { party: { name: 'Party' } },
           }),
         },
         invoiceItem: {

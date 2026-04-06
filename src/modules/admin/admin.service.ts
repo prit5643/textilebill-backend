@@ -6,7 +6,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { EntityStatus, Prisma, UserRole } from '@prisma/client';
+import { EntityStatus, Prisma, SubscriptionStatus, UserRole } from '@prisma/client';
 import { randomUUID, createHash } from 'crypto';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
@@ -45,7 +45,21 @@ export class AdminService {
         this.prisma.tenant.count({
           where: { deletedAt: null, status: EntityStatus.ACTIVE },
         }),
-        this.prisma.user.count({ where: { deletedAt: null } }),
+        this.prisma.user.count({
+          where: {
+            deletedAt: null,
+            userCompanies: {
+              some: {},
+            },
+            NOT: {
+              userCompanies: {
+                some: {
+                  role: UserRole.OWNER,
+                },
+              },
+            },
+          },
+        }),
         this.prisma.company.count({ where: { deletedAt: null } }),
         this.prisma.invoice.count({ where: { deletedAt: null } }),
       ]);
@@ -115,7 +129,52 @@ export class AdminService {
       this.prisma.tenant.count({ where }),
     ]);
 
-    return createPaginatedResult(tenants, total, page, limit);
+    const tenantIds = tenants.map((tenant) => tenant.id);
+    const tenantUserCounts =
+      tenantIds.length > 0
+        ? await this.prisma.user.groupBy({
+            by: ['tenantId'],
+            where: {
+              tenantId: { in: tenantIds },
+              deletedAt: null,
+              userCompanies: {
+                some: {},
+              },
+              NOT: {
+                userCompanies: {
+                  some: {
+                    role: UserRole.OWNER,
+                  },
+                },
+              },
+            },
+            _count: {
+              _all: true,
+            },
+          })
+        : [];
+
+    const tenantUserCountMap = new Map(
+      tenantUserCounts.map((entry) => [entry.tenantId, entry._count._all]),
+    );
+
+    const sanitizedTenants = tenants.map((tenant) => {
+      const primaryCompany = tenant.companies?.[0];
+
+      return {
+        ...tenant,
+        gstin: primaryCompany?.gstin ?? null,
+        address: primaryCompany?.address ?? null,
+        phone: primaryCompany?.phone ?? null,
+        email: primaryCompany?.email ?? null,
+        _count: {
+          ...tenant._count,
+          users: tenantUserCountMap.get(tenant.id) ?? 0,
+        },
+      };
+    });
+
+    return createPaginatedResult(sanitizedTenants, total, page, limit);
   }
 
   async getTenant(id: string) {
@@ -123,7 +182,19 @@ export class AdminService {
       where: { id },
       include: {
         users: {
-          where: { deletedAt: null },
+          where: {
+            deletedAt: null,
+            userCompanies: {
+              some: {},
+            },
+            NOT: {
+              userCompanies: {
+                some: {
+                  role: UserRole.OWNER,
+                },
+              },
+            },
+          },
           select: {
             id: true,
             email: true,
@@ -144,6 +215,19 @@ export class AdminService {
         companies: {
           where: { deletedAt: null },
           orderBy: { createdAt: 'asc' },
+          select: {
+            id: true,
+            tenantId: true,
+            name: true,
+            gstin: true,
+            address: true,
+            phone: true,
+            email: true,
+            status: true,
+            createdAt: true,
+            updatedAt: true,
+            deletedAt: true,
+          },
         },
       },
     });
@@ -152,7 +236,15 @@ export class AdminService {
       throw new NotFoundException('Tenant not found');
     }
 
-    return tenant;
+    const primaryCompany = tenant.companies?.[0];
+
+    return {
+      ...tenant,
+      gstin: primaryCompany?.gstin ?? null,
+      address: primaryCompany?.address ?? null,
+      phone: primaryCompany?.phone ?? null,
+      email: primaryCompany?.email ?? null,
+    };
   }
 
   async createTenant(dto: {
@@ -542,11 +634,20 @@ export class AdminService {
     return created;
   }
 
-  async listSubscriptions(query: { page?: number; limit?: number; status?: string }) {
+  async listSubscriptions(query: {
+    page?: number;
+    limit?: number;
+    status?: string;
+  }) {
     const { skip, take, page, limit } = parsePagination(query);
-    const where: any = {};
+    const where: Prisma.SubscriptionWhereInput = {
+      deletedAt: null,
+    };
     if (query.status) {
-      where.status = query.status;
+      const status = query.status.toUpperCase();
+      if (Object.values(SubscriptionStatus).includes(status as SubscriptionStatus)) {
+        where.status = status as SubscriptionStatus;
+      }
     }
     const [data, total] = await Promise.all([
       this.prisma.subscription.findMany({
@@ -583,6 +684,12 @@ export class AdminService {
     }
     if (dto.amount !== undefined) data.amountPaid = dto.amount;
     if (dto.status) data.status = dto.status;
+
+    if (dto.status === 'CANCELLED') {
+      data.deletedAt = new Date();
+    } else if (dto.status === 'ACTIVE') {
+      data.deletedAt = null;
+    }
 
     if (dto.endDate !== undefined) {
       const parsed = new Date(dto.endDate);
@@ -644,6 +751,28 @@ export class AdminService {
     return updated;
   }
 
+  async deleteSubscription(id: string) {
+    const sub = await this.prisma.subscription.findUnique({
+      where: { id },
+      select: { id: true, tenantId: true, deletedAt: true },
+    });
+
+    if (!sub || sub.deletedAt) {
+      throw new NotFoundException('Subscription not found');
+    }
+
+    await this.prisma.subscription.update({
+      where: { id },
+      data: {
+        status: 'CANCELLED',
+        deletedAt: new Date(),
+      },
+    });
+
+    await this.redisService.del(getTenantSubscriptionCacheKey(sub.tenantId));
+    return;
+  }
+
   async listAllUsers(query: {
     page?: number;
     limit?: number;
@@ -653,6 +782,16 @@ export class AdminService {
     const { skip, take, page, limit } = parsePagination(query);
     const where = {
       deletedAt: null,
+      userCompanies: {
+        some: {},
+      },
+      NOT: {
+        userCompanies: {
+          some: {
+            role: UserRole.OWNER,
+          },
+        },
+      },
       ...(query.tenantId ? { tenantId: query.tenantId } : {}),
       ...(query.search
         ? {
@@ -678,6 +817,16 @@ export class AdminService {
           phone: true,
           status: true,
           createdAt: true,
+          _count: {
+            select: {
+              refreshTokens: true,
+            },
+          },
+          refreshTokens: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: { createdAt: true },
+          },
           tenant: {
             select: { id: true, name: true, status: true },
           },
@@ -695,10 +844,22 @@ export class AdminService {
     ]);
 
     return createPaginatedResult(
-      users.map((user) => ({
-        ...user,
-        role: this.toLegacyRole(this.getHighestRole(user.userCompanies)),
-      })),
+      users.map((user) => {
+        const [firstName, ...rest] = (user.name ?? '').trim().split(/\s+/).filter(Boolean);
+        const passwordSetupCompleted = (user._count?.refreshTokens ?? 0) > 0;
+
+        return {
+          ...user,
+          firstName: firstName || null,
+          lastName: rest.length ? rest.join(' ') : null,
+          isActive: user.status === EntityStatus.ACTIVE,
+          role: this.toLegacyRole(this.getHighestRole(user.userCompanies)),
+          passwordSetupStatus: passwordSetupCompleted
+            ? 'SETUP_COMPLETED'
+            : 'PENDING_SETUP',
+          lastLoginAt: user.refreshTokens?.[0]?.createdAt ?? null,
+        };
+      }),
       total,
       page,
       limit,
@@ -877,7 +1038,45 @@ export class AdminService {
     entity?: string;
   }) {
     const { page, limit } = parsePagination(query);
-    return createPaginatedResult([], 0, page, limit);
+    const where: Prisma.AuditLogWhereInput = {
+      ...(query.companyId ? { companyId: query.companyId } : {}),
+      ...(query.userId ? { userId: query.userId } : {}),
+      ...(query.entity
+        ? {
+            entity: {
+              equals: query.entity,
+              mode: 'insensitive',
+            },
+          }
+        : {}),
+    };
+
+    const [rows, total] = await Promise.all([
+      this.prisma.auditLog.findMany({
+        where,
+        skip: (page - 1) * limit,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+            },
+          },
+          company: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+      }),
+      this.prisma.auditLog.count({ where }),
+    ]);
+
+    return createPaginatedResult(rows, total, page, limit);
   }
 
   async getModulePermissions(_companyId: string) {
@@ -955,7 +1154,7 @@ export class AdminService {
   private toLegacyRole(role: UserRole): string {
     switch (role) {
       case UserRole.OWNER:
-        return 'SUPER_ADMIN';
+        return 'TENANT_ADMIN';
       case UserRole.ADMIN:
         return 'TENANT_ADMIN';
       case UserRole.MANAGER:
@@ -981,11 +1180,17 @@ export class AdminService {
   }
 
   private resolvePublicAppUrl(): string {
-    const appUrl = this.configService.get<string>('app.url')?.trim();
-    if (!appUrl) {
+    const appUrl = this.configService.get<string>('app.url');
+    const baseUrl = appUrl
+      ?.split(',')
+      .map((value) => value.trim())
+      .find((value) => value.length > 0);
+
+    if (!baseUrl) {
       throw new Error('APP_URL is required to build public links.');
     }
-    return appUrl.replace(/\/+$/, '');
+
+    return baseUrl.replace(/\/+$/, '');
   }
 
   private buildPublicLink(path: '/accept-invite' | '/reset-password', token: string) {

@@ -41,6 +41,7 @@ describe('AuthService', () => {
       } as any,
       otpChallenge: {
         create: jest.fn(),
+        findFirst: jest.fn(),
         update: jest.fn(),
         updateMany: jest.fn(),
       } as any,
@@ -302,5 +303,32 @@ describe('AuthService', () => {
     await expect(service.verifyLoginOtp('missing', '123456')).rejects.toBeInstanceOf(
       BadRequestException,
     );
+  });
+
+  it('returns email as verified when a used VERIFY_EMAIL challenge exists', async () => {
+    (prisma.user!.findFirst as jest.Mock).mockResolvedValueOnce({
+      id: 'user-1',
+      email: 'owner@test.com',
+      phone: '+919999999999',
+      status: 'ACTIVE',
+      deletedAt: null,
+    });
+    (prisma.otpChallenge!.findFirst as jest.Mock).mockResolvedValueOnce({
+      usedAt: new Date('2026-04-06T06:30:00.000Z'),
+    });
+
+    const status = await service.getVerificationStatus('user-1');
+
+    expect(status).toEqual({
+      email: {
+        value: 'owner@test.com',
+        verified: true,
+      },
+      whatsapp: {
+        value: '+919999999999',
+        verified: false,
+      },
+      hasVerifiedContact: true,
+    });
   });
 });

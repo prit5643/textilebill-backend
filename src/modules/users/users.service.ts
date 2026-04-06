@@ -683,8 +683,11 @@ export class UsersService {
   }
 
   private resolvePublicAppUrl(): string {
-    const appUrl = this.configService.get<string>('app.url')?.trim();
-    const baseUrl = appUrl;
+    const appUrl = this.configService.get<string>('app.url');
+    const baseUrl = appUrl
+      ?.split(',')
+      .map((value) => value.trim())
+      .find((value) => value.length > 0);
 
     if (!baseUrl) {
       throw new Error('APP_URL is required to build account links.');
