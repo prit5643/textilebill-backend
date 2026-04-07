@@ -408,6 +408,45 @@ describe('AdminService', () => {
     );
   });
 
+  it('listTenants should fallback when city/state columns are missing in DB', async () => {
+    prisma.tenant.findMany
+      .mockRejectedValueOnce({ code: 'P2022', meta: { column: 'city' } })
+      .mockResolvedValueOnce([
+        {
+          id: 'tenant-1',
+          name: 'Tenant One',
+          status: EntityStatus.ACTIVE,
+          _count: { users: 1, companies: 1 },
+          companies: [
+            {
+              id: 'company-1',
+              name: 'Tenant One Co',
+              gstin: '24ABCDE1234F1Z5',
+              address: 'Ring Road',
+              pincode: '395001',
+              phone: '+919876543210',
+              email: 'tenant@example.com',
+              status: EntityStatus.ACTIVE,
+            },
+          ],
+        },
+      ]);
+    prisma.tenant.count.mockResolvedValueOnce(1);
+    prisma.user.groupBy.mockResolvedValueOnce([
+      { tenantId: 'tenant-1', _count: { _all: 1 } },
+    ]);
+
+    const result = await service.listTenants({ page: 1, limit: 10 });
+
+    expect(prisma.tenant.findMany).toHaveBeenCalledTimes(2);
+    expect(result.data[0]).toEqual(
+      expect.objectContaining({
+        city: null,
+        state: null,
+      }),
+    );
+  });
+
   it('getTenant should request only users who have company access', async () => {
     prisma.tenant.findUnique.mockResolvedValueOnce({
       id: 'tenant-1',
@@ -438,6 +477,44 @@ describe('AdminService', () => {
             },
           }),
         }),
+      }),
+    );
+  });
+
+
+  it('getTenant should fallback when city/state columns are missing in DB', async () => {
+    prisma.tenant.findUnique
+      .mockRejectedValueOnce({ code: 'P2022', meta: { column: 'state' } })
+      .mockResolvedValueOnce({
+        id: 'tenant-1',
+        status: EntityStatus.ACTIVE,
+        deletedAt: null,
+        users: [],
+        companies: [
+          {
+            id: 'company-1',
+            tenantId: 'tenant-1',
+            name: 'Tenant One Co',
+            gstin: '24ABCDE1234F1Z5',
+            address: 'Ring Road',
+            pincode: '395001',
+            phone: '+919876543210',
+            email: 'tenant@example.com',
+            status: EntityStatus.ACTIVE,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            deletedAt: null,
+          },
+        ],
+      });
+
+    const result = await service.getTenant('tenant-1');
+
+    expect(prisma.tenant.findUnique).toHaveBeenCalledTimes(2);
+    expect(result).toEqual(
+      expect.objectContaining({
+        city: null,
+        state: null,
       }),
     );
   });

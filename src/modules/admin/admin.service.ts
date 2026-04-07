@@ -38,6 +38,120 @@ export class AdminService {
     private readonly otpDeliveryService: OtpDeliveryService,
   ) {}
 
+  private isMissingCompanyLocationColumnError(error: unknown): boolean {
+    const prismaError = error as { code?: string; meta?: { column?: unknown } };
+    if (prismaError?.code !== 'P2022') {
+      return false;
+    }
+
+    const column = String(prismaError?.meta?.column ?? '').toLowerCase();
+    return column.includes('city') || column.includes('state');
+  }
+
+  private buildTenantCompanySelect(includeLocationFields: boolean) {
+    return {
+      id: true,
+      name: true,
+      gstin: true,
+      address: true,
+      pincode: true,
+      phone: true,
+      email: true,
+      status: true,
+      ...(includeLocationFields
+        ? {
+            city: true,
+            state: true,
+          }
+        : {}),
+    } satisfies Prisma.CompanySelect;
+  }
+
+  private async listTenantsRaw(
+    where: Prisma.TenantWhereInput,
+    skip: number,
+    take: number,
+    includeLocationFields: boolean,
+  ) {
+    return this.prisma.tenant.findMany({
+      where,
+      skip,
+      take,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        _count: { select: { users: true, companies: true } },
+        companies: {
+          where: { deletedAt: null },
+          orderBy: { createdAt: 'asc' },
+          select: this.buildTenantCompanySelect(includeLocationFields),
+        },
+      },
+    });
+  }
+
+  private async getTenantRaw(id: string, includeLocationFields: boolean) {
+    return this.prisma.tenant.findUnique({
+      where: { id },
+      include: {
+        users: {
+          where: {
+            deletedAt: null,
+            userCompanies: {
+              some: {},
+            },
+            NOT: {
+              userCompanies: {
+                some: {
+                  role: UserRole.OWNER,
+                },
+              },
+            },
+          },
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            phone: true,
+            status: true,
+            createdAt: true,
+            userCompanies: {
+              select: {
+                role: true,
+                company: {
+                  select: { id: true, name: true },
+                },
+              },
+            },
+          },
+        },
+        companies: {
+          where: { deletedAt: null },
+          orderBy: { createdAt: 'asc' },
+          select: {
+            id: true,
+            tenantId: true,
+            name: true,
+            gstin: true,
+            address: true,
+            pincode: true,
+            phone: true,
+            email: true,
+            status: true,
+            createdAt: true,
+            updatedAt: true,
+            deletedAt: true,
+            ...(includeLocationFields
+              ? {
+                  city: true,
+                  state: true,
+                }
+              : {}),
+          },
+        },
+      },
+    });
+  }
+
   async getDashboardKpis() {
     const now = new Date();
     const next30Days = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
@@ -137,31 +251,21 @@ export class AdminService {
         }
       : { deletedAt: null };
 
+    const tenantsPromise = this.listTenantsRaw(where, skip, take, true).catch(
+      async (error) => {
+        if (!this.isMissingCompanyLocationColumnError(error)) {
+          throw error;
+        }
+
+        this.logger.warn(
+          'Tenant list fallback: missing company city/state columns in DB. Retrying without those fields.',
+        );
+        return this.listTenantsRaw(where, skip, take, false);
+      },
+    );
+
     const [tenants, total] = await Promise.all([
-      this.prisma.tenant.findMany({
-        where,
-        skip,
-        take,
-        orderBy: { createdAt: 'desc' },
-        include: {
-          _count: { select: { users: true, companies: true } },
-          companies: {
-            where: { deletedAt: null },
-            select: {
-              id: true,
-              name: true,
-              gstin: true,
-              address: true,
-              city: true,
-              state: true,
-              pincode: true,
-              phone: true,
-              email: true,
-              status: true,
-            },
-          },
-        },
-      }),
+      tenantsPromise,
       this.prisma.tenant.count({ where }),
     ]);
 
@@ -218,61 +322,15 @@ export class AdminService {
   }
 
   async getTenant(id: string) {
-    const tenant = await this.prisma.tenant.findUnique({
-      where: { id },
-      include: {
-        users: {
-          where: {
-            deletedAt: null,
-            userCompanies: {
-              some: {},
-            },
-            NOT: {
-              userCompanies: {
-                some: {
-                  role: UserRole.OWNER,
-                },
-              },
-            },
-          },
-          select: {
-            id: true,
-            email: true,
-            name: true,
-            phone: true,
-            status: true,
-            createdAt: true,
-            userCompanies: {
-              select: {
-                role: true,
-                company: {
-                  select: { id: true, name: true },
-                },
-              },
-            },
-          },
-        },
-        companies: {
-          where: { deletedAt: null },
-          orderBy: { createdAt: 'asc' },
-          select: {
-            id: true,
-            tenantId: true,
-            name: true,
-            gstin: true,
-            address: true,
-            city: true,
-            state: true,
-            pincode: true,
-            phone: true,
-            email: true,
-            status: true,
-            createdAt: true,
-            updatedAt: true,
-            deletedAt: true,
-          },
-        },
-      },
+    const tenant = await this.getTenantRaw(id, true).catch(async (error) => {
+      if (!this.isMissingCompanyLocationColumnError(error)) {
+        throw error;
+      }
+
+      this.logger.warn(
+        `Tenant detail fallback for ${id}: missing company city/state columns in DB. Retrying without those fields.`,
+      );
+      return this.getTenantRaw(id, false);
     });
 
     if (!tenant || tenant.deletedAt) {
