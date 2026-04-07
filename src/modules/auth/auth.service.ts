@@ -53,6 +53,14 @@ type PasswordSetupResendInput = {
   token?: string;
 };
 
+type PasswordSetupTokenValidation = {
+  valid: boolean;
+  status: 'PENDING_SETUP' | 'LINK_EXPIRED';
+  email?: string;
+  firstName?: string | null;
+  expiresInSeconds?: number;
+};
+
 const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
 const SESSION_TOKEN_TTL_SECONDS = 15 * 60;
 const REFRESH_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60;
@@ -565,17 +573,19 @@ export class AuthService {
   }
 
   async validatePasswordResetToken(token: string) {
-    const userId = await this.redisService.get(this.getPasswordResetLinkKey(token));
+    const key = this.getPasswordResetLinkKey(token);
+    const userId = await this.redisService.get(key);
     if (!userId) {
-      return { valid: false };
+      return {
+        valid: false,
+        status: 'LINK_EXPIRED',
+      };
     }
 
     return {
       valid: true,
       status: 'ACTIVE',
-      expiresInSeconds: await this.redisService.getTtlSeconds(
-        this.getPasswordResetLinkKey(token),
-      ),
+      expiresInSeconds: await this.redisService.getTtlSeconds(key),
     };
   }
 
@@ -746,18 +756,25 @@ export class AuthService {
   }
 
   async validatePasswordSetupToken(token: string) {
-    const userId = await this.redisService.get(this.getSetupLinkKey(token));
+    const setupKey = this.getSetupLinkKey(token);
+    const userId = await this.redisService.get(setupKey);
     if (!userId) {
-      return { valid: false };
+      return {
+        valid: false,
+        status: 'LINK_EXPIRED',
+      } satisfies PasswordSetupTokenValidation;
     }
+
+    const user = await this.findUserById(userId);
+    const [firstName] = (user?.name ?? '').trim().split(/\s+/).filter(Boolean);
 
     return {
       valid: true,
       status: 'PENDING_SETUP',
-      expiresInSeconds: await this.redisService.getTtlSeconds(
-        this.getSetupLinkKey(token),
-      ),
-    };
+      email: user?.email,
+      firstName: firstName ?? null,
+      expiresInSeconds: await this.redisService.getTtlSeconds(setupKey),
+    } satisfies PasswordSetupTokenValidation;
   }
 
   async acceptInvite(token: string, newPassword: string, metadata?: SessionClientMetadata) {
@@ -788,6 +805,7 @@ export class AuthService {
     });
 
     await this.redisService.del(key);
+    await this.redisService.del(this.getUserPasswordSetupStateKey(user.id));
     await this.clearUserAuthCache(user.id);
 
     return this.issueSession(this.buildSessionUser(user), metadata);
@@ -825,6 +843,11 @@ export class AuthService {
     await this.redisService.set(
       this.getSetupLinkKey(setupToken),
       user.id,
+      PASSWORD_LINK_TTL_SECONDS,
+    );
+    await this.redisService.set(
+      this.getUserPasswordSetupStateKey(user.id),
+      setupToken,
       PASSWORD_LINK_TTL_SECONDS,
     );
 
@@ -1031,6 +1054,10 @@ export class AuthService {
 
   private getSetupLinkKey(token: string): string {
     return `auth:setup-link:${this.hashOpaqueToken(token)}`;
+  }
+
+  private getUserPasswordSetupStateKey(userId: string): string {
+    return `auth:setup-link:user:${userId}`;
   }
 
   private async storeOtpChallenge(challenge: CachedOtpChallenge, ttlSeconds: number) {

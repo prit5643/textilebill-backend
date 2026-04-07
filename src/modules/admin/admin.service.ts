@@ -371,6 +371,11 @@ export class AdminService {
       result.user.id,
       PASSWORD_LINK_TTL_SECONDS,
     );
+    await this.redisService.set(
+      this.getUserPasswordSetupStateKey(result.user.id),
+      setupToken,
+      PASSWORD_LINK_TTL_SECONDS,
+    );
 
     const setupLink = this.buildPublicLink('/accept-invite', setupToken);
     const delivered = await this.otpDeliveryService.sendInviteEmail(
@@ -938,10 +943,22 @@ export class AdminService {
       this.prisma.user.count({ where }),
     ]);
 
-    return createPaginatedResult(
-      users.map((user) => {
+    const normalizedUsers = await Promise.all(
+      users.map(async (user) => {
         const [firstName, ...rest] = (user.name ?? '').trim().split(/\s+/).filter(Boolean);
         const passwordSetupCompleted = (user._count?.refreshTokens ?? 0) > 0;
+
+        let passwordSetupStatus: 'SETUP_COMPLETED' | 'PENDING_SETUP' | 'LINK_EXPIRED' =
+          'SETUP_COMPLETED';
+
+        if (passwordSetupCompleted) {
+          passwordSetupStatus = 'SETUP_COMPLETED';
+        } else {
+          const setupTtlSeconds = await this.redisService.getTtlSeconds(
+            this.getUserPasswordSetupStateKey(user.id),
+          );
+          passwordSetupStatus = setupTtlSeconds > 0 ? 'PENDING_SETUP' : 'LINK_EXPIRED';
+        }
 
         return {
           ...user,
@@ -949,16 +966,13 @@ export class AdminService {
           lastName: rest.length ? rest.join(' ') : null,
           isActive: user.status === EntityStatus.ACTIVE,
           role: this.toLegacyRole(this.getHighestRole(user.userCompanies)),
-          passwordSetupStatus: passwordSetupCompleted
-            ? 'SETUP_COMPLETED'
-            : 'PENDING_SETUP',
+          passwordSetupStatus,
           lastLoginAt: user.refreshTokens?.[0]?.createdAt ?? null,
         };
       }),
-      total,
-      page,
-      limit,
     );
+
+    return createPaginatedResult(normalizedUsers, total, page, limit);
   }
 
   async toggleUser(id: string, isActive: boolean) {
@@ -1064,6 +1078,11 @@ export class AdminService {
     await this.redisService.set(
       this.getSetupLinkKey(token),
       user.id,
+      PASSWORD_LINK_TTL_SECONDS,
+    );
+    await this.redisService.set(
+      this.getUserPasswordSetupStateKey(user.id),
+      token,
       PASSWORD_LINK_TTL_SECONDS,
     );
 
@@ -1268,6 +1287,10 @@ export class AdminService {
 
   private getSetupLinkKey(token: string) {
     return `auth:setup-link:${this.hashOpaqueToken(token)}`;
+  }
+
+  private getUserPasswordSetupStateKey(userId: string) {
+    return `auth:setup-link:user:${userId}`;
   }
 
   private hashOpaqueToken(value: string) {

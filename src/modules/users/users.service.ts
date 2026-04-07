@@ -7,7 +7,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { Prisma, UserRole } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
@@ -21,6 +21,7 @@ import {
 import { getUserAuthCachePattern } from '../auth/auth-request-cache.util';
 
 const PASSWORD_SETUP_LINK_EXPIRY_MINUTES = 30;
+const PASSWORD_SETUP_LINK_EXPIRY_SECONDS = PASSWORD_SETUP_LINK_EXPIRY_MINUTES * 60;
 
 type AccessActor = {
   role: string;
@@ -144,8 +145,20 @@ export class UsersService {
       throw error;
     });
 
-    const setupLink = this.buildPublicLink('/forgot-password', {
-      email: normalizedEmail,
+    const setupToken = randomUUID();
+    await this.redisService.set(
+      this.getSetupLinkKey(setupToken),
+      createdUser.id,
+      PASSWORD_SETUP_LINK_EXPIRY_SECONDS,
+    );
+    await this.redisService.set(
+      this.getUserPasswordSetupStateKey(createdUser.id),
+      setupToken,
+      PASSWORD_SETUP_LINK_EXPIRY_SECONDS,
+    );
+
+    const setupLink = this.buildPublicLink('/accept-invite', {
+      token: setupToken,
     });
 
     this.otpDeliveryService
@@ -162,6 +175,7 @@ export class UsersService {
       ...this.toUserResponse(createdUser),
       passwordSetupStatus: 'PENDING_SETUP',
       passwordSetupLinkSentAt: new Date(),
+      passwordSetupExpiresAt: new Date(Date.now() + PASSWORD_SETUP_LINK_EXPIRY_SECONDS * 1000),
     };
   }
 
@@ -224,8 +238,20 @@ export class UsersService {
       throw new NotFoundException('User not found');
     }
 
-    const setupLink = this.buildPublicLink('/forgot-password', {
-      email: user.email,
+    const setupToken = randomUUID();
+    await this.redisService.set(
+      this.getSetupLinkKey(setupToken),
+      user.id,
+      PASSWORD_SETUP_LINK_EXPIRY_SECONDS,
+    );
+    await this.redisService.set(
+      this.getUserPasswordSetupStateKey(user.id),
+      setupToken,
+      PASSWORD_SETUP_LINK_EXPIRY_SECONDS,
+    );
+
+    const setupLink = this.buildPublicLink('/accept-invite', {
+      token: setupToken,
     });
 
     this.otpDeliveryService
@@ -242,6 +268,7 @@ export class UsersService {
       message: 'Password setup guidance email sent',
       email: user.email,
       status: 'RESEND_AVAILABLE',
+      expiresAt: new Date(Date.now() + PASSWORD_SETUP_LINK_EXPIRY_SECONDS * 1000),
     };
   }
 
@@ -707,5 +734,17 @@ export class UsersService {
     }
 
     return url.toString();
+  }
+
+  private getSetupLinkKey(token: string) {
+    return `auth:setup-link:${this.hashOpaqueToken(token)}`;
+  }
+
+  private getUserPasswordSetupStateKey(userId: string) {
+    return `auth:setup-link:user:${userId}`;
+  }
+
+  private hashOpaqueToken(value: string) {
+    return createHash('sha256').update(value).digest('hex');
   }
 }
