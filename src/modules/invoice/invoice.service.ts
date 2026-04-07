@@ -248,7 +248,16 @@ export class InvoiceService {
           select: {
             id: true,
             group: true,
-            party: { select: { id: true, name: true, gstin: true, phone: true } },
+            party: {
+              select: {
+                id: true,
+                name: true,
+                gstin: true,
+                phone: true,
+                email: true,
+                address: true,
+              },
+            },
           },
         },
         items: {

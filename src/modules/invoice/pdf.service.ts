@@ -137,13 +137,72 @@ function numberToWords(num: number): string {
 @Injectable()
 export class PdfService {
   async generateInvoicePdf(invoice: any, company: any): Promise<Buffer> {
+    const asNumber = (value: unknown): number => {
+      const parsed = Number(value ?? 0);
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
+
+    const account = invoice?.account?.party
+      ? {
+          ...invoice.account.party,
+          name: invoice.account.party.name,
+          gstin: invoice.account.party.gstin,
+          phone: invoice.account.party.phone,
+          address: invoice.account.party.address,
+        }
+      : (invoice?.account ?? {});
+
+    const normalizedItems = (invoice.items || []).map((item: any) => {
+      const amount = asNumber(item.totalAmount ?? item.amount);
+      const taxRate = asNumber(item.gstRate ?? item.taxRate);
+      const taxAmount = asNumber(item.taxAmount);
+      const taxableAmount = asNumber(
+        item.taxableAmount ?? Math.max(0, amount - taxAmount),
+      );
+
+      return {
+        ...item,
+        quantity: asNumber(item.quantity),
+        rate: asNumber(item.rate),
+        amount,
+        totalAmount: amount,
+        gstRate: taxRate,
+        taxableAmount,
+        cgstAmount: asNumber(item.cgstAmount ?? taxAmount / 2),
+        sgstAmount: asNumber(item.sgstAmount ?? taxAmount / 2),
+        igstAmount: asNumber(item.igstAmount ?? 0),
+      };
+    });
+
+    const subtotal = asNumber(
+      invoice.subtotal ?? invoice.subTotal ?? normalizedItems.reduce((sum: number, item: any) => sum + item.amount, 0),
+    );
+    const totalDiscount = asNumber(invoice.totalDiscount ?? invoice.discountAmount);
+    const taxableAmount = asNumber(
+      invoice.taxableAmount ?? Math.max(0, subtotal - totalDiscount),
+    );
+    const totalCgst = asNumber(
+      invoice.totalCgst ?? normalizedItems.reduce((sum: number, item: any) => sum + item.cgstAmount, 0),
+    );
+    const totalSgst = asNumber(
+      invoice.totalSgst ?? normalizedItems.reduce((sum: number, item: any) => sum + item.sgstAmount, 0),
+    );
+    const totalIgst = asNumber(
+      invoice.totalIgst ?? normalizedItems.reduce((sum: number, item: any) => sum + item.igstAmount, 0),
+    );
+    const totalTax = asNumber(invoice.totalTax ?? invoice.taxAmount ?? totalCgst + totalSgst + totalIgst);
+    const grandTotal = asNumber(invoice.grandTotal ?? invoice.totalAmount ?? taxableAmount + totalTax);
+    const roundOff = asNumber(
+      invoice.roundOff ?? Number((grandTotal - (taxableAmount + totalTax)).toFixed(2)),
+    );
+
     // --- 1. Items Calculation ---
     let totalQty = 0;
 
-    const itemRows: TableCell[][] = (invoice.items || []).map(
+    const itemRows: TableCell[][] = normalizedItems.map(
       (item: any, idx: number) => {
         totalQty += Number(item.quantity);
-        const uom = item.product?.uom?.name || 'MTR';
+        const uom = item.product?.uom?.name || item.product?.unit || 'MTR';
         return [
           { text: String(idx + 1), alignment: 'center' },
           {
@@ -186,15 +245,15 @@ export class PdfService {
     }
 
     // --- 2. Build the PDF Document ---
-    const cgstPercent = invoice.items?.[0]?.gstRate
-      ? Number(invoice.items[0].gstRate) / 2
+    const cgstPercent = normalizedItems[0]?.gstRate
+      ? Number(normalizedItems[0].gstRate) / 2
       : 2.5;
     const sgstPercent = cgstPercent;
-    const igstPercent = invoice.items?.[0]?.gstRate
-      ? Number(invoice.items[0].gstRate)
+    const igstPercent = normalizedItems[0]?.gstRate
+      ? Number(normalizedItems[0].gstRate)
       : 0;
 
-    const hasIgst = Number(invoice.totalIgst) > 0;
+    const hasIgst = totalIgst > 0;
 
     const docDef: TDocumentDefinitions = {
       pageSize: 'A4',
@@ -289,20 +348,20 @@ export class PdfService {
                   stack: [
                     { text: 'To ,', margin: [0, 0, 0, 2] },
                     {
-                      text: invoice.account?.name?.toUpperCase() || '',
+                      text: account?.name?.toUpperCase() || '',
                       bold: true,
                       fontSize: 10,
                       margin: [0, 0, 0, 4],
                     },
                     {
-                      text: `Address : ${invoice.account?.address || ''}`,
+                      text: `Address : ${account?.address || ''}`,
                       margin: [0, 0, 0, 2],
                     },
                     {
                       text: [
-                        invoice.account?.city,
-                        invoice.account?.state,
-                        invoice.account?.pincode,
+                        account?.city,
+                        account?.state,
+                        account?.pincode,
                       ]
                         .filter(Boolean)
                         .join(', '),
@@ -312,7 +371,7 @@ export class PdfService {
                       text: [
                         { text: `State : `, bold: false },
                         {
-                          text: `${invoice.account?.state || 'Gujarat'}`,
+                          text: `${account?.state || 'Gujarat'}`,
                           bold: true,
                         },
                         { text: `    State Code : `, bold: false },
@@ -323,10 +382,10 @@ export class PdfService {
                     {
                       text: [
                         { text: `GSTIN : `, bold: false },
-                        { text: `${invoice.account?.gstin || ''}`, bold: true },
+                        { text: `${account?.gstin || ''}`, bold: true },
                         { text: `   PAN NO : `, bold: false },
                         {
-                          text: `${invoice.account?.pan || invoice.account?.gstin?.substring(2, 12) || ''}`,
+                          text: `${account?.pan || account?.gstin?.substring(2, 12) || ''}`,
                           bold: true,
                         },
                       ],
@@ -374,7 +433,7 @@ export class PdfService {
                       columns: [
                         { text: 'HSN Code', width: 65 },
                         {
-                          text: `: ${invoice.hsnCodeHeader || invoice.items?.[0]?.product?.hsnCode || ''}`,
+                          text: `: ${invoice.hsnCodeHeader || normalizedItems[0]?.product?.hsnCode || ''}`,
                         },
                       ],
                       margin: [0, 0, 0, 2],
@@ -512,7 +571,7 @@ export class PdfService {
                           border: [false, false, true, true],
                         },
                         {
-                          text: fmt(invoice.subtotal),
+                          text: fmt(subtotal),
                           alignment: 'right',
                           bold: true,
                           border: [false, false, false, true],
@@ -525,7 +584,7 @@ export class PdfService {
                           border: [false, false, true, true],
                         },
                         {
-                          text: fmt(invoice.totalDiscount),
+                          text: fmt(totalDiscount),
                           alignment: 'right',
                           bold: true,
                           border: [false, false, false, true],
@@ -538,7 +597,7 @@ export class PdfService {
                           border: [false, false, true, true],
                         },
                         {
-                          text: fmt(invoice.taxableAmount),
+                          text: fmt(taxableAmount),
                           alignment: 'right',
                           bold: true,
                           border: [false, false, false, true],
@@ -551,7 +610,7 @@ export class PdfService {
                           border: [false, false, true, true],
                         },
                         {
-                          text: fmt(invoice.totalCgst),
+                          text: fmt(totalCgst),
                           alignment: 'right',
                           bold: true,
                           border: [false, false, false, true],
@@ -564,7 +623,7 @@ export class PdfService {
                           border: [false, false, true, true],
                         },
                         {
-                          text: fmt(invoice.totalSgst),
+                          text: fmt(totalSgst),
                           alignment: 'right',
                           bold: true,
                           border: [false, false, false, true],
@@ -577,7 +636,7 @@ export class PdfService {
                           border: [false, false, true, true],
                         },
                         {
-                          text: fmt(invoice.totalIgst),
+                          text: fmt(totalIgst),
                           alignment: 'right',
                           bold: true,
                           border: [false, false, false, true],
@@ -590,7 +649,7 @@ export class PdfService {
                           border: [false, false, true, true],
                         },
                         {
-                          text: fmt(invoice.roundOff),
+                          text: fmt(roundOff),
                           alignment: 'right',
                           bold: true,
                           border: [false, false, false, true],
@@ -603,7 +662,7 @@ export class PdfService {
                           border: [false, false, true, true],
                         },
                         {
-                          text: fmt(invoice.grandTotal),
+                          text: fmt(grandTotal),
                           alignment: 'right',
                           bold: true,
                           border: [false, false, false, true],
@@ -661,7 +720,7 @@ export class PdfService {
                   columns: [
                     { text: 'Amt. Chargeable (words) ', width: 'auto' },
                     {
-                      text: numberToWords(Number(invoice.grandTotal)),
+                      text: numberToWords(grandTotal),
                       bold: true,
                       width: '*',
                     },
