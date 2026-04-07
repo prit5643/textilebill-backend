@@ -192,10 +192,9 @@ describe('AdminService', () => {
       .fn()
       .mockResolvedValue({ id: 'user-1', email: 'admin@alpha.test' });
     const txUserCompanyCreate = jest.fn().mockResolvedValue({ id: 'uc-1' });
-    const txPlanFindFirst = jest.fn().mockResolvedValue(null);
-    const txPlanCreate = jest
+    const txPlanFindFirst = jest
       .fn()
-      .mockResolvedValue({ id: 'trial-plan', durationDays: 90 });
+      .mockResolvedValue({ id: 'starter-plan', durationDays: 90, price: 499 });
     const txSubscriptionCreate = jest.fn().mockResolvedValue({ id: 'sub-1' });
 
     prisma.$transaction.mockImplementationOnce(async (callback: any) => {
@@ -207,7 +206,7 @@ describe('AdminService', () => {
         plan: {
           findUnique: jest.fn().mockResolvedValue(null),
           findFirst: txPlanFindFirst,
-          create: txPlanCreate,
+          create: jest.fn(),
         },
         subscription: { create: txSubscriptionCreate },
       };
@@ -276,12 +275,12 @@ describe('AdminService', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('creates a 3-month free trial subscription using default plan when new tenant signs up without planId', async () => {
+  it('auto-assigns an active configured plan when tenant signs up without planId', async () => {
     (prisma.plan as any).findFirst.mockResolvedValueOnce({
-      id: 'plan-free-1',
-      name: 'Free Trial',
+      id: 'plan-starter-1',
+      name: 'Starter Plan',
       durationDays: 90,
-      price: 0
+      price: 1299
     });
     
     // Make sure properties exist in tx
@@ -315,7 +314,8 @@ describe('AdminService', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           tenantId: 'tenant-new',
-          planId: 'plan-free-1',
+          planId: 'plan-starter-1',
+          amountPaid: 1299,
           status: 'ACTIVE'
         })
       })

@@ -322,56 +322,46 @@ export class AdminService {
         },
       });
 
-      if (dto.planId) {
-        const plan = await tx.plan.findUnique({ where: { id: dto.planId } });
-        if (!plan) {
-          throw new NotFoundException('Plan not found');
-        }
-        this.assertSupportedPlanDuration(plan.durationDays);
-
-        const { startDate, endDate } = this.buildIstSubscriptionWindow(
-          plan.durationDays,
-        );
-        await tx.subscription.create({
-          data: {
-            tenantId: tenant.id,
-            planId: plan.id,
-            startDate,
-            endDate,
-            amountPaid: plan.price,
-            status: 'ACTIVE',
-            paymentStatus: 'PAID',
-          }
-        });
-      } else {
-        // give a default 3 months trial
-        let trialPlan = await tx.plan.findFirst({ where: { name: 'Free Trial' } });
-        if (!trialPlan) {
-          trialPlan = await tx.plan.create({
-            data: {
-              name: 'Free Trial',
-              description: 'Default 3-month free trial',
-              price: 0,
-              durationDays: 90,
-            }
+      const selectedPlan = dto.planId
+        ? await tx.plan.findUnique({ where: { id: dto.planId } })
+        : await tx.plan.findFirst({
+            where: {
+              deletedAt: null,
+              status: EntityStatus.ACTIVE,
+              NOT: {
+                OR: [
+                  { name: 'Free Trial' },
+                  { description: 'Default 3-month free trial' },
+                ],
+              },
+            },
+            orderBy: { createdAt: 'asc' },
           });
-        }
-        this.assertSupportedPlanDuration(trialPlan.durationDays);
-        const { startDate, endDate } = this.buildIstSubscriptionWindow(
-          trialPlan.durationDays,
+
+      if (!selectedPlan) {
+        throw new BadRequestException(
+          dto.planId
+            ? 'Plan not found'
+            : 'No active subscription plan is configured for automatic assignment',
         );
-        await tx.subscription.create({
-          data: {
-            tenantId: tenant.id,
-            planId: trialPlan.id,
-            startDate,
-            endDate,
-            amountPaid: 0,
-            status: 'ACTIVE',
-            paymentStatus: 'PAID',
-          }
-        });
       }
+
+      this.assertSupportedPlanDuration(selectedPlan.durationDays);
+
+      const { startDate, endDate } = this.buildIstSubscriptionWindow(
+        selectedPlan.durationDays,
+      );
+      await tx.subscription.create({
+        data: {
+          tenantId: tenant.id,
+          planId: selectedPlan.id,
+          startDate,
+          endDate,
+          amountPaid: selectedPlan.price,
+          status: 'ACTIVE',
+          paymentStatus: 'PAID',
+        },
+      });
 
       return { tenant, company, user };
     });
