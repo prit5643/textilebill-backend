@@ -116,6 +116,9 @@ model Company {
   name      String
   gstin     String?
   address   String?
+  city      String?
+  state     String?
+  pincode   String?
   phone     String?
   email     String?
   logoUrl   String?

@@ -152,6 +152,9 @@ export class AdminService {
               name: true,
               gstin: true,
               address: true,
+              city: true,
+              state: true,
+              pincode: true,
               phone: true,
               email: true,
               status: true,
@@ -198,8 +201,12 @@ export class AdminService {
         ...tenant,
         gstin: primaryCompany?.gstin ?? null,
         address: primaryCompany?.address ?? null,
+        city: primaryCompany?.city ?? null,
+        state: primaryCompany?.state ?? null,
+        pincode: primaryCompany?.pincode ?? null,
         phone: primaryCompany?.phone ?? null,
         email: primaryCompany?.email ?? null,
+        isActive: tenant.status === EntityStatus.ACTIVE,
         _count: {
           ...tenant._count,
           users: tenantUserCountMap.get(tenant.id) ?? 0,
@@ -254,6 +261,9 @@ export class AdminService {
             name: true,
             gstin: true,
             address: true,
+            city: true,
+            state: true,
+            pincode: true,
             phone: true,
             email: true,
             status: true,
@@ -275,8 +285,12 @@ export class AdminService {
       ...tenant,
       gstin: primaryCompany?.gstin ?? null,
       address: primaryCompany?.address ?? null,
+      city: primaryCompany?.city ?? null,
+      state: primaryCompany?.state ?? null,
+      pincode: primaryCompany?.pincode ?? null,
       phone: primaryCompany?.phone ?? null,
       email: primaryCompany?.email ?? null,
+      isActive: tenant.status === EntityStatus.ACTIVE,
     };
   }
 
@@ -329,6 +343,9 @@ export class AdminService {
           name: dto.name.trim(),
           gstin: dto.gstin?.trim().toUpperCase() || null,
           address: dto.address?.trim() || null,
+          city: dto.city?.trim() || null,
+          state: dto.state?.trim() || null,
+          pincode: dto.pincode?.trim() || null,
           phone: dto.phone?.trim() || null,
           email: dto.email.trim().toLowerCase(),
           status: EntityStatus.ACTIVE,
@@ -433,6 +450,7 @@ export class AdminService {
       address: string;
       city: string;
       state: string;
+      pincode: string;
       phone: string;
       email: string;
     }>,
@@ -464,6 +482,13 @@ export class AdminService {
             ...(typeof dto.address === 'string'
               ? { address: dto.address.trim() || null }
               : {}),
+            ...(typeof dto.city === 'string' ? { city: dto.city.trim() || null } : {}),
+            ...(typeof dto.state === 'string'
+              ? { state: dto.state.trim() || null }
+              : {}),
+            ...(typeof dto.pincode === 'string'
+              ? { pincode: dto.pincode.trim() || null }
+              : {}),
             ...(typeof dto.phone === 'string' ? { phone: dto.phone.trim() || null } : {}),
             ...(typeof dto.email === 'string'
               ? { email: dto.email.trim().toLowerCase() || null }
@@ -486,7 +511,7 @@ export class AdminService {
       where: { id },
       data: {
         status: isActive ? EntityStatus.ACTIVE : EntityStatus.INACTIVE,
-        deletedAt: isActive ? null : new Date(),
+        deletedAt: null,
       },
     });
 

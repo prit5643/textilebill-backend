@@ -30,6 +30,7 @@ describe('AdminService', () => {
       },
       company: {
         findFirst: jest.fn(),
+        update: jest.fn(),
       },
       plan: {
         findUnique: jest.fn(),
@@ -367,6 +368,46 @@ describe('AdminService', () => {
     expect(result.data[1]._count.users).toBe(2);
   });
 
+  it('listTenants should expose tenant active flag and company location fields', async () => {
+    prisma.tenant.findMany.mockResolvedValueOnce([
+      {
+        id: 'tenant-1',
+        name: 'Tenant One',
+        status: EntityStatus.ACTIVE,
+        _count: { users: 1, companies: 1 },
+        companies: [
+          {
+            id: 'company-1',
+            name: 'Tenant One Co',
+            gstin: '24ABCDE1234F1Z5',
+            address: 'Ring Road',
+            city: 'Surat',
+            state: 'Gujarat',
+            pincode: '395001',
+            phone: '+919876543210',
+            email: 'tenant@example.com',
+            status: EntityStatus.ACTIVE,
+          },
+        ],
+      },
+    ]);
+    prisma.tenant.count.mockResolvedValueOnce(1);
+    prisma.user.groupBy.mockResolvedValueOnce([
+      { tenantId: 'tenant-1', _count: { _all: 1 } },
+    ]);
+
+    const result = await service.listTenants({ page: 1, limit: 10 });
+
+    expect(result.data[0]).toEqual(
+      expect.objectContaining({
+        isActive: true,
+        city: 'Surat',
+        state: 'Gujarat',
+        pincode: '395001',
+      }),
+    );
+  });
+
   it('getTenant should request only users who have company access', async () => {
     prisma.tenant.findUnique.mockResolvedValueOnce({
       id: 'tenant-1',
@@ -396,6 +437,65 @@ describe('AdminService', () => {
               },
             },
           }),
+        }),
+      }),
+    );
+  });
+
+  it('updateTenant should persist city and state onto primary company', async () => {
+    prisma.tenant.findUnique.mockResolvedValueOnce({
+      id: 'tenant-1',
+      status: EntityStatus.ACTIVE,
+      deletedAt: null,
+      users: [],
+      companies: [],
+    });
+    prisma.tenant.update.mockResolvedValueOnce({ id: 'tenant-1', name: 'Tenant One' });
+    prisma.company.findFirst.mockResolvedValueOnce({ id: 'company-1' });
+    prisma.company.update.mockResolvedValueOnce({ id: 'company-1' });
+    prisma.user.findMany.mockResolvedValueOnce([]);
+
+    await service.updateTenant('tenant-1', {
+      city: 'Surat',
+      state: 'Gujarat',
+      pincode: '395001',
+    });
+
+    expect(prisma.company.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'company-1' },
+        data: expect.objectContaining({
+          city: 'Surat',
+          state: 'Gujarat',
+          pincode: '395001',
+        }),
+      }),
+    );
+  });
+
+  it('toggleTenant should not soft-delete tenant row', async () => {
+    prisma.tenant.findUnique.mockResolvedValueOnce({
+      id: 'tenant-1',
+      status: EntityStatus.ACTIVE,
+      deletedAt: null,
+      users: [],
+      companies: [],
+    });
+    prisma.tenant.update.mockResolvedValueOnce({
+      id: 'tenant-1',
+      status: EntityStatus.INACTIVE,
+      deletedAt: null,
+    });
+    prisma.user.findMany.mockResolvedValueOnce([]);
+
+    await service.toggleTenant('tenant-1', false);
+
+    expect(prisma.tenant.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'tenant-1' },
+        data: expect.objectContaining({
+          status: EntityStatus.INACTIVE,
+          deletedAt: null,
         }),
       }),
     );

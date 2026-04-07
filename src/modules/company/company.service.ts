@@ -28,6 +28,9 @@ const COMPANY_LIST_DEFAULT_SELECT = {
   name: true,
   gstin: true,
   address: true,
+  city: true,
+  state: true,
+  pincode: true,
   phone: true,
   email: true,
   status: true,
@@ -39,6 +42,8 @@ const COMPANY_LIST_HEADER_SELECT = {
   id: true,
   name: true,
   gstin: true,
+  city: true,
+  state: true,
   status: true,
 } satisfies Prisma.CompanySelect;
 
@@ -108,6 +113,7 @@ export class CompanyService {
               maxUsers: true,
               maxCompanies: true,
               status: true,
+              deletedAt: true,
             },
           },
         },
@@ -166,6 +172,9 @@ export class CompanyService {
         name: dto.name.trim(),
         gstin: dto.gstin?.trim().toUpperCase() || null,
         address: dto.address?.trim() || null,
+        city: dto.city?.trim() || null,
+        state: dto.state?.trim() || null,
+        pincode: dto.pincode?.trim() || null,
         phone: dto.phone?.trim() || null,
         email: dto.email?.trim().toLowerCase() || null,
         status: EntityStatus.ACTIVE,
@@ -211,7 +220,10 @@ export class CompanyService {
 
     await this.clearTenantUsersCaches(tenantId);
     this.logger.log(`Company created: ${company.name} (${company.id})`);
-    return company;
+    return {
+      ...company,
+      isActive: company.status === EntityStatus.ACTIVE,
+    };
   }
 
   async findAll(
@@ -254,7 +266,12 @@ export class CompanyService {
       this.prisma.company.count({ where }),
     ]);
 
-    return createPaginatedResult(data, total, p, l);
+    const normalized = data.map((company) => ({
+      ...company,
+      isActive: company.status === EntityStatus.ACTIVE,
+    }));
+
+    return createPaginatedResult(normalized, total, p, l);
   }
 
   async findById(id: string, tenantId: string) {
@@ -275,7 +292,10 @@ export class CompanyService {
     });
 
     if (!company) throw new NotFoundException('Company not found');
-    return company;
+    return {
+      ...company,
+      isActive: company.status === EntityStatus.ACTIVE,
+    };
   }
 
   async update(id: string, tenantId: string, dto: UpdateCompanyDto) {
@@ -291,6 +311,13 @@ export class CompanyService {
         ...(typeof dto.address === 'string'
           ? { address: dto.address.trim() || null }
           : {}),
+        ...(typeof dto.city === 'string' ? { city: dto.city.trim() || null } : {}),
+        ...(typeof dto.state === 'string'
+          ? { state: dto.state.trim() || null }
+          : {}),
+        ...(typeof dto.pincode === 'string'
+          ? { pincode: dto.pincode.trim() || null }
+          : {}),
         ...(typeof dto.phone === 'string' ? { phone: dto.phone.trim() || null } : {}),
         ...(typeof dto.email === 'string'
           ? { email: dto.email.trim().toLowerCase() || null }
@@ -305,7 +332,10 @@ export class CompanyService {
     });
 
     await this.clearTenantUsersCaches(tenantId);
-    return updated;
+    return {
+      ...updated,
+      isActive: updated.status === EntityStatus.ACTIVE,
+    };
   }
 
   async remove(id: string, tenantId: string) {
@@ -320,7 +350,10 @@ export class CompanyService {
     });
 
     await this.clearTenantUsersCaches(tenantId);
-    return updated;
+    return {
+      ...updated,
+      isActive: false,
+    };
   }
 
   async getSettings(companyId: string, tenantId: string) {

@@ -105,6 +105,11 @@ export class UpdateTenantDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  pincode?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @Matches(MOBILE_REGEX, { message: 'Invalid mobile number format' })
   phone?: string;
