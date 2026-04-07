@@ -39,7 +39,19 @@ export class AdminService {
   ) {}
 
   async getDashboardKpis() {
-    const [totalTenants, activeTenants, totalUsers, totalCompanies, totalInvoices] =
+    const now = new Date();
+    const next30Days = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+    const [
+      totalTenants,
+      activeTenants,
+      totalUsers,
+      totalCompanies,
+      totalInvoices,
+      activeSubscriptions,
+      expiringSubscriptions,
+      subscriptionRevenue,
+    ] =
       await Promise.all([
         this.prisma.tenant.count({ where: { deletedAt: null } }),
         this.prisma.tenant.count({
@@ -62,12 +74,31 @@ export class AdminService {
         }),
         this.prisma.company.count({ where: { deletedAt: null } }),
         this.prisma.invoice.count({ where: { deletedAt: null } }),
+        this.prisma.subscription.count({
+          where: {
+            deletedAt: null,
+            status: SubscriptionStatus.ACTIVE,
+            endDate: { gte: now },
+          },
+        }),
+        this.prisma.subscription.count({
+          where: {
+            deletedAt: null,
+            status: SubscriptionStatus.ACTIVE,
+            endDate: {
+              gte: now,
+              lte: next30Days,
+            },
+          },
+        }),
+        this.prisma.subscription.aggregate({
+          where: {
+            deletedAt: null,
+            paymentStatus: 'PAID',
+          },
+          _sum: { amountPaid: true },
+        }),
       ]);
-
-    const invoiceRevenue = await this.prisma.invoice.aggregate({
-      where: { deletedAt: null },
-      _sum: { totalAmount: true },
-    });
 
     return {
       totalTenants,
@@ -75,7 +106,9 @@ export class AdminService {
       totalUsers,
       totalCompanies,
       totalInvoices,
-      totalRevenue: invoiceRevenue._sum.totalAmount ?? 0,
+      activeSubscriptions,
+      expiringSubscriptions,
+      totalRevenue: Number(subscriptionRevenue._sum.amountPaid ?? 0),
     };
   }
 
