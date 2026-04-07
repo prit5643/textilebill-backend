@@ -249,7 +249,6 @@ export class AdminService {
 
   async createTenant(dto: {
     name: string;
-    slug: string;
     gstin?: string;
     address?: string;
     city?: string;
@@ -261,19 +260,12 @@ export class AdminService {
     adminLastName: string;
     planId?: string;
   }) {
-    const requestedSlug = dto.slug.trim().toLowerCase();
-
-    const existingSlug = await this.prisma.tenant.findUnique({
-      where: { slug: requestedSlug },
-      select: { id: true },
-    });
-    if (existingSlug) {
-      throw new BadRequestException('Tenant slug already exists');
-    }
+    const requestedName = dto.name.trim();
+    const requestedSlug = await this.buildUniqueTenantSlug(requestedName);
 
     const existingName = await this.prisma.tenant.findFirst({
       where: {
-        name: { equals: dto.name.trim(), mode: 'insensitive' },
+        name: { equals: requestedName, mode: 'insensitive' },
         deletedAt: null,
       },
       select: { id: true },
@@ -292,7 +284,7 @@ export class AdminService {
     const result = await this.prisma.$transaction(async (tx) => {
       const tenant = await tx.tenant.create({
         data: {
-          name: dto.name.trim(),
+          name: requestedName,
           slug: requestedSlug,
           status: EntityStatus.ACTIVE,
         },
@@ -514,7 +506,6 @@ export class AdminService {
   }
 
   async createPlan(dto: {
-    name: string;
     displayName: string;
     durationDays: number;
     price: number;
@@ -523,10 +514,30 @@ export class AdminService {
     maxCompanies?: number;
   }) {
     this.assertSupportedPlanDuration(dto.durationDays);
+
+    const displayName = dto.displayName.trim();
+    if (!displayName) {
+      throw new BadRequestException('Display name is required');
+    }
+
+    const baseName = this.buildPlanName(displayName);
+    let name = baseName;
+    let suffix = 2;
+
+    while (
+      await this.prisma.plan.findFirst({
+        where: { name },
+        select: { id: true },
+      })
+    ) {
+      name = `${baseName}-${suffix}`;
+      suffix += 1;
+    }
+
     return this.prisma.plan.create({
       data: {
-        name: dto.name,
-        description: dto.displayName,
+        name,
+        description: displayName,
         durationDays: dto.durationDays,
         price: dto.price,
         maxUsers: dto.maxUsers ?? 0,
@@ -564,6 +575,34 @@ export class AdminService {
         deletedAt: new Date()
       }
     });
+  }
+
+  async getPlanUsage(id: string) {
+    const [subscriptionCount, tenantCount] = await Promise.all([
+      this.prisma.subscription.count({
+        where: {
+          planId: id,
+          deletedAt: null,
+          status: 'ACTIVE'
+        }
+      }),
+      this.prisma.subscription.findMany({
+        where: {
+          planId: id,
+          deletedAt: null,
+          status: 'ACTIVE'
+        },
+        select: {
+          tenantId: true
+        },
+        distinct: ['tenantId']
+      })
+    ]);
+
+    return {
+      totalSubscriptions: subscriptionCount,
+      tenantsUsing: tenantCount.length
+    };
   }
 
   async assignSubscription(dto: { gstin: string; planId: string; amount?: number }) {
@@ -632,6 +671,43 @@ export class AdminService {
 
     await this.redisService.del(getTenantSubscriptionCacheKey(company.tenantId));
     return created;
+  }
+
+  private async buildUniqueTenantSlug(name: string) {
+    const baseSlug = name
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 48) || 'tenant';
+
+    let candidate = baseSlug;
+    let suffix = 0;
+
+    while (true) {
+      const existing = await this.prisma.tenant.findUnique({
+        where: { slug: candidate },
+        select: { id: true },
+      });
+
+      if (!existing) {
+        return candidate;
+      }
+
+      suffix += 1;
+      candidate = `${baseSlug}-${suffix}`.slice(0, 64);
+    }
+  }
+
+  private buildPlanName(name: string) {
+    const normalized = name
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 64);
+
+    return normalized || 'plan';
   }
 
   async listSubscriptions(query: {

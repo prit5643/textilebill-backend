@@ -114,6 +114,11 @@ export class AdminController {
     return this.adminService.deletePlan(id);
   }
 
+  @Get('plans/:id/usage')
+  getPlanUsage(@Param('id') id: string) {
+    return this.adminService.getPlanUsage(id);
+  }
+
   // ─── Subscriptions ───
   @Get('subscriptions')
   @ApiQuery({ name: 'page', required: false })

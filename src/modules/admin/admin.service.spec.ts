@@ -217,7 +217,6 @@ describe('AdminService', () => {
 
     const result = await service.createTenant({
       name: 'Alpha',
-      slug: 'alpha',
       email: 'admin@alpha.test',
       adminFirstName: 'Admin',
       adminLastName: 'User',
@@ -303,7 +302,6 @@ describe('AdminService', () => {
 
     const dto = {
       name: 'New Tenant LLC',
-      slug: 'new-tenant-llc',
       email: 'tom@newcompany.test',
       adminFirstName: 'Admin',
       adminLastName: 'Tom',

@@ -18,10 +18,6 @@ export class CreateTenantDto {
   @IsString()
   name: string;
 
-  @ApiProperty()
-  @IsString()
-  slug: string;
-
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
@@ -120,10 +116,6 @@ export class UpdateTenantDto {
 }
 
 export class CreatePlanDto {
-  @ApiProperty()
-  @IsString()
-  name: string;
-
   @ApiProperty()
   @IsString()
   displayName: string;
