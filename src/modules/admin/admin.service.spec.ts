@@ -37,6 +37,8 @@ describe('AdminService', () => {
         create: jest.fn(),
       },
       subscription: {
+        findMany: jest.fn(),
+        count: jest.fn(),
         findFirst: jest.fn(),
         findUnique: jest.fn(),
         updateMany: jest.fn(),
@@ -395,6 +397,51 @@ describe('AdminService', () => {
             },
           }),
         }),
+      }),
+    );
+  });
+
+  it('listSubscriptions should expose tenant GSTIN from primary active company', async () => {
+    prisma.subscription.findMany.mockResolvedValueOnce([
+      {
+        id: 'sub-1',
+        tenantId: 'tenant-1',
+        planId: 'plan-1',
+        startDate: new Date('2026-04-01T00:00:00.000Z'),
+        endDate: new Date('2026-07-01T00:00:00.000Z'),
+        status: 'ACTIVE',
+        paymentStatus: 'PAID',
+        amountPaid: 0,
+        tenant: {
+          id: 'tenant-1',
+          name: 'Mahakali',
+          companies: [{ gstin: '24ABCDE1234F1Z5' }],
+        },
+        plan: { id: 'plan-1', name: 'Starter', description: 'Starter' },
+      },
+    ]);
+    prisma.subscription.count.mockResolvedValueOnce(1);
+
+    const result = await service.listSubscriptions({ page: 1, limit: 10 });
+
+    expect(prisma.subscription.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        include: expect.objectContaining({
+          tenant: expect.objectContaining({
+            select: expect.objectContaining({
+              companies: expect.objectContaining({
+                take: 1,
+              }),
+            }),
+          }),
+        }),
+      }),
+    );
+    expect(result.data[0]?.tenant).toEqual(
+      expect.objectContaining({
+        id: 'tenant-1',
+        name: 'Mahakali',
+        gstin: '24ABCDE1234F1Z5',
       }),
     );
   });

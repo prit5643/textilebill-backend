@@ -715,12 +715,41 @@ export class AdminService {
         where.status = status as SubscriptionStatus;
       }
     }
-    const [data, total] = await Promise.all([
+    const [rows, total] = await Promise.all([
       this.prisma.subscription.findMany({
-        where, skip, take, include: { plan: true, tenant: { select: { id: true, name: true } } }
+        where,
+        skip,
+        take,
+        include: {
+          plan: true,
+          tenant: {
+            select: {
+              id: true,
+              name: true,
+              companies: {
+                where: { deletedAt: null },
+                select: { gstin: true },
+                orderBy: { createdAt: 'asc' },
+                take: 1,
+              },
+            },
+          },
+        },
       }),
-      this.prisma.subscription.count({ where })
+      this.prisma.subscription.count({ where }),
     ]);
+
+    const data = rows.map((row) => ({
+      ...row,
+      tenant: row.tenant
+        ? {
+            id: row.tenant.id,
+            name: row.tenant.name,
+            gstin: row.tenant.companies?.[0]?.gstin ?? null,
+          }
+        : null,
+    }));
+
     return createPaginatedResult(data, total, page, limit);
   }
 
