@@ -40,10 +40,10 @@ export class InvoiceNumberService {
     const sequence = await tx.voucherSequence.update({
       where: { id: config.id },
       data: { currentValue: { increment: 1 } },
-      select: { prefix: true, currentValue: true },
+      select: { currentValue: true },
     });
 
-    return `${sequence.prefix}${String(sequence.currentValue).padStart(4, '0')}`;
+    return String(sequence.currentValue);
   }
 
   async findAll(companyId: string) {
@@ -133,8 +133,10 @@ export class InvoiceNumberService {
     }
 
     const fy = await this.resolveFinancialYear(tx, companyId);
-    const voucherType = this.toVoucherType(invoiceType);
-    const prefix = `${invoiceType.slice(0, 3)}-`;
+    // Keep one shared auto-number sequence across invoice types
+    // so simple numeric numbers remain unique at company+FY scope.
+    const voucherType = VoucherType.SALE;
+    const prefix = '';
 
     const sequence = await tx.voucherSequence.upsert({
       where: {

@@ -45,7 +45,7 @@ describe('InvoiceService', () => {
     };
 
     invoiceNumberService = {
-      getNextNumberWithTx: jest.fn().mockResolvedValue('SAL-0001'),
+      getNextNumberWithTx: jest.fn().mockResolvedValue('1'),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -62,7 +62,7 @@ describe('InvoiceService', () => {
   it('creates invoice with computed totals and generated number', async () => {
     (prisma.invoice!.findFirst as jest.Mock).mockResolvedValueOnce({
       id: 'invoice-1',
-      invoiceNumber: 'SAL-0001',
+      invoiceNumber: '1',
       accountId: 'account-1',
       subTotal: 1000,
       taxAmount: 50,
@@ -101,7 +101,7 @@ describe('InvoiceService', () => {
     expect(invoiceNumberService.getNextNumberWithTx).toHaveBeenCalled();
     expect(result).toMatchObject({
       id: 'invoice-1',
-      invoiceNumber: 'SAL-0001',
+      invoiceNumber: '1',
     });
   });
 
