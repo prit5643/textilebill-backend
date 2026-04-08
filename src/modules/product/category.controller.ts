@@ -31,7 +31,7 @@ export class CategoryController {
   constructor(private readonly productService: ProductService) {}
 
   @Post()
-  @Roles('SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER')
+  @Roles('SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER', 'STAFF', 'ACCOUNTANT')
   @ApiOperation({ summary: 'Create a product category' })
   create(
     @CurrentCompanyId() companyId: string,

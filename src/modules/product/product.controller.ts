@@ -38,7 +38,7 @@ export class ProductController {
   constructor(private readonly productService: ProductService) {}
 
   @Post()
-  @Roles('SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER', 'STAFF')
+  @Roles('SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER', 'STAFF', 'ACCOUNTANT')
   @ApiOperation({ summary: 'Create a product' })
   create(@CurrentCompanyId() companyId: string, @Body() dto: CreateProductDto) {
     return this.productService.createProduct(companyId, dto);

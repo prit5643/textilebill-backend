@@ -31,7 +31,7 @@ export class BrandController {
   constructor(private readonly productService: ProductService) {}
 
   @Post()
-  @Roles('SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER')
+  @Roles('SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER', 'STAFF', 'ACCOUNTANT')
   @ApiOperation({ summary: 'Create a brand' })
   create(
     @CurrentCompanyId() companyId: string,

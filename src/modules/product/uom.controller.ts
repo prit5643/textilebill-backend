@@ -22,8 +22,8 @@ export class UomController {
   }
 
   @Post()
-  @Roles('SUPER_ADMIN')
-  @ApiOperation({ summary: 'Create a UOM (admin only)' })
+  @Roles('SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER', 'STAFF', 'ACCOUNTANT')
+  @ApiOperation({ summary: 'Create a UOM' })
   create(@Body() body: { name: string; fullName?: string }) {
     return this.productService.createUom(body.name, body.fullName);
   }
