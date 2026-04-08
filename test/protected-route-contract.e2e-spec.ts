@@ -15,8 +15,11 @@ import { AccountController } from '../src/modules/account/account.controller';
 import { BrokerController } from '../src/modules/account/broker.controller';
 import { AccountGroupController } from '../src/modules/account/account-group.controller';
 import { ProductController } from '../src/modules/product/product.controller';
+import { ClassificationController } from '../src/modules/product/classification.controller';
+import { CardTypeController } from '../src/modules/product/card-type.controller';
 import { BrandController } from '../src/modules/product/brand.controller';
 import { CategoryController } from '../src/modules/product/category.controller';
+import { ServiceCategoryController } from '../src/modules/product/service-category.controller';
 import { UomController } from '../src/modules/product/uom.controller';
 import { InvoiceController } from '../src/modules/invoice/invoice.controller';
 import { InvoiceNumberConfigController } from '../src/modules/invoice/invoice-number-config.controller';
@@ -45,11 +48,23 @@ describe('Protected route contract (e2e)', () => {
       [JwtAuthGuard, SubscriptionGuard, CompanyAccessGuard, RolesGuard],
     ],
     [
+      ClassificationController,
+      [JwtAuthGuard, SubscriptionGuard, CompanyAccessGuard, RolesGuard],
+    ],
+    [
+      CardTypeController,
+      [JwtAuthGuard, SubscriptionGuard, CompanyAccessGuard, RolesGuard],
+    ],
+    [
       BrandController,
       [JwtAuthGuard, SubscriptionGuard, CompanyAccessGuard, RolesGuard],
     ],
     [
       CategoryController,
+      [JwtAuthGuard, SubscriptionGuard, CompanyAccessGuard, RolesGuard],
+    ],
+    [
+      ServiceCategoryController,
       [JwtAuthGuard, SubscriptionGuard, CompanyAccessGuard, RolesGuard],
     ],
     [ReportController, [JwtAuthGuard, SubscriptionGuard, CompanyAccessGuard]],

@@ -88,7 +88,10 @@ enum GstConsiderAs {
 }
 
 enum ProductOptionKind {
+  CLASSIFICATION
+  CARD_TYPE
   CATEGORY
+  SERVICE_CATEGORY
   BRAND
   UOM
 }
@@ -353,7 +356,10 @@ model Product {
   type             ProductType    @default(GOODS)
   gstConsiderAs    GstConsiderAs  @default(TAXABLE)
   hsnCode          String? // HSN for GST filing
+  classificationId String?
+  cardTypeId       String?
   categoryId       String?
+  serviceCategoryId String?
   brandId          String?
   uomId            String?
   defaultQty       Decimal?       @db.Decimal(14, 3)
@@ -365,7 +371,10 @@ model Product {
 
   tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   company Company @relation(fields: [companyId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  classification ProductOption? @relation("ProductClassificationOption", fields: [classificationId], references: [id], onDelete: SetNull)
+  cardType ProductOption? @relation("ProductCardTypeOption", fields: [cardTypeId], references: [id], onDelete: SetNull)
   category ProductOption? @relation("ProductCategoryOption", fields: [categoryId], references: [id], onDelete: SetNull)
+  serviceCategory ProductOption? @relation("ProductServiceCategoryOption", fields: [serviceCategoryId], references: [id], onDelete: SetNull)
   brand    ProductOption? @relation("ProductBrandOption", fields: [brandId], references: [id], onDelete: SetNull)
   uom      ProductOption? @relation("ProductUomOption", fields: [uomId], references: [id], onDelete: SetNull)
 
@@ -375,7 +384,10 @@ model Product {
 
   @@unique([id, tenantId])
   @@index([tenantId, companyId])
+  @@index([companyId, classificationId])
+  @@index([companyId, cardTypeId])
   @@index([companyId, categoryId])
+  @@index([companyId, serviceCategoryId])
   @@index([companyId, brandId])
   @@index([companyId, uomId])
   @@index([deletedAt])
@@ -396,7 +408,10 @@ model ProductOption {
   tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   company Company @relation(fields: [companyId, tenantId], references: [id, tenantId], onDelete: Restrict)
 
+  productsAsClassification Product[] @relation("ProductClassificationOption")
+  productsAsCardType       Product[] @relation("ProductCardTypeOption")
   productsAsCategory Product[] @relation("ProductCategoryOption")
+  productsAsServiceCategory Product[] @relation("ProductServiceCategoryOption")
   productsAsBrand    Product[] @relation("ProductBrandOption")
   productsAsUom      Product[] @relation("ProductUomOption")
 

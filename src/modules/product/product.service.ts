@@ -50,7 +50,10 @@ const PRODUCT_LIST_DEFAULT_SELECT = {
   taxRate: true,
   type: true,
   gstConsiderAs: true,
+  classificationId: true,
+  cardTypeId: true,
   categoryId: true,
+  serviceCategoryId: true,
   brandId: true,
   uomId: true,
   defaultQty: true,
@@ -59,7 +62,10 @@ const PRODUCT_LIST_DEFAULT_SELECT = {
   createdAt: true,
   updatedAt: true,
   deletedAt: true,
+  classification: { select: PRODUCT_OPTION_BASE_SELECT },
+  cardType: { select: PRODUCT_OPTION_BASE_SELECT },
   category: { select: PRODUCT_OPTION_BASE_SELECT },
+  serviceCategory: { select: PRODUCT_OPTION_BASE_SELECT },
   brand: { select: PRODUCT_OPTION_BASE_SELECT },
   uom: { select: PRODUCT_OPTION_UOM_SELECT },
 } satisfies Prisma.ProductSelect;
@@ -341,23 +347,39 @@ export class ProductService {
 
     await this.ensureNoDuplicateProduct(scopedCompanyId, name, hsnCode);
 
-    const [category, brand, explicitUom] = await Promise.all([
-      this.ensureProductOption(
-        scopedCompanyId,
-        ProductOptionKind.CATEGORY,
-        dto.categoryId,
-      ),
-      this.ensureProductOption(
-        scopedCompanyId,
-        ProductOptionKind.BRAND,
-        dto.brandId,
-      ),
-      this.ensureProductOption(
-        scopedCompanyId,
-        ProductOptionKind.UOM,
-        dto.uomId,
-      ),
-    ]);
+    const [classification, cardType, category, serviceCategory, brand, explicitUom] =
+      await Promise.all([
+        this.ensureProductOption(
+          scopedCompanyId,
+          ProductOptionKind.CLASSIFICATION,
+          dto.classificationId,
+        ),
+        this.ensureProductOption(
+          scopedCompanyId,
+          ProductOptionKind.CARD_TYPE,
+          dto.cardTypeId,
+        ),
+        this.ensureProductOption(
+          scopedCompanyId,
+          ProductOptionKind.CATEGORY,
+          dto.categoryId,
+        ),
+        this.ensureProductOption(
+          scopedCompanyId,
+          ProductOptionKind.SERVICE_CATEGORY,
+          dto.serviceCategoryId,
+        ),
+        this.ensureProductOption(
+          scopedCompanyId,
+          ProductOptionKind.BRAND,
+          dto.brandId,
+        ),
+        this.ensureProductOption(
+          scopedCompanyId,
+          ProductOptionKind.UOM,
+          dto.uomId,
+        ),
+      ]);
 
     const uom = explicitUom ?? (await this.getDefaultUom(scopedCompanyId));
 
@@ -378,7 +400,10 @@ export class ProductService {
         type: dto.type ?? ProductType.GOODS,
         gstConsiderAs: dto.gstConsiderAs ?? GstConsiderAs.TAXABLE,
         hsnCode,
+        classificationId: classification?.id ?? null,
+        cardTypeId: cardType?.id ?? null,
         categoryId: category?.id ?? null,
+        serviceCategoryId: serviceCategory?.id ?? null,
         brandId: brand?.id ?? null,
         uomId: uom.id,
         defaultQty: dto.defaultQty ?? null,
@@ -419,7 +444,22 @@ export class ProductService {
         { sku: { contains: options.search, mode: 'insensitive' } },
         { hsnCode: { contains: options.search, mode: 'insensitive' } },
         {
+          classification: {
+            is: { name: { contains: options.search, mode: 'insensitive' } },
+          },
+        },
+        {
+          cardType: {
+            is: { name: { contains: options.search, mode: 'insensitive' } },
+          },
+        },
+        {
           category: {
+            is: { name: { contains: options.search, mode: 'insensitive' } },
+          },
+        },
+        {
+          serviceCategory: {
             is: { name: { contains: options.search, mode: 'insensitive' } },
           },
         },
@@ -486,23 +526,39 @@ export class ProductService {
     const nextHsn = this.normalizeHsnCode(dto.hsnCode ?? existing.hsnCode);
     await this.ensureNoDuplicateProduct(scopedCompanyId, nextName, nextHsn, id);
 
-    const [category, brand, uom] = await Promise.all([
-      this.ensureProductOption(
-        scopedCompanyId,
-        ProductOptionKind.CATEGORY,
-        dto.categoryId,
-      ),
-      this.ensureProductOption(
-        scopedCompanyId,
-        ProductOptionKind.BRAND,
-        dto.brandId,
-      ),
-      this.ensureProductOption(
-        scopedCompanyId,
-        ProductOptionKind.UOM,
-        dto.uomId,
-      ),
-    ]);
+    const [classification, cardType, category, serviceCategory, brand, uom] =
+      await Promise.all([
+        this.ensureProductOption(
+          scopedCompanyId,
+          ProductOptionKind.CLASSIFICATION,
+          dto.classificationId,
+        ),
+        this.ensureProductOption(
+          scopedCompanyId,
+          ProductOptionKind.CARD_TYPE,
+          dto.cardTypeId,
+        ),
+        this.ensureProductOption(
+          scopedCompanyId,
+          ProductOptionKind.CATEGORY,
+          dto.categoryId,
+        ),
+        this.ensureProductOption(
+          scopedCompanyId,
+          ProductOptionKind.SERVICE_CATEGORY,
+          dto.serviceCategoryId,
+        ),
+        this.ensureProductOption(
+          scopedCompanyId,
+          ProductOptionKind.BRAND,
+          dto.brandId,
+        ),
+        this.ensureProductOption(
+          scopedCompanyId,
+          ProductOptionKind.UOM,
+          dto.uomId,
+        ),
+      ]);
 
     return this.prisma.product.update({
       where: { id },
@@ -531,8 +587,17 @@ export class ProductService {
         ...(dto.gstConsiderAs !== undefined
           ? { gstConsiderAs: dto.gstConsiderAs }
           : {}),
+        ...(dto.classificationId !== undefined
+          ? { classificationId: classification?.id ?? null }
+          : {}),
+        ...(dto.cardTypeId !== undefined
+          ? { cardTypeId: cardType?.id ?? null }
+          : {}),
         ...(dto.categoryId !== undefined
           ? { categoryId: category?.id ?? null }
+          : {}),
+        ...(dto.serviceCategoryId !== undefined
+          ? { serviceCategoryId: serviceCategory?.id ?? null }
           : {}),
         ...(dto.brandId !== undefined ? { brandId: brand?.id ?? null } : {}),
         ...(dto.uomId !== undefined
@@ -580,6 +645,164 @@ export class ProductService {
       }
       throw err;
     }
+  }
+
+  private async listProductOptionsByKind(
+    companyId: string,
+    kind: ProductOptionKind,
+  ) {
+    const scopedCompanyId = this.requireCompanyId(companyId);
+    return this.prisma.productOption.findMany({
+      where: {
+        companyId: scopedCompanyId,
+        kind,
+        deletedAt: null,
+      },
+      select: PRODUCT_OPTION_BASE_SELECT,
+      orderBy: [{ name: 'asc' }],
+    });
+  }
+
+  private async updateProductOptionName(
+    id: string,
+    companyId: string,
+    kind: ProductOptionKind,
+    name: string,
+    notFoundMessage: string,
+    duplicateMessage: string,
+    requiredMessage: string,
+  ) {
+    const scopedCompanyId = this.requireCompanyId(companyId);
+    const normalizedName = this.normalizeOptionName(kind, name);
+    if (!normalizedName) {
+      throw new BadRequestException(requiredMessage);
+    }
+
+    const duplicate = await this.prisma.productOption.findFirst({
+      where: {
+        companyId: scopedCompanyId,
+        kind,
+        deletedAt: null,
+        id: { not: id },
+        name: { equals: normalizedName, mode: 'insensitive' },
+      },
+      select: { id: true },
+    });
+    if (duplicate) {
+      throw new ConflictException(duplicateMessage);
+    }
+
+    const option = await this.prisma.productOption.findFirst({
+      where: {
+        id,
+        companyId: scopedCompanyId,
+        kind,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+    if (!option) {
+      throw new NotFoundException(notFoundMessage);
+    }
+
+    return this.prisma.productOption.update({
+      where: { id },
+      data: { name: normalizedName },
+      select: PRODUCT_OPTION_BASE_SELECT,
+    });
+  }
+
+  private async removeProductOption(
+    id: string,
+    companyId: string,
+    kind: ProductOptionKind,
+    notFoundMessage: string,
+  ) {
+    const scopedCompanyId = this.requireCompanyId(companyId);
+    const option = await this.prisma.productOption.findFirst({
+      where: {
+        id,
+        companyId: scopedCompanyId,
+        kind,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+    if (!option) {
+      throw new NotFoundException(notFoundMessage);
+    }
+
+    await this.prisma.productOption.delete({ where: { id } });
+    return { success: true };
+  }
+
+  async createClassification(companyId: string, name: string) {
+    return this.findOrCreateProductOption(
+      companyId,
+      ProductOptionKind.CLASSIFICATION,
+      name,
+    );
+  }
+
+  async findAllClassifications(companyId: string) {
+    return this.listProductOptionsByKind(
+      companyId,
+      ProductOptionKind.CLASSIFICATION,
+    );
+  }
+
+  async updateClassification(id: string, companyId: string, name: string) {
+    return this.updateProductOptionName(
+      id,
+      companyId,
+      ProductOptionKind.CLASSIFICATION,
+      name,
+      'Classification not found',
+      'Classification already exists',
+      'Classification name is required',
+    );
+  }
+
+  async removeClassification(id: string, companyId: string) {
+    return this.removeProductOption(
+      id,
+      companyId,
+      ProductOptionKind.CLASSIFICATION,
+      'Classification not found',
+    );
+  }
+
+  async createCardType(companyId: string, name: string) {
+    return this.findOrCreateProductOption(
+      companyId,
+      ProductOptionKind.CARD_TYPE,
+      name,
+    );
+  }
+
+  async findAllCardTypes(companyId: string) {
+    return this.listProductOptionsByKind(companyId, ProductOptionKind.CARD_TYPE);
+  }
+
+  async updateCardType(id: string, companyId: string, name: string) {
+    return this.updateProductOptionName(
+      id,
+      companyId,
+      ProductOptionKind.CARD_TYPE,
+      name,
+      'Card type not found',
+      'Card type already exists',
+      'Card type name is required',
+    );
+  }
+
+  async removeCardType(id: string, companyId: string) {
+    return this.removeProductOption(
+      id,
+      companyId,
+      ProductOptionKind.CARD_TYPE,
+      'Card type not found',
+    );
   }
 
   async createCategory(companyId: string, name: string) {
@@ -664,6 +887,42 @@ export class ProductService {
 
     await this.prisma.productOption.delete({ where: { id } });
     return { success: true };
+  }
+
+  async createServiceCategory(companyId: string, name: string) {
+    return this.findOrCreateProductOption(
+      companyId,
+      ProductOptionKind.SERVICE_CATEGORY,
+      name,
+    );
+  }
+
+  async findAllServiceCategories(companyId: string) {
+    return this.listProductOptionsByKind(
+      companyId,
+      ProductOptionKind.SERVICE_CATEGORY,
+    );
+  }
+
+  async updateServiceCategory(id: string, companyId: string, name: string) {
+    return this.updateProductOptionName(
+      id,
+      companyId,
+      ProductOptionKind.SERVICE_CATEGORY,
+      name,
+      'Service category not found',
+      'Service category already exists',
+      'Service category name is required',
+    );
+  }
+
+  async removeServiceCategory(id: string, companyId: string) {
+    return this.removeProductOption(
+      id,
+      companyId,
+      ProductOptionKind.SERVICE_CATEGORY,
+      'Service category not found',
+    );
   }
 
   async createBrand(companyId: string, name: string) {

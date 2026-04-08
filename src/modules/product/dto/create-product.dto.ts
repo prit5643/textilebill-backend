@@ -102,7 +102,22 @@ export class CreateProductDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  classificationId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  cardTypeId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
   categoryId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  serviceCategoryId?: string;
 
   @ApiPropertyOptional()
   @IsOptional()

@@ -4,8 +4,11 @@ import { CompanyAccessGuard } from '../src/common/guards';
 import { CompanyController } from '../src/modules/company/company.controller';
 import { UsersController } from '../src/modules/users/users.controller';
 import { ProductController } from '../src/modules/product/product.controller';
+import { ClassificationController } from '../src/modules/product/classification.controller';
+import { CardTypeController } from '../src/modules/product/card-type.controller';
 import { BrandController } from '../src/modules/product/brand.controller';
 import { CategoryController } from '../src/modules/product/category.controller';
+import { ServiceCategoryController } from '../src/modules/product/service-category.controller';
 import { UomController } from '../src/modules/product/uom.controller';
 import { AccountController } from '../src/modules/account/account.controller';
 import { BrokerController } from '../src/modules/account/broker.controller';
@@ -16,8 +19,11 @@ import { ReportController } from '../src/modules/report/report.controller';
 
 const headerScopedControllers = [
   ProductController,
+  ClassificationController,
+  CardTypeController,
   BrandController,
   CategoryController,
+  ServiceCategoryController,
   UomController,
   AccountController,
   BrokerController,
