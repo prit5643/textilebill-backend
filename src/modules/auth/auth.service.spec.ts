@@ -149,6 +149,8 @@ describe('AuthService', () => {
         user: expect.objectContaining({
           id: 'user-1',
           role: 'TENANT_ADMIN',
+          firstName: 'Owner',
+          lastName: 'User',
         }),
       }),
     );

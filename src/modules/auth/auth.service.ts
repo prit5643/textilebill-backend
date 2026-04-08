@@ -968,12 +968,19 @@ export class AuthService {
     );
 
     const effectiveRole = this.toLegacyRole(this.getHighestRole(activeAssignments));
+    const [firstName, ...restNameParts] = (user?.name ?? '')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+    const lastName = restNameParts.length ? restNameParts.join(' ') : null;
 
     return {
       id: user.id,
       tenantId: user.tenantId,
       email: user.email,
       name: user.name,
+      firstName: firstName || null,
+      lastName,
       phone: user.phone,
       status: user.status,
       role: effectiveRole,
