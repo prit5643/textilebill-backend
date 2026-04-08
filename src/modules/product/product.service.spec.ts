@@ -26,6 +26,15 @@ describe('ProductService', () => {
         count: jest.fn(),
         findFirst: jest.fn(),
         update: jest.fn(),
+        delete: jest.fn(),
+      } as any,
+      productOption: {
+        findMany: jest.fn().mockResolvedValue([]),
+        findFirst: jest.fn(),
+        createMany: jest.fn().mockResolvedValue({ count: 0 }),
+        create: jest.fn(),
+        update: jest.fn(),
+        delete: jest.fn(),
       } as any,
     };
 
@@ -38,6 +47,14 @@ describe('ProductService', () => {
 
   it('creates products with schema-v2 fields', async () => {
     (prisma.product!.findFirst as jest.Mock).mockResolvedValueOnce(null);
+    (prisma.productOption!.findMany as jest.Mock).mockResolvedValueOnce([]);
+    (prisma.productOption!.findFirst as jest.Mock).mockResolvedValueOnce({
+      id: 'uom-mtr',
+      companyId: 'c1',
+      name: 'MTR',
+      fullName: 'Meter',
+      isDefault: true,
+    });
     (prisma.product!.create as jest.Mock).mockResolvedValueOnce({
       id: 'p1',
       name: 'Test Product',
@@ -59,6 +76,7 @@ describe('ProductService', () => {
           companyId: 'c1',
           name: 'Test Product',
           sku: 'TST',
+          unit: 'MTR',
           price: 100,
           taxRate: 5,
         }),

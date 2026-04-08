@@ -3,6 +3,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { TenantService } from './tenant.service';
 import { JwtAuthGuard, SubscriptionGuard } from '../../common/guards';
 import { CurrentUser } from '../../common/decorators';
+import { UpdateTenantProfileDto } from './dto/update-tenant-profile.dto';
 
 @ApiTags('Tenant')
 @Controller('tenant')
@@ -21,7 +22,7 @@ export class TenantController {
   @ApiOperation({ summary: 'Update tenant profile' })
   async updateProfile(
     @CurrentUser('tenantId') tenantId: string,
-    @Body() dto: Record<string, any>,
+    @Body() dto: UpdateTenantProfileDto,
   ) {
     return this.tenantService.update(tenantId, dto);
   }

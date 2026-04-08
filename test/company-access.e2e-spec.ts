@@ -6,6 +6,7 @@ import { UsersController } from '../src/modules/users/users.controller';
 import { ProductController } from '../src/modules/product/product.controller';
 import { BrandController } from '../src/modules/product/brand.controller';
 import { CategoryController } from '../src/modules/product/category.controller';
+import { UomController } from '../src/modules/product/uom.controller';
 import { AccountController } from '../src/modules/account/account.controller';
 import { BrokerController } from '../src/modules/account/broker.controller';
 import { AccountingController } from '../src/modules/accounting/accounting.controller';
@@ -17,6 +18,7 @@ const headerScopedControllers = [
   ProductController,
   BrandController,
   CategoryController,
+  UomController,
   AccountController,
   BrokerController,
   AccountingController,

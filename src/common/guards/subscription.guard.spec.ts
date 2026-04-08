@@ -4,6 +4,7 @@ import { RedisService } from '../../modules/redis/redis.service';
 import { SubscriptionGuard } from './subscription.guard';
 import {
   TENANT_ACTIVE_CACHE_TTL_SECONDS,
+  getTenantActiveCacheKey,
   getTenantSubscriptionCacheKey,
   SUBSCRIPTION_NEGATIVE_CACHE_TTL_SECONDS,
 } from '../../modules/auth/auth-request-cache.util';
@@ -20,6 +21,9 @@ describe('SubscriptionGuard', () => {
     prisma = {
       subscription: {
         findFirst: jest.fn(),
+      } as any,
+      tenant: {
+        findUnique: jest.fn(),
       } as any,
     };
 
@@ -55,7 +59,9 @@ describe('SubscriptionGuard', () => {
   });
 
   it('allows cached active tenants without hitting the database', async () => {
-    redisService.get.mockResolvedValueOnce('1');
+    redisService.get
+      .mockResolvedValueOnce('1')
+      .mockResolvedValueOnce('1');
     const context = createContext({
       user: { id: 'user-1', role: 'ADMIN', tenantId: 'tenant-1' },
     });
@@ -91,13 +97,13 @@ describe('SubscriptionGuard', () => {
         tenantId: 'tenant-1',
         deletedAt: null,
         status: 'ACTIVE',
-        endDate: {
-          gte: expect.any(Date),
-        },
         tenant: {
           status: 'ACTIVE',
           deletedAt: null,
         },
+      },
+      orderBy: {
+        endDate: 'desc',
       },
       select: {
         id: true,
@@ -131,14 +137,67 @@ describe('SubscriptionGuard', () => {
     );
   });
 
+  it('treats midnight endDate as active through that day', async () => {
+    jest.setSystemTime(new Date('2026-03-12T12:00:00.000Z'));
+    (prisma.subscription!.findFirst as jest.Mock).mockResolvedValueOnce({
+      id: 'sub-1',
+      endDate: new Date('2026-03-12T00:00:00.000Z'),
+    });
+    const context = createContext({
+      user: { id: 'user-1', role: 'ADMIN', tenantId: 'tenant-1' },
+    });
+
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    expect(redisService.set).toHaveBeenCalledWith(
+      getTenantSubscriptionCacheKey('tenant-1'),
+      '1',
+      expect.any(Number),
+    );
+  });
+
   it('caches missing active subscription briefly and fails closed', async () => {
     (prisma.subscription!.findFirst as jest.Mock).mockResolvedValueOnce(null);
+    (prisma.tenant!.findUnique as jest.Mock).mockResolvedValueOnce({
+      status: 'ACTIVE',
+      deletedAt: null,
+    });
     const context = createContext({
       user: { id: 'user-1', role: 'ADMIN', tenantId: 'tenant-1' },
     });
 
     await expect(guard.canActivate(context)).rejects.toBeInstanceOf(
       ForbiddenException,
+    );
+    expect(redisService.set).toHaveBeenCalledWith(
+      getTenantActiveCacheKey('tenant-1'),
+      '1',
+      TENANT_ACTIVE_CACHE_TTL_SECONDS,
+    );
+    expect(redisService.set).toHaveBeenCalledWith(
+      getTenantSubscriptionCacheKey('tenant-1'),
+      '0',
+      SUBSCRIPTION_NEGATIVE_CACHE_TTL_SECONDS,
+    );
+  });
+
+  it('returns deactivated message when tenant is inactive during subscription miss', async () => {
+    (prisma.subscription!.findFirst as jest.Mock).mockResolvedValueOnce(null);
+    (prisma.tenant!.findUnique as jest.Mock).mockResolvedValueOnce({
+      status: 'INACTIVE',
+      deletedAt: null,
+    });
+    const context = createContext({
+      user: { id: 'user-1', role: 'ADMIN', tenantId: 'tenant-1' },
+    });
+
+    await expect(guard.canActivate(context)).rejects.toThrow(
+      'Your account has been deactivated.',
+    );
+
+    expect(redisService.set).toHaveBeenCalledWith(
+      getTenantActiveCacheKey('tenant-1'),
+      '0',
+      TENANT_ACTIVE_CACHE_TTL_SECONDS,
     );
     expect(redisService.set).toHaveBeenCalledWith(
       getTenantSubscriptionCacheKey('tenant-1'),

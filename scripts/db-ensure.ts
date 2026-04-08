@@ -2,6 +2,34 @@ import { PrismaClient } from '@prisma/client';
 import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'path';
 
+function safeParseUrl(value: string): URL | null {
+  try {
+    return new URL(value);
+  } catch {
+    return null;
+  }
+}
+
+function deriveSupabaseDirectUrl(rawUrl: string): string | null {
+  const parsed = safeParseUrl(rawUrl);
+  if (!parsed) return null;
+
+  const isSupabasePooler = parsed.hostname
+    .toLowerCase()
+    .endsWith('.pooler.supabase.com');
+  if (!isSupabasePooler) return null;
+
+  const usesPooledPort = parsed.port === '6543';
+  const usesPgBouncer =
+    parsed.searchParams.get('pgbouncer')?.toLowerCase() === 'true';
+  if (!usesPooledPort && !usesPgBouncer) return null;
+
+  parsed.port = '5432';
+  parsed.searchParams.delete('pgbouncer');
+  parsed.searchParams.delete('connection_limit');
+  return parsed.toString();
+}
+
 function loadLocalEnvFile() {
   const envPath = resolve(process.cwd(), '.env');
   if (!existsSync(envPath)) return;
@@ -30,6 +58,20 @@ function loadLocalEnvFile() {
   }
 }
 
+function resolveMaintenanceDatabaseUrl(): string | undefined {
+  if (process.env.DATABASE_DIRECT_URL) {
+    return process.env.DATABASE_DIRECT_URL;
+  }
+
+  if (!process.env.DATABASE_URL) {
+    return undefined;
+  }
+
+  return (
+    deriveSupabaseDirectUrl(process.env.DATABASE_URL) ?? process.env.DATABASE_URL
+  );
+}
+
 function getDatabaseName(databaseUrl: string): string {
   const parsed = new URL(databaseUrl);
   const dbName = decodeURIComponent(parsed.pathname.replace(/^\//, ''));
@@ -56,7 +98,7 @@ function getAdminDatabaseUrl(databaseUrl: string): string {
 async function main() {
   loadLocalEnvFile();
 
-  const databaseUrl = process.env.DATABASE_DIRECT_URL || process.env.DATABASE_URL;
+  const databaseUrl = resolveMaintenanceDatabaseUrl();
   if (!databaseUrl) {
     throw new Error('DATABASE_URL or DATABASE_DIRECT_URL is required.');
   }

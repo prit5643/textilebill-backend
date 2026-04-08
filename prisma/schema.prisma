@@ -73,6 +73,26 @@ enum OtpPurpose {
   VERIFY_EMAIL
 }
 
+enum ProductType {
+  GOODS
+  SERVICES
+}
+
+enum GstConsiderAs {
+  TAXABLE
+  NIL_RATED
+  EXEMPTED
+  ZERO_RATED
+  NON_GST
+  REVERSE_CHARGE
+}
+
+enum ProductOptionKind {
+  CATEGORY
+  BRAND
+  UOM
+}
+
 // ------------------------------------------
 // TENANT  (root of every relation)
 // ------------------------------------------
@@ -92,6 +112,7 @@ model Tenant {
   userCompanies    UserCompany[]
   parties          Party[]
   products         Product[]
+  productOptions   ProductOption[]
   accounts         Account[]
   invoices         Invoice[]
   invoiceItems     InvoiceItem[]
@@ -138,6 +159,7 @@ model Company {
   ledgerEntries    LedgerEntry[]
   stockMovements   StockMovement[]
   products         Product[]
+  productOptions   ProductOption[]
   auditLogs        AuditLog[]
 
   @@unique([id, tenantId])
@@ -315,21 +337,37 @@ model Account {
 // ------------------------------------------
 
 model Product {
-  id        String    @id @default(uuid())
-  tenantId  String
-  companyId String
-  name      String
-  sku       String?
-  unit      String    @default("MTR") // MTR | KG | PCS | BOX
-  price     Decimal   @db.Decimal(14, 2)
-  taxRate   Decimal   @default(0) @db.Decimal(5, 2) // GST %
-  hsnCode   String? // HSN for GST filing
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
+  id               String         @id @default(uuid())
+  tenantId         String
+  companyId        String
+  name             String
+  sku              String?
+  description      String?
+  unit             String         @default("MTR") // MTR | KG | PCS | BOX
+  price            Decimal        @db.Decimal(14, 2)
+  buyingPrice      Decimal?       @db.Decimal(14, 2)
+  mrp              Decimal?       @db.Decimal(14, 2)
+  wholesalerPrice  Decimal?       @db.Decimal(14, 2)
+  distributorPrice Decimal?       @db.Decimal(14, 2)
+  taxRate          Decimal        @default(0) @db.Decimal(5, 2) // GST %
+  type             ProductType    @default(GOODS)
+  gstConsiderAs    GstConsiderAs  @default(TAXABLE)
+  hsnCode          String? // HSN for GST filing
+  categoryId       String?
+  brandId          String?
+  uomId            String?
+  defaultQty       Decimal?       @db.Decimal(14, 3)
+  defaultDiscount  Decimal?       @db.Decimal(5, 2)
+  minimumQty       Decimal?       @db.Decimal(14, 3)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  deletedAt        DateTime?
 
   tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   company Company @relation(fields: [companyId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  category ProductOption? @relation("ProductCategoryOption", fields: [categoryId], references: [id], onDelete: SetNull)
+  brand    ProductOption? @relation("ProductBrandOption", fields: [brandId], references: [id], onDelete: SetNull)
+  uom      ProductOption? @relation("ProductUomOption", fields: [uomId], references: [id], onDelete: SetNull)
 
   invoiceItems   InvoiceItem[]
   stockMovements StockMovement[]
@@ -337,6 +375,33 @@ model Product {
 
   @@unique([id, tenantId])
   @@index([tenantId, companyId])
+  @@index([companyId, categoryId])
+  @@index([companyId, brandId])
+  @@index([companyId, uomId])
+  @@index([deletedAt])
+}
+
+model ProductOption {
+  id        String            @id @default(uuid())
+  tenantId  String
+  companyId String
+  kind      ProductOptionKind
+  name      String
+  fullName  String?
+  isDefault Boolean           @default(false)
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  deletedAt DateTime?
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company Company @relation(fields: [companyId, tenantId], references: [id, tenantId], onDelete: Restrict)
+
+  productsAsCategory Product[] @relation("ProductCategoryOption")
+  productsAsBrand    Product[] @relation("ProductBrandOption")
+  productsAsUom      Product[] @relation("ProductUomOption")
+
+  @@unique([id, tenantId])
+  @@index([tenantId, companyId, kind])
   @@index([deletedAt])
 }
 

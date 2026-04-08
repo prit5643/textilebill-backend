@@ -19,34 +19,107 @@ export class TenantService {
   async findById(id: string) {
     const tenant = await this.prisma.tenant.findUnique({
       where: { id },
+      include: {
+        companies: {
+          where: { deletedAt: null },
+          orderBy: { createdAt: 'asc' },
+          select: {
+            id: true,
+            name: true,
+            gstin: true,
+            address: true,
+            city: true,
+            state: true,
+            pincode: true,
+            phone: true,
+            email: true,
+          },
+        },
+      },
     });
 
     if (!tenant) {
       throw new NotFoundException('Tenant not found');
     }
 
-    return tenant;
+    const primaryCompany = tenant.companies?.[0];
+
+    return {
+      ...tenant,
+      gstin: primaryCompany?.gstin ?? null,
+      address: primaryCompany?.address ?? null,
+      city: primaryCompany?.city ?? null,
+      state: primaryCompany?.state ?? null,
+      pincode: primaryCompany?.pincode ?? null,
+      phone: primaryCompany?.phone ?? null,
+      email: primaryCompany?.email ?? null,
+    };
   }
 
   async update(
     id: string,
     data: Partial<{
       name: string;
+      gstin: string;
+      address: string;
+      city: string;
+      state: string;
+      pincode: string;
+      phone: string;
+      email: string;
     }>,
   ) {
     await this.findById(id);
 
-    const updatedTenant = await this.prisma.tenant.update({
-      where: { id },
-      data: {
-        ...(typeof data.name === 'string' ? { name: data.name } : {}),
-      },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.tenant.update({
+        where: { id },
+        data: {
+          ...(typeof data.name === 'string' ? { name: data.name.trim() } : {}),
+        },
+      });
+
+      const firstCompany = await tx.company.findFirst({
+        where: { tenantId: id, deletedAt: null },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true },
+      });
+
+      if (firstCompany) {
+        await tx.company.update({
+          where: { id: firstCompany.id },
+          data: {
+            ...(typeof data.name === 'string' ? { name: data.name.trim() } : {}),
+            ...(typeof data.gstin === 'string'
+              ? { gstin: data.gstin.trim().toUpperCase() || null }
+              : {}),
+            ...(typeof data.address === 'string'
+              ? { address: data.address.trim() || null }
+              : {}),
+            ...(typeof data.city === 'string'
+              ? { city: data.city.trim() || null }
+              : {}),
+            ...(typeof data.state === 'string'
+              ? { state: data.state.trim() || null }
+              : {}),
+            ...(typeof data.pincode === 'string'
+              ? { pincode: data.pincode.trim() || null }
+              : {}),
+            ...(typeof data.phone === 'string'
+              ? { phone: data.phone.trim() || null }
+              : {}),
+            ...(typeof data.email === 'string'
+              ? { email: data.email.trim().toLowerCase() || null }
+              : {}),
+          },
+        });
+      }
     });
 
     // Clear caches to ensure all tenant admin sessions see the updates
     await this.clearTenantUsersCaches(id);
 
-    return updatedTenant;
+    return this.findById(id);
   }
 
   /**

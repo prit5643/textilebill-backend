@@ -2,6 +2,34 @@ const { spawn } = require('child_process');
 const { existsSync, readFileSync } = require('fs');
 const { resolve } = require('path');
 
+function safeParseUrl(value) {
+  try {
+    return new URL(value);
+  } catch {
+    return null;
+  }
+}
+
+function deriveSupabaseDirectUrl(rawUrl) {
+  const parsed = safeParseUrl(rawUrl);
+  if (!parsed) return null;
+
+  const isSupabasePooler = parsed.hostname
+    .toLowerCase()
+    .endsWith('.pooler.supabase.com');
+  if (!isSupabasePooler) return null;
+
+  const usesPooledPort = parsed.port === '6543';
+  const usesPgBouncer =
+    parsed.searchParams.get('pgbouncer')?.toLowerCase() === 'true';
+  if (!usesPooledPort && !usesPgBouncer) return null;
+
+  parsed.port = '5432';
+  parsed.searchParams.delete('pgbouncer');
+  parsed.searchParams.delete('connection_limit');
+  return parsed.toString();
+}
+
 function loadLocalEnvFile() {
   const envPath = resolve(process.cwd(), '.env');
   if (!existsSync(envPath)) return;
@@ -30,6 +58,28 @@ function loadLocalEnvFile() {
   }
 }
 
+function resolveMaintenanceDatabaseUrl() {
+  const directUrl = process.env.DATABASE_DIRECT_URL;
+  if (directUrl) {
+    return { url: directUrl, source: 'DATABASE_DIRECT_URL' };
+  }
+
+  const runtimeUrl = process.env.DATABASE_URL;
+  if (!runtimeUrl) {
+    return { url: undefined, source: null };
+  }
+
+  const inferredDirectUrl = deriveSupabaseDirectUrl(runtimeUrl);
+  if (inferredDirectUrl) {
+    return {
+      url: inferredDirectUrl,
+      source: 'derived from DATABASE_URL (Supabase direct port 5432)',
+    };
+  }
+
+  return { url: runtimeUrl, source: 'DATABASE_URL' };
+}
+
 function main() {
   loadLocalEnvFile();
 
@@ -41,9 +91,19 @@ function main() {
     process.exit(1);
   }
 
-  const directUrl = process.env.DATABASE_DIRECT_URL;
-  if (directUrl) {
-    process.env.DATABASE_URL = directUrl;
+  const maintenanceUrl = resolveMaintenanceDatabaseUrl();
+  if (maintenanceUrl.url) {
+    process.env.DATABASE_URL = maintenanceUrl.url;
+  }
+
+  if (
+    maintenanceUrl.source &&
+    maintenanceUrl.source !== 'DATABASE_URL' &&
+    maintenanceUrl.source !== 'DATABASE_DIRECT_URL'
+  ) {
+    console.log(
+      `[prisma-command] Using maintenance database URL ${maintenanceUrl.source}.`,
+    );
   }
 
   const child = spawn('npx', ['prisma', ...args], {

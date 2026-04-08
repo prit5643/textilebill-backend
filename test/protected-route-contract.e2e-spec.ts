@@ -65,7 +65,10 @@ describe('Protected route contract (e2e)', () => {
     [AdminController, [JwtAuthGuard, SubscriptionGuard, RolesGuard]],
     [TenantController, [JwtAuthGuard, SubscriptionGuard]],
     [AccountGroupController, [JwtAuthGuard, SubscriptionGuard]],
-    [UomController, [JwtAuthGuard, SubscriptionGuard, RolesGuard]],
+    [
+      UomController,
+      [JwtAuthGuard, SubscriptionGuard, CompanyAccessGuard, RolesGuard],
+    ],
   ])('%p declares the expected protected guard chain', (controller, guards) => {
     expect(Reflect.getMetadata(GUARDS_METADATA, controller) ?? []).toEqual(
       guards,
