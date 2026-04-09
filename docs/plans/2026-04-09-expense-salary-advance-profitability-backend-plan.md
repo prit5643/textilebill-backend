@@ -123,14 +123,17 @@ Out of scope (phase 1):
 ### 4.2 Salary advance and month-end deduction
 1. Advance recorded against `CompanyPerson`.
 2. `remainingAmount` updated as deductions happen.
-3. Salary settlement engine computes `netPayable = gross - advances + reimbursements +/- adjustments`.
-4. Partial settlement allowed; remaining carry-forward supported.
+3. Salary run is monthly only in v1.
+4. Salary settlement engine computes `netPayable = gross - advances + reimbursements +/- adjustments`.
+5. Ledger impact for advance/reimbursement adjustments is posted at salary settlement time (not at draft/add time).
+6. Partial settlement allowed; remaining carry-forward supported.
 
 ### 4.3 Pocket expense reimbursement
 1. Person submits reimbursement claim with proofs.
 2. In v1, accountant/owner can settle directly (no approval queue).
-3. Settle by direct payment or salary addition in current/next cycle.
-4. Audit trail links claim -> settlement -> ledger entry.
+3. Claim is visible immediately in pending-adjustment views.
+4. Settle by direct payment or salary addition in current/next cycle.
+5. Audit trail links claim -> settlement -> ledger entry.
 
 ### 4.4 Purchase to sale profitability
 1. Purchase invoices + direct process expenses linked to a `CostCenter`.
@@ -158,9 +161,10 @@ Out of scope (phase 1):
 - `POST /expenses/:id/submit`
 
 ## 5.3 Attachments
-- `POST /expenses/:id/attachments`
+- `POST /expenses/:id/attachments` (supports cloud object storage metadata)
 - `GET /expenses/:id/attachments`
 - `DELETE /expenses/attachments/:attachmentId`
+- `POST /expenses/attachments/presign` (v1 cloud upload helper)
 
 ## 5.4 Salary and advances
 - `POST /payroll/salary-profiles`
@@ -221,7 +225,7 @@ Safety and controls:
 
 - Advance > salary for month -> carry forward automatically, never negative payout bug
 - Reimbursement submitted after payroll run -> deferred to next cycle with explicit status
-- Backdated expense in closed month -> locked by policy or posted via adjustment voucher
+- Backdated expense is allowed in v1, with audit trail and reporting impact clearly visible
 - Duplicate bill upload -> hash-based duplicate detection
 - Same person in multiple companies -> strict company scoping by `X-Company-Id`
 - Soft-deleted person with pending salary/advance -> block deletion, mark inactive only
@@ -230,14 +234,13 @@ Safety and controls:
 
 ## 8) Security, audit, and permissions
 
-- Role matrix additions:
-  - `OWNER/ADMIN`: full config + settlement controls + future approval-policy config
-  - `MANAGER`: create entries/claims
-  - `ACCOUNTANT`: settlement + reports + ledger posting
-  - `VIEWER`: read-only analytics
-- When future approval mode is enabled, every approval/rejection must persist `who`, `when`, and note
-- Attachment endpoints must validate mime type and path safety
-- PII minimization: only required employee fields
+- No role-based restriction is enforced in v1 for this module (current product constraint).
+- Maintain full audit fields on every mutable record: `createdBy`, `updatedBy`, timestamps, and settlement markers.
+- Future-ready role policy can be activated once role infrastructure is available.
+- When future approval mode is enabled, every approval/rejection must persist `who`, `when`, and note.
+- Attachment endpoints must validate mime type and path safety.
+- Attachment files are stored in cloud object storage from day 1; DB stores only metadata and secure URLs/keys.
+- PII minimization: only required employee fields.
 
 ## 9) Performance and reporting strategy
 
@@ -274,16 +277,16 @@ Unit tests:
 - settlement math, carry-forward logic, allocation formulas, duplicate guard
 
 Integration tests:
-- expense -> submit -> ledger posting/settlement
+- expense -> submit -> no immediate ledger posting -> salary settlement ledger posting
 - advance + reimbursement -> salary settlement
 - cost center profitability with mixed direct/allocated costs
 
 E2E tests:
-- manager logs expense with bill, month-end salary run reflects adjustment
+- manager logs expense with bill, entry is visible immediately, month-end salary run posts adjustment to ledger
 
 Data consistency checks:
 - sum of allocations per expense cannot exceed source amount
-- closed month edits require adjustment records
+- backdated edits must remain auditable and trigger report recalculation consistently
 
 ## 12) Paper-to-digital mapping for textile operations
 
@@ -339,6 +342,10 @@ Confirmed decisions:
 2. Expense approvals are not required in v1. We keep future-ready multi-level approval schema (`ExpenseApprovalPolicy`, `ExpenseApprovalStep`) for later activation.
 3. Bill attachment is optional (not mandatory) in v1.
 4. Non-employee payees (vendors/contractors) are out of scope for day 1 in this module's person table.
+5. Salary run supports monthly payouts only in v1.
+6. Advance/reimbursement impacts ledger at salary settlement time, while pending adjustments remain visible before settlement.
+7. Backdated entries are allowed in v1.
+8. Attachment storage is cloud-based from day 1.
 
 Pending decision (defer to phase 4 design gate):
 1. Profitability granularity: cost center only, or also invoice line/product batch.
