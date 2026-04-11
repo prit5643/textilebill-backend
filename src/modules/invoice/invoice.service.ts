@@ -41,6 +41,10 @@ export class InvoiceService {
     const invoiceDate = new Date(dto.invoiceDate);
     await this.ensureAccountBelongsToCompany(companyId, dto.accountId);
 
+    if (dto.costCenterId) {
+      await this.ensureCostCenterBelongsToCompany(companyId, dto.costCenterId);
+    }
+
     if (financialYearId) {
       await this.ensureFinancialYearBelongsToCompany(
         companyId,
@@ -70,6 +74,7 @@ export class InvoiceService {
           tenantId: company.tenantId,
           companyId,
           accountId: dto.accountId,
+          costCenterId: dto.costCenterId ?? null,
           financialYearId: fyId,
           invoiceNumber,
           invoiceDate,
@@ -214,7 +219,10 @@ export class InvoiceService {
     ]);
 
     const paidByInvoice = new Map(
-      groupedPayments.map((row) => [row.invoiceId ?? '', Number(row._sum.credit ?? 0)]),
+      groupedPayments.map((row) => [
+        row.invoiceId ?? '',
+        Number(row._sum.credit ?? 0),
+      ]),
     );
 
     const invoices = await this.prisma.invoice.findMany({
@@ -290,6 +298,10 @@ export class InvoiceService {
     const existing = await this.findById(companyId, id);
     const company = await this.getCompanyContext(companyId);
 
+    if (dto.costCenterId) {
+      await this.ensureCostCenterBelongsToCompany(companyId, dto.costCenterId);
+    }
+
     const updatedInvoiceId = await this.prisma.$transaction(async (tx) => {
       let totals = {
         subTotal: Number(existing.subTotal),
@@ -321,13 +333,22 @@ export class InvoiceService {
       await tx.invoice.update({
         where: { id },
         data: {
-          ...(dto.invoiceNumber ? { invoiceNumber: dto.invoiceNumber.trim() } : {}),
-          ...(dto.invoiceDate ? { invoiceDate: new Date(dto.invoiceDate) } : {}),
+          ...(dto.invoiceNumber
+            ? { invoiceNumber: dto.invoiceNumber.trim() }
+            : {}),
+          ...(dto.invoiceDate
+            ? { invoiceDate: new Date(dto.invoiceDate) }
+            : {}),
           ...(dto.accountId ? { accountId: dto.accountId } : {}),
+          ...(dto.costCenterId !== undefined
+            ? { costCenterId: dto.costCenterId ?? null }
+            : {}),
           ...(dto.status
             ? { status: this.normalizeInvoiceStatus(dto.status as string) }
             : {}),
-          ...(dto.narration !== undefined ? { notes: dto.narration ?? null } : {}),
+          ...(dto.narration !== undefined
+            ? { notes: dto.narration ?? null }
+            : {}),
           subTotal: totals.subTotal,
           taxAmount: totals.taxAmount,
           discountAmount: totals.discountAmount,
@@ -419,21 +440,28 @@ export class InvoiceService {
     const source = await this.findById(companyId, id);
     const convertedType = this.normalizeInvoiceType(targetType);
     if (convertedType === source.type) {
-      throw new BadRequestException('Target type must be different from source');
+      throw new BadRequestException(
+        'Target type must be different from source',
+      );
     }
 
-    const result = await this.create(companyId, source.financialYearId, userId, {
-      invoiceType: convertedType as any,
-      invoiceDate: source.invoiceDate.toISOString(),
-      accountId: source.accountId,
-      narration: `Converted from invoice ${source.invoiceNumber}`,
-      items: source.items.map((item) => ({
-        productId: item.productId,
-        quantity: Number(item.quantity),
-        rate: Number(item.rate),
-        gstRate: Number(item.taxRate),
-      })),
-    } as CreateInvoiceDto);
+    const result = await this.create(
+      companyId,
+      source.financialYearId,
+      userId,
+      {
+        invoiceType: convertedType as any,
+        invoiceDate: source.invoiceDate.toISOString(),
+        accountId: source.accountId,
+        narration: `Converted from invoice ${source.invoiceNumber}`,
+        items: source.items.map((item) => ({
+          productId: item.productId,
+          quantity: Number(item.quantity),
+          rate: Number(item.rate),
+          gstRate: Number(item.taxRate),
+        })),
+      } as CreateInvoiceDto,
+    );
 
     return {
       sourceInvoiceId: source.id,
@@ -498,6 +526,26 @@ export class InvoiceService {
     }
   }
 
+  private async ensureCostCenterBelongsToCompany(
+    companyId: string,
+    costCenterId: string,
+  ) {
+    const costCenter = await this.prisma.costCenter.findFirst({
+      where: {
+        id: costCenterId,
+        companyId,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+
+    if (!costCenter) {
+      throw new BadRequestException(
+        'Selected cost center is invalid for this company. Choose an active cost center and try again.',
+      );
+    }
+  }
+
   private async ensureFinancialYearBelongsToCompany(
     companyId: string,
     financialYearId: string,
@@ -517,7 +565,10 @@ export class InvoiceService {
       );
     }
 
-    if (invoiceDate < financialYear.startDate || invoiceDate > financialYear.endDate) {
+    if (
+      invoiceDate < financialYear.startDate ||
+      invoiceDate > financialYear.endDate
+    ) {
       throw new BadRequestException(
         'Invoice date is outside the selected financial year. Choose a date within the selected financial year.',
       );
@@ -579,7 +630,9 @@ export class InvoiceService {
       },
       select: { id: true, taxRate: true },
     });
-    const productMap = new Map(products.map((product) => [product.id, product]));
+    const productMap = new Map(
+      products.map((product) => [product.id, product]),
+    );
 
     return items.map((item) => {
       if (!productMap.has(item.productId)) {
@@ -624,7 +677,10 @@ export class InvoiceService {
   }
 
   private computeTotals(items: PreparedItem[]) {
-    const subTotal = items.reduce((sum, item) => sum + item.quantity * item.rate, 0);
+    const subTotal = items.reduce(
+      (sum, item) => sum + item.quantity * item.rate,
+      0,
+    );
     const taxAmount = items.reduce((sum, item) => sum + item.taxAmount, 0);
     const taxableAmount = items.reduce((sum, item) => sum + item.amount, 0);
     const discountAmount = Math.max(0, subTotal - taxableAmount);

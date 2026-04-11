@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
@@ -201,6 +201,44 @@ export class ReportController {
     return this.reportService.getGstSlabWise(companyId, {
       dateFrom,
       dateTo,
+    });
+  }
+
+  // ─── PROFITABILITY ────────────────────
+  @Get('profitability/cost-centers')
+  @ApiOperation({ summary: 'Cost center profitability summary' })
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  @ApiQuery({ name: 'fromDate', required: false })
+  @ApiQuery({ name: 'toDate', required: false })
+  async getCostCenterProfitability(
+    @CurrentCompanyId() companyId: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
+  ) {
+    return this.reportService.getCostCenterProfitability(companyId, {
+      page: page ? +page : undefined,
+      limit: limit ? +limit : undefined,
+      fromDate,
+      toDate,
+    });
+  }
+
+  @Get('profitability/cost-centers/:id')
+  @ApiOperation({ summary: 'Cost center profitability detail' })
+  @ApiQuery({ name: 'fromDate', required: false })
+  @ApiQuery({ name: 'toDate', required: false })
+  async getCostCenterProfitabilityDetail(
+    @CurrentCompanyId() companyId: string,
+    @Param('id') id: string,
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
+  ) {
+    return this.reportService.getCostCenterProfitabilityDetail(companyId, id, {
+      fromDate,
+      toDate,
     });
   }
 

@@ -24,6 +24,11 @@ import { AccountModule } from './modules/account/account.module';
 import { InvoiceModule } from './modules/invoice/invoice.module';
 import { AccountingModule } from './modules/accounting/accounting.module';
 import { ReportModule } from './modules/report/report.module';
+import { ExpensesModule } from './modules/expenses/expenses.module';
+import { PayrollModule } from './modules/payroll/payroll.module';
+import { ReimbursementsModule } from './modules/reimbursements/reimbursements.module';
+import { CostCentersModule } from './modules/cost-centers/cost-centers.module';
+import { InsightsModule } from './modules/insights/insights.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { SystemModule } from './modules/system/system.module';
 import { SystemReadyGuard } from './modules/system/system-ready.guard';
@@ -33,7 +38,9 @@ const envFileCandidates = [
   join(process.cwd(), 'backend', '.env'),
 ];
 
-const envFilePath = envFileCandidates.filter((filePath) => existsSync(filePath));
+const envFilePath = envFileCandidates.filter((filePath) =>
+  existsSync(filePath),
+);
 
 @Module({
   imports: [
@@ -66,6 +73,11 @@ const envFilePath = envFileCandidates.filter((filePath) => existsSync(filePath))
     InvoiceModule,
     AccountingModule,
     ReportModule,
+    ExpensesModule,
+    PayrollModule,
+    ReimbursementsModule,
+    CostCentersModule,
+    InsightsModule,
     AdminModule,
     SystemModule,
   ],
