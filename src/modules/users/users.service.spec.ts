@@ -16,7 +16,7 @@ jest.mock('bcrypt');
 describe('UsersService', () => {
   let service: UsersService;
   let prisma: jest.Mocked<Partial<PrismaService>>;
-  let redisService: jest.Mocked<Pick<RedisService, 'del' | 'keys'>>;
+  let redisService: jest.Mocked<Pick<RedisService, 'del' | 'keys' | 'set'>>;
   let otpDeliveryService: jest.Mocked<
     Pick<OtpDeliveryService, 'sendInviteEmail' | 'sendPasswordResetLinkEmail'>
   >;
@@ -56,6 +56,7 @@ describe('UsersService', () => {
     redisService = {
       del: jest.fn().mockResolvedValue(undefined),
       keys: jest.fn().mockResolvedValue([]),
+      set: jest.fn().mockResolvedValue(undefined),
     };
 
     otpDeliveryService = {
@@ -167,7 +168,7 @@ describe('UsersService', () => {
       expect(otpDeliveryService.sendInviteEmail).toHaveBeenCalledTimes(1);
       expect(otpDeliveryService.sendInviteEmail).toHaveBeenCalledWith(
         'test@test.com',
-        expect.stringContaining('http://localhost:3000/forgot-password?email='),
+        expect.stringContaining('http://localhost:3000/accept-invite?token='),
         30,
       );
     });

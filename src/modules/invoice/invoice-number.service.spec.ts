@@ -179,9 +179,8 @@ describe('InvoiceNumberService — bill number business rules', () => {
       },
     );
 
-    it('ensureConfig always uses VoucherType.SALE (shared sequence key)', async () => {
-      // The shared-sequence contract: regardless of InvoiceType, the counter
-      // key in VoucherSequence is always VoucherType.SALE.
+    it('ensureConfig uses the matching VoucherType per invoice type', async () => {
+      // Each invoice type maintains its own sequence key.
       (prisma.voucherSequence.upsert as jest.Mock).mockResolvedValue({
         id: 'seq-1',
         companyId: 'co-1',
@@ -196,7 +195,7 @@ describe('InvoiceNumberService — bill number business rules', () => {
         expect.objectContaining({
           where: expect.objectContaining({
             companyId_financialYearId_type: expect.objectContaining({
-              type: VoucherType.SALE,
+              type: VoucherType.PURCHASE,
             }),
           }),
         }),

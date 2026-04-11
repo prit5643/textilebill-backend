@@ -154,8 +154,9 @@ Current product fields:
 
 Current invoice rules:
 
-- types: `SALE`, `PURCHASE`, `SALE_RETURN`, `PURCHASE_RETURN`
-- statuses: `DRAFT`, `ACTIVE`, `CANCELLED`
+- types: `SALE`, `PURCHASE`, `QUOTATION`, `CHALLAN`, `PROFORMA`, `SALE_RETURN`, `PURCHASE_RETURN`, `JOB_IN`, `JOB_OUT`
+- statuses: `DRAFT`, `ACTIVE`, `CANCELLED` (API also accepts `PAID` and `PARTIALLY_PAID`, normalized to `ACTIVE`)
+- invoice number is optional; if provided it must be numeric only (no prefixes)
 - numbering is backed by `VoucherSequence`
 - payments are compatibility behavior layered on top of `LedgerEntry`
 

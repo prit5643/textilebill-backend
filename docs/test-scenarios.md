@@ -103,12 +103,35 @@ Verify after `POST /api/invoices`:
 
 ## Scenario 8: Invoice Failure Cases
 
-Verify:
+Case A:
 
-- invalid item payload returns validation error
-- invalid or missing company/account/product context returns business-safe error
-- invoice versioning/update rules hold
-- payment edge cases stay sanitized
+- Missing GSTIN on company.
+- Expect: `400` with business-safe message.
+
+Case B:
+
+- Auto-numbering disabled and no invoice number provided.
+- Expect: `400`.
+
+Case C:
+
+- Invoice number provided with non-numeric characters.
+- Expect: `400` validation error.
+
+Case D:
+
+- Invalid item payload (negative qty/rate).
+- Expect: validation failure from DTO.
+
+Case E:
+
+- Concurrency conflict (`Product.version` mismatch).
+- Expect: `409` conflict.
+
+Case F:
+
+- Unsupported `invoiceType` value.
+- Expect: `400` validation error.
 
 ## Scenario 9: Accounting and Voucher Sequences
 

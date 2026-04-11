@@ -48,7 +48,16 @@ describe('Payload reduction integration', () => {
         id: true,
         group: true,
         deletedAt: true,
-        party: { select: { id: true, name: true } },
+        party: {
+          select: {
+            id: true,
+            name: true,
+            city: true,
+            bankName: true,
+            bankAccountNo: true,
+            bankIfsc: true,
+          },
+        },
       }),
     );
     expect(queryArg.include).toBeUndefined();

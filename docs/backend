@@ -56,6 +56,7 @@ Prerequisites (required):
 4. At least one account (customer/supplier).
 5. At least one product.
 6. Valid invoice items with quantity/rate.
+7. Invoice type set to one of: `SALE`, `PURCHASE`, `QUOTATION`, `CHALLAN`, `PROFORMA`, `SALE_RETURN`, `PURCHASE_RETURN`, `JOB_IN`, `JOB_OUT`.
 
 Optional:
 
@@ -89,13 +90,23 @@ Case B:
 
 Case C:
 
-- Invalid item payload (negative qty/rate).
-- Expect: validation failure from DTO.
+- Invoice number provided with non-numeric characters.
+- Expect: `400` validation error.
 
 Case D:
 
+- Invalid item payload (negative qty/rate).
+- Expect: validation failure from DTO.
+
+Case E:
+
 - Concurrency conflict (`Product.version` mismatch).
 - Expect: `409` conflict.
+
+Case F:
+
+- Unsupported `invoiceType` value.
+- Expect: `400` validation error.
 
 ## Scenario 5: Authorization
 

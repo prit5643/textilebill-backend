@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
@@ -15,6 +15,7 @@ import {
   CurrentCompanyId,
   RequireCompanyAccess,
 } from '../../common/decorators';
+import { WorkOrderService } from '../work-order/work-order.service';
 
 @ApiTags('Reports')
 @Controller('reports')
@@ -22,7 +23,10 @@ import {
 @UseGuards(JwtAuthGuard, SubscriptionGuard, CompanyAccessGuard)
 @ApiBearerAuth('access-token')
 export class ReportController {
-  constructor(private readonly reportService: ReportService) {}
+  constructor(
+    private readonly reportService: ReportService,
+    private readonly workOrderService: WorkOrderService,
+  ) {}
 
   // ─── DASHBOARD ────────────────────
   @Get('dashboard')
@@ -243,5 +247,42 @@ export class ReportController {
     @Query('dateTo') dateTo?: string,
   ) {
     return this.reportService.getBalanceSheet(companyId, { dateTo });
+  }
+
+  // ─── WORK ORDER REPORTS ────────────────────
+  @Get('work-orders/monthly-profit-summary')
+  @ApiOperation({ summary: 'Monthly work-order profit summary' })
+  @ApiQuery({ name: 'from', required: false, description: 'YYYY-MM' })
+  @ApiQuery({ name: 'to', required: false, description: 'YYYY-MM' })
+  async getWorkOrderMonthlyProfitSummary(
+    @CurrentCompanyId() companyId: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.workOrderService.getMonthlyProfitSummary(companyId, {
+      from,
+      to,
+    });
+  }
+
+  @Get('work-orders/vendor-margin-risk')
+  @ApiOperation({ summary: 'Vendor-wise margin and risk for work orders' })
+  @ApiQuery({ name: 'from', required: false, description: 'YYYY-MM' })
+  @ApiQuery({ name: 'to', required: false, description: 'YYYY-MM' })
+  async getWorkOrderVendorMarginRisk(
+    @CurrentCompanyId() companyId: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.workOrderService.getVendorMarginRisk(companyId, { from, to });
+  }
+
+  @Get('work-orders/profitability/:id')
+  @ApiOperation({ summary: 'Work-order profitability by ID' })
+  async getWorkOrderProfitability(
+    @CurrentCompanyId() companyId: string,
+    @Param('id') id: string,
+  ) {
+    return this.workOrderService.getProfitability(companyId, id);
   }
 }

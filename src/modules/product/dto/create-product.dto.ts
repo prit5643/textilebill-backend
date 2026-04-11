@@ -7,9 +7,11 @@ import {
   Max,
   MaxLength,
   IsNotEmpty,
+  Matches,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
+import { NAME_REGEX } from '../../../common/utils/validation.util';
 
 export enum ProductTypeEnum {
   GOODS = 'GOODS',
@@ -30,6 +32,10 @@ export class CreateProductDto {
   @IsNotEmpty({ message: 'Name should not be empty' })
   @IsString()
   @MaxLength(300)
+  @Matches(NAME_REGEX, {
+    message:
+      "Product name can contain only letters, numbers, spaces, and & . ' / -",
+  })
   name: string;
 
   @ApiPropertyOptional({ example: 'BSS001' })

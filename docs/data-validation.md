@@ -1,6 +1,6 @@
 # Data Validation Reference
 
-Last updated: `2026-03-30`
+Last updated: `2026-04-11`
 
 ## Request Validation
 
@@ -33,6 +33,7 @@ Effects:
 - account DTOs: `src/modules/account/dto/*`
 - invoice DTOs: `src/modules/invoice/dto/*`
 - accounting DTOs: `src/modules/accounting/dto/*`
+- work-order DTOs: `src/modules/work-order/dto/*`
 
 ## Service-Level Business Validation
 
@@ -41,8 +42,14 @@ Examples:
 - auth state, tenant state, and session checks
 - company access and subscription checks
 - invoice arithmetic and versioning rules
+- invoice status normalization (PAID/PARTIALLY_PAID map to ACTIVE) and invoice number format checks
 - account/product existence and scoping checks
 - voucher sequence and ledger/stock invariants
+- work-order split guardrails (qty mismatch warning + override reason)
+- one final sale invoice link per work order
+- one purchase invoice link per outsourced lot
+- loss incident amount/reason/charge validations
+- auto-adjust lifecycle checks (pending/posted/failed/reversed)
 
 ## Readiness Validation
 
