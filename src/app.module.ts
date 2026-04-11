@@ -26,7 +26,6 @@ import { AccountingModule } from './modules/accounting/accounting.module';
 import { ReportModule } from './modules/report/report.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { SystemModule } from './modules/system/system.module';
-import { WorkOrderModule } from './modules/work-order/work-order.module';
 import { SystemReadyGuard } from './modules/system/system-ready.guard';
 
 const envFileCandidates = [
@@ -34,9 +33,7 @@ const envFileCandidates = [
   join(process.cwd(), 'backend', '.env'),
 ];
 
-const envFilePath = envFileCandidates.filter((filePath) =>
-  existsSync(filePath),
-);
+const envFilePath = envFileCandidates.filter((filePath) => existsSync(filePath));
 
 @Module({
   imports: [
@@ -71,7 +68,6 @@ const envFilePath = envFileCandidates.filter((filePath) =>
     ReportModule,
     AdminModule,
     SystemModule,
-    WorkOrderModule,
   ],
   providers: [
     {

@@ -1,6 +1,6 @@
 # Application Features
 
-Last updated: `2026-04-11`
+Last updated: `2026-03-30`
 
 This file lists currently implemented features only.
 
@@ -52,19 +52,8 @@ This file lists currently implemented features only.
 - invoice summary endpoint
 - invoice payment recording/list/delete
 - invoice conversion support
-- invoice types: sale, purchase, quotation, challan, proforma, sale return, purchase return, job in/out
 - voucher-sequence-based numbering
 - immutable versioning support via current invoice schema
-
-## Work Orders (Outsourced Capacity)
-
-- work-order create/list/get
-- work-order split into in-house/outsourced lots
-- single final sale invoice link per work order
-- single purchase invoice link per outsourced lot
-- loss incident capture with auto-adjustment records
-- loss adjustment retry and reversal endpoints
-- warning override capture for quantity mismatch and force-close flows
 
 ## Accounting and Inventory
 
@@ -83,9 +72,6 @@ This file lists currently implemented features only.
 - stock and product detail reports
 - GST reports
 - trial balance, profit/loss, balance sheet
-- work-order monthly profit summary
-- work-order vendor margin/risk summary
-- work-order profitability by ID
 
 ## Platform Reliability
 

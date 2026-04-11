@@ -1,6 +1,5 @@
 import { ReportController } from './report.controller';
 import { ReportService } from './report.service';
-import { WorkOrderService } from '../work-order/work-order.service';
 
 describe('ReportController', () => {
   let controller: ReportController;
@@ -16,12 +15,6 @@ describe('ReportController', () => {
       | 'getProductDetailsByCustomer'
     >
   >;
-  let workOrderService: jest.Mocked<
-    Pick<
-      WorkOrderService,
-      'getMonthlyProfitSummary' | 'getVendorMarginRisk' | 'getProfitability'
-    >
-  >;
 
   beforeEach(() => {
     reportService = {
@@ -33,15 +26,9 @@ describe('ReportController', () => {
       getGstSlabWise: jest.fn(),
       getProductDetailsByCustomer: jest.fn(),
     };
-    workOrderService = {
-      getMonthlyProfitSummary: jest.fn(),
-      getVendorMarginRisk: jest.fn(),
-      getProfitability: jest.fn(),
-    };
 
     controller = new ReportController(
       reportService as unknown as ReportService,
-      workOrderService as unknown as WorkOrderService,
     );
   });
 

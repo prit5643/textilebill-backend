@@ -106,72 +106,6 @@ enum ProductOptionKind {
   UOM
 }
 
-enum WorkOrderStatus {
-  DRAFT
-  PLANNED
-  IN_PROGRESS
-  READY_TO_BILL
-  CLOSED
-  CANCELLED
-}
-
-enum WorkOrderLotType {
-  IN_HOUSE
-  OUTSOURCED
-}
-
-enum WorkOrderLotStatus {
-  PLANNED
-  IN_PROGRESS
-  RECEIVED
-  CLOSED
-}
-
-enum WorkOrderInvoiceLinkType {
-  SALE
-  PURCHASE
-}
-
-enum WorkOrderLossReasonCode {
-  QUALITY_DEFECT
-  SHORTAGE
-  REWORK
-  DAMAGE
-  OTHER
-}
-
-enum WorkOrderLossChargeTo {
-  OUR_COMPANY
-  VENDOR
-  CUSTOMER
-}
-
-enum WorkOrderAutoAdjustMode {
-  DIRECT_LOSS
-  PAYABLE_REDUCTION
-  RECEIVABLE_REDUCTION
-}
-
-enum WorkOrderLossIncidentStatus {
-  RECORDED
-  ADJUSTED
-  FAILED_ADJUSTMENT
-  REVERSED
-}
-
-enum WorkOrderAdjustmentType {
-  PURCHASE_RETURN
-  SALE_RETURN
-  LOSS_EXPENSE_NOTE
-}
-
-enum WorkOrderAdjustmentStatus {
-  PENDING
-  POSTED
-  FAILED
-  REVERSED
-}
-
 // ------------------------------------------
 // TENANT  (root of every relation)
 // ------------------------------------------
@@ -202,11 +136,6 @@ model Tenant {
   voucherSequences VoucherSequence[]
   otpChallenges    OtpChallenge[]
   auditLogs        AuditLog[]
-  workOrders             WorkOrder[]
-  workOrderLots          WorkOrderLot[]
-  workOrderInvoiceLinks  WorkOrderInvoiceLink[]
-  workOrderLossIncidents WorkOrderLossIncident[]
-  workOrderAdjustments   WorkOrderAutoAdjustment[]
 
   @@index([deletedAt])
 }
@@ -245,11 +174,6 @@ model Company {
   products         Product[]
   productOptions   ProductOption[]
   auditLogs        AuditLog[]
-  workOrders             WorkOrder[]
-  workOrderLots          WorkOrderLot[]
-  workOrderInvoiceLinks  WorkOrderInvoiceLink[]
-  workOrderLossIncidents WorkOrderLossIncident[]
-  workOrderAdjustments   WorkOrderAutoAdjustment[]
 
   @@unique([id, tenantId])
   @@index([tenantId, status])
@@ -428,9 +352,6 @@ model Account {
 
   invoices      Invoice[]
   ledgerEntries LedgerEntry[]
-  customerWorkOrders           WorkOrder[]          @relation("WorkOrderCustomerAccount")
-  outsourcedLots               WorkOrderLot[]       @relation("WorkOrderLotVendorAccount")
-  workOrderLossIncidentsAsVendor WorkOrderLossIncident[] @relation("WorkOrderLossVendorAccount")
   // SQL: CREATE UNIQUE INDEX ON "Account"("companyId", "partyId") WHERE "deletedAt" IS NULL;
 
   @@unique([id, tenantId])
@@ -567,165 +488,6 @@ model VoucherSequence {
   @@index([tenantId])
 }
 
-model WorkOrder {
-  id                   String          @id @default(uuid())
-  tenantId             String
-  companyId            String
-  customerAccountId    String
-  orderRef             String
-  itemName             String
-  orderedQty           Decimal         @db.Decimal(12, 3)
-  saleRate             Decimal         @db.Decimal(14, 2)
-  expectedDeliveryDate DateTime?       @db.Date
-  status               WorkOrderStatus @default(DRAFT)
-  notes                String?
-  overrideFlagsJson    Json?
-  createdBy            String?
-  updatedBy            String?
-  createdAt            DateTime        @default(now())
-  updatedAt            DateTime        @updatedAt
-  deletedAt            DateTime?
-
-  tenant          Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  company         Company @relation(fields: [companyId, tenantId], references: [id, tenantId], onDelete: Restrict)
-  customerAccount Account @relation("WorkOrderCustomerAccount", fields: [customerAccountId, tenantId], references: [id, tenantId], onDelete: Restrict)
-
-  lots          WorkOrderLot[]
-  invoiceLinks  WorkOrderInvoiceLink[]
-  lossIncidents WorkOrderLossIncident[]
-  adjustments   WorkOrderAutoAdjustment[]
-
-  @@unique([id, tenantId])
-  @@unique([companyId, orderRef])
-  @@index([tenantId, companyId, status, createdAt])
-  @@index([customerAccountId])
-  @@index([deletedAt])
-}
-
-model WorkOrderLot {
-  id              String           @id @default(uuid())
-  tenantId        String
-  companyId       String
-  workOrderId     String
-  lotType         WorkOrderLotType
-  vendorAccountId String?
-  plannedQty      Decimal          @db.Decimal(12, 3)
-  producedQty     Decimal          @default(0) @db.Decimal(12, 3)
-  acceptedQty     Decimal          @default(0) @db.Decimal(12, 3)
-  rejectedQty     Decimal          @default(0) @db.Decimal(12, 3)
-  agreedRate      Decimal?         @db.Decimal(14, 2)
-  status          WorkOrderLotStatus @default(PLANNED)
-  dueDate         DateTime?        @db.Date
-  notes           String?
-  createdBy       String?
-  updatedBy       String?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  deletedAt       DateTime?
-
-  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  company       Company   @relation(fields: [companyId, tenantId], references: [id, tenantId], onDelete: Restrict)
-  workOrder     WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
-  vendorAccount Account?  @relation("WorkOrderLotVendorAccount", fields: [vendorAccountId, tenantId], references: [id, tenantId], onDelete: Restrict)
-
-  invoiceLinks  WorkOrderInvoiceLink[]
-  lossIncidents WorkOrderLossIncident[]
-
-  @@unique([id, tenantId])
-  @@index([tenantId, companyId, workOrderId, status])
-  @@index([vendorAccountId])
-  @@index([deletedAt])
-}
-
-model WorkOrderInvoiceLink {
-  id          String                 @id @default(uuid())
-  tenantId    String
-  companyId   String
-  workOrderId String
-  lotId       String?
-  invoiceId   String
-  invoiceType WorkOrderInvoiceLinkType
-  createdBy   String?
-  createdAt   DateTime               @default(now())
-
-  tenant    Tenant        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  company   Company       @relation(fields: [companyId, tenantId], references: [id, tenantId], onDelete: Restrict)
-  workOrder WorkOrder     @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
-  lot       WorkOrderLot? @relation(fields: [lotId], references: [id], onDelete: SetNull)
-  invoice   Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
-
-  @@unique([invoiceId])
-  @@unique([lotId, invoiceType])
-  @@index([tenantId, companyId, workOrderId, invoiceType])
-}
-
-model WorkOrderLossIncident {
-  id               String                      @id @default(uuid())
-  tenantId         String
-  companyId        String
-  workOrderId      String
-  lotId            String?
-  vendorAccountId  String?
-  incidentDate     DateTime                    @db.Date
-  impactedQty      Decimal                     @default(0) @db.Decimal(12, 3)
-  amount           Decimal                     @db.Decimal(14, 2)
-  reasonCode       WorkOrderLossReasonCode
-  reasonNote       String
-  chargeTo         WorkOrderLossChargeTo
-  autoAdjustMode   WorkOrderAutoAdjustMode
-  status           WorkOrderLossIncidentStatus @default(RECORDED)
-  createdBy        String?
-  updatedBy        String?
-  createdAt        DateTime                    @default(now())
-  updatedAt        DateTime                    @updatedAt
-  deletedAt        DateTime?
-
-  tenant         Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  company        Company                @relation(fields: [companyId, tenantId], references: [id, tenantId], onDelete: Restrict)
-  workOrder      WorkOrder              @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
-  lot            WorkOrderLot?          @relation(fields: [lotId], references: [id], onDelete: SetNull)
-  vendorAccount  Account?               @relation("WorkOrderLossVendorAccount", fields: [vendorAccountId, tenantId], references: [id, tenantId], onDelete: Restrict)
-  autoAdjustment WorkOrderAutoAdjustment?
-
-  @@unique([id, tenantId])
-  @@index([tenantId, companyId, workOrderId, incidentDate])
-  @@index([vendorAccountId])
-  @@index([deletedAt])
-}
-
-model WorkOrderAutoAdjustment {
-  id                    String                    @id @default(uuid())
-  tenantId              String
-  companyId             String
-  workOrderId           String
-  workOrderLossIncidentId String
-  adjustmentType        WorkOrderAdjustmentType
-  referenceInvoiceId    String?
-  adjustedAmount        Decimal                   @db.Decimal(14, 2)
-  adjustmentDocumentId  String?
-  status                WorkOrderAdjustmentStatus @default(PENDING)
-  retryCount            Int                       @default(0)
-  lastRetryAt           DateTime?
-  errorMessage          String?
-  createdBy             String?
-  updatedBy             String?
-  createdAt             DateTime                  @default(now())
-  updatedAt             DateTime                  @updatedAt
-  deletedAt             DateTime?
-
-  tenant           Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  company          Company               @relation(fields: [companyId, tenantId], references: [id, tenantId], onDelete: Restrict)
-  workOrder        WorkOrder             @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
-  lossIncident     WorkOrderLossIncident @relation(fields: [workOrderLossIncidentId], references: [id], onDelete: Cascade)
-  referenceInvoice Invoice?              @relation("WorkOrderAdjustmentReferenceInvoice", fields: [referenceInvoiceId], references: [id], onDelete: SetNull)
-
-  @@unique([workOrderLossIncidentId])
-  @@unique([id, tenantId])
-  @@index([tenantId, companyId, workOrderId, status])
-  @@index([referenceInvoiceId])
-  @@index([deletedAt])
-}
-
 // ------------------------------------------
 // INVOICE  (immutable versioning pattern)
 // Edit = cancel current + create new version pointing to originalId
@@ -765,8 +527,6 @@ model Invoice {
   items          InvoiceItem[]
   ledgerEntries  LedgerEntry[]
   stockMovements StockMovement[]
-  workOrderInvoiceLinks WorkOrderInvoiceLink[]
-  workOrderAdjustments  WorkOrderAutoAdjustment[] @relation("WorkOrderAdjustmentReferenceInvoice")
 
   // SQL:
   // CREATE UNIQUE INDEX ON "Invoice"("companyId", "financialYearId", "type", "invoiceNumber", version)
