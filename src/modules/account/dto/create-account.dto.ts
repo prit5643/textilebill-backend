@@ -7,6 +7,9 @@ import {
   IsDateString,
   MaxLength,
   Matches,
+  Min,
+  Max,
+  IsInt,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type, Transform } from 'class-transformer';
@@ -84,6 +87,7 @@ export class CreateAccountDto {
   @ApiPropertyOptional({ example: '395001' })
   @IsOptional()
   @IsString()
+  @Matches(/^[0-9]{6}$/, { message: 'Pincode must be a 6-digit number' })
   pincode?: string;
 
   @ApiPropertyOptional()
@@ -104,6 +108,7 @@ export class CreateAccountDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @Matches(/^[0-9]{6}$/, { message: 'Shipping pincode must be a 6-digit number' })
   shippingPincode?: string;
 
   @ApiPropertyOptional({ example: 'Rajesh Shah' })
@@ -144,6 +149,7 @@ export class CreateAccountDto {
   @IsOptional()
   @IsNumber()
   @Type(() => Number)
+  @Min(0)
   openingBalance?: number;
 
   @ApiPropertyOptional({ example: 'DR' })
@@ -160,12 +166,15 @@ export class CreateAccountDto {
   @IsOptional()
   @IsNumber()
   @Type(() => Number)
+  @Min(0)
   creditLimit?: number;
 
   @ApiPropertyOptional({ example: 30 })
   @IsOptional()
-  @IsNumber()
+  @IsInt()
   @Type(() => Number)
+  @Min(0)
+  @Max(365)
   paymentDays?: number;
 
   @ApiPropertyOptional()
@@ -196,6 +205,7 @@ export class CreateAccountDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @Matches(/^[A-Z]{4}0[A-Z0-9]{6}$/, { message: 'Invalid IFSC format' })
   bankIfsc?: string;
 
   @ApiPropertyOptional()
@@ -212,5 +222,7 @@ export class CreateAccountDto {
   @IsOptional()
   @IsNumber()
   @Type(() => Number)
+  @Min(0)
+  @Max(100)
   partyDiscountRate?: number;
 }

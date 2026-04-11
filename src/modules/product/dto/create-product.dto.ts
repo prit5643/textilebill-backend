@@ -3,7 +3,10 @@ import {
   IsOptional,
   IsNumber,
   IsEnum,
+  Min,
+  Max,
   MaxLength,
+  IsNotEmpty,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
@@ -24,6 +27,7 @@ export enum GstConsiderAsEnum {
 
 export class CreateProductDto {
   @ApiProperty({ example: 'Blue Silk Saree' })
+  @IsNotEmpty({ message: 'Name should not be empty' })
   @IsString()
   @MaxLength(300)
   name: string;
@@ -31,11 +35,13 @@ export class CreateProductDto {
   @ApiPropertyOptional({ example: 'BSS001' })
   @IsOptional()
   @IsString()
+  @MaxLength(25)
   searchCode?: string;
 
   @ApiPropertyOptional({ example: '5007' })
   @IsOptional()
   @IsString()
+  @MaxLength(25)
   hsnCode?: string;
 
   @ApiPropertyOptional()
@@ -51,36 +57,43 @@ export class CreateProductDto {
   @ApiPropertyOptional({ example: 2500.0 })
   @IsOptional()
   @IsNumber()
+  @Min(0, { message: 'Retail price must be at least 0' })
   @Type(() => Number)
   retailPrice?: number;
 
   @ApiPropertyOptional({ example: 2000.0 })
   @IsOptional()
   @IsNumber()
+  @Min(0, { message: 'Buying price must be at least 0' })
   @Type(() => Number)
   buyingPrice?: number;
 
   @ApiPropertyOptional({ example: 3000.0 })
   @IsOptional()
   @IsNumber()
+  @Min(0, { message: 'MRP must be at least 0' })
   @Type(() => Number)
   mrp?: number;
 
   @ApiPropertyOptional({ example: 2200.0 })
   @IsOptional()
   @IsNumber()
+  @Min(0, { message: 'Wholesaler price must be at least 0' })
   @Type(() => Number)
   wholesalerPrice?: number;
 
   @ApiPropertyOptional({ example: 2100.0 })
   @IsOptional()
   @IsNumber()
+  @Min(0, { message: 'Distributor price must be at least 0' })
   @Type(() => Number)
   distributorPrice?: number;
 
   @ApiPropertyOptional({ example: 5.0 })
   @IsOptional()
   @IsNumber()
+  @Min(0, { message: 'GST rate must be between 0 and 100' })
+  @Max(100, { message: 'GST rate must be between 0 and 100' })
   @Type(() => Number)
   gstRate?: number;
 
@@ -127,18 +140,22 @@ export class CreateProductDto {
   @ApiPropertyOptional({ example: 1 })
   @IsOptional()
   @IsNumber()
+  @Min(0)
   @Type(() => Number)
   defaultQty?: number;
 
   @ApiPropertyOptional({ example: 0 })
   @IsOptional()
   @IsNumber()
+  @Min(0)
+  @Max(100)
   @Type(() => Number)
   defaultDiscount?: number;
 
   @ApiPropertyOptional({ example: 0 })
   @IsOptional()
   @IsNumber()
+  @Min(0)
   @Type(() => Number)
   minimumQty?: number;
 

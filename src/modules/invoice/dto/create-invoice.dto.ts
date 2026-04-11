@@ -10,6 +10,9 @@ import {
   Min,
   Max,
   IsUUID,
+  Matches,
+  ArrayMinSize,
+  IsNotEmpty,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -35,6 +38,7 @@ export enum InvoiceStatusEnum {
 
 export class CreateInvoiceItemDto {
   @IsUUID()
+  @IsNotEmpty()
   productId: string;
 
   @IsOptional()
@@ -42,7 +46,7 @@ export class CreateInvoiceItemDto {
   description?: string;
 
   @IsNumber()
-  @Min(0)
+  @Min(1, { message: 'Quantity must be at least 1' })
   quantity: number;
 
   @IsNumber()
@@ -72,16 +76,23 @@ export class CreateInvoiceItemDto {
 
 export class CreateInvoiceDto {
   @IsEnum(InvoiceTypeEnum)
+  @IsNotEmpty()
   invoiceType: InvoiceTypeEnum;
 
   @IsOptional()
   @IsString()
-  invoiceNumber?: string; // auto-generated if blank
+  @Matches(/^\d+$/, {
+    message:
+      'Bill number must be strictly numeric (e.g. 1, 2, 3). Do not include prefixes like SAL- or PUR-.',
+  })
+  invoiceNumber?: string; // auto-generated if blank; if provided must be pure numeric
 
   @IsDateString()
+  @IsNotEmpty()
   invoiceDate: string;
 
   @IsUUID()
+  @IsNotEmpty()
   accountId: string;
 
   @IsOptional()
@@ -142,6 +153,7 @@ export class CreateInvoiceDto {
   convertedFromId?: string;
 
   @IsArray()
+  @ArrayMinSize(1, { message: 'At least one item is required' })
   @ValidateNested({ each: true })
   @Type(() => CreateInvoiceItemDto)
   items: CreateInvoiceItemDto[];

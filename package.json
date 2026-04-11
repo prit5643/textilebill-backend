@@ -18,6 +18,7 @@
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main.js",
     "db:init": "ts-node scripts/db-ensure.ts",
+    "db:migrate:renumber": "ts-node scripts/renumber-invoices-per-type.ts",
     "db:migrate:deploy": "node scripts/prisma-command.js migrate deploy",
     "db:bootstrap": "node scripts/prisma-command.js db seed",
     "db:bootstrap:auth-live": "node scripts/bootstrap-auth-live-demo.js",

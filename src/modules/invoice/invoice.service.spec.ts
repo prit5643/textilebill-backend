@@ -1,7 +1,40 @@
+/**
+ * invoice.service.spec.ts
+ *
+ * Unit tests for InvoiceService create() path, including:
+ *  - auto-number generation
+ *  - numeric-only manual bill number validation
+ *  - duplicate manual bill number returns conflict message
+ *  - no P2028 in normal create flow (tx body stays minimal)
+ *  - payment ledger tagging
+ */
+
 import { Test, TestingModule } from '@nestjs/testing';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { InvoiceService } from './invoice.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { InvoiceNumberService } from './invoice-number.service';
+
+// ─── Shared tx mock ───────────────────────────────────────────────────────────
+function buildTx(invoiceId = 'invoice-1') {
+  return {
+    product: {
+      findMany: jest
+        .fn()
+        .mockResolvedValue([{ id: 'product-1', taxRate: 5 }]),
+    },
+    invoice: {
+      create: jest.fn().mockResolvedValue({ id: invoiceId }),
+    },
+    invoiceItem: {
+      createMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
+  };
+}
 
 describe('InvoiceService', () => {
   let service: InvoiceService;
@@ -14,7 +47,7 @@ describe('InvoiceService', () => {
         findFirst: jest.fn().mockResolvedValue({
           id: 'company-1',
           tenantId: 'tenant-1',
-          name: 'Alpha',
+          name: 'Alpha Textiles',
           gstin: null,
           address: null,
           phone: null,
@@ -45,6 +78,7 @@ describe('InvoiceService', () => {
     };
 
     invoiceNumberService = {
+      alignSequenceWithExistingInvoices: jest.fn().mockResolvedValue(undefined),
       getNextNumberWithTx: jest.fn().mockResolvedValue('1'),
     };
 
@@ -59,7 +93,140 @@ describe('InvoiceService', () => {
     service = module.get<InvoiceService>(InvoiceService);
   });
 
-  it('creates invoice with computed totals and generated number', async () => {
+  afterEach(() => jest.clearAllMocks());
+
+  // ─── Happy path: auto-number ──────────────────────────────────────────────
+  it('creates invoice with auto-generated numeric bill number', async () => {
+    (prisma.invoice!.findFirst as jest.Mock).mockResolvedValueOnce({
+      id: 'invoice-1',
+      invoiceNumber: '1', // strictly numeric, no prefix
+      accountId: 'account-1',
+      subTotal: 1000,
+      taxAmount: 50,
+      discountAmount: 0,
+      totalAmount: 1050,
+      items: [],
+      account: { party: { name: 'Test Party' } },
+    });
+
+    (prisma.$transaction as jest.Mock).mockImplementationOnce(async (cb) =>
+      cb(buildTx()),
+    );
+
+    const result = await service.create('company-1', null, 'user-1', {
+      invoiceType: 'SALE' as any,
+      invoiceDate: '2026-04-10',
+      accountId: 'account-1',
+      items: [{ productId: 'product-1', quantity: 10, rate: 100 }],
+    } as any);
+
+    // Auto-number flow: alignment runs BEFORE tx, then getNextNumberWithTx inside tx
+    expect(invoiceNumberService.alignSequenceWithExistingInvoices).toHaveBeenCalledWith(
+      'company-1',
+      'SALE',
+      'fy-1',
+    );
+    expect(invoiceNumberService.getNextNumberWithTx).toHaveBeenCalled();
+    // Result number is purely numeric
+    expect(result.invoiceNumber).toMatch(/^\d+$/);
+    expect(result.invoiceNumber).toBe('1');
+  });
+
+  // ─── Non-numeric manual bill number → BadRequestException ────────────────
+  describe('non-numeric manual bill number', () => {
+    const nonNumericCases = [
+      'SAL-001',
+      'PUR-0001',
+      'SAL001',
+      'ABC',
+      '1A',
+      'SALE',
+    ];
+
+    it.each(nonNumericCases)(
+      'rejects "%s" with a validation error before touching the DB',
+      async (badNumber) => {
+        await expect(
+          service.create('company-1', null, 'user-1', {
+            invoiceType: 'SALE' as any,
+            invoiceDate: '2026-04-10',
+            accountId: 'account-1',
+            invoiceNumber: badNumber,
+            items: [{ productId: 'product-1', quantity: 1, rate: 100 }],
+          } as any),
+        ).rejects.toThrow(BadRequestException);
+
+        // Transaction must NOT have been called
+        expect(prisma.$transaction).not.toHaveBeenCalled();
+      },
+    );
+  });
+
+  // ─── Duplicate manual bill number → ConflictException ────────────────────
+  it('returns a friendly conflict message for duplicate manual bill number', async () => {
+    // Simulate an existing invoice with the same number in the DB
+    (prisma.invoice!.findFirst as jest.Mock).mockResolvedValueOnce({
+      invoiceNumber: '42',
+      type: 'SALE',
+    });
+
+    await expect(
+      service.create('company-1', null, 'user-1', {
+        invoiceType: 'SALE' as any,
+        invoiceDate: '2026-04-10',
+        accountId: 'account-1',
+        invoiceNumber: '42',
+        items: [{ productId: 'product-1', quantity: 1, rate: 100 }],
+      } as any),
+    ).rejects.toThrow(ConflictException);
+
+    // Transaction must NOT have been called — duplicate caught pre-tx
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('conflict message mentions the duplicate bill number', async () => {
+    (prisma.invoice!.findFirst as jest.Mock).mockResolvedValueOnce({
+      invoiceNumber: '99',
+      type: 'SALE',
+    });
+
+    try {
+      await service.create('company-1', null, 'user-1', {
+        invoiceType: 'SALE' as any,
+        invoiceDate: '2026-04-10',
+        accountId: 'account-1',
+        invoiceNumber: '99',
+        items: [{ productId: 'product-1', quantity: 1, rate: 100 }],
+      } as any);
+    } catch (err) {
+      expect(err).toBeInstanceOf(ConflictException);
+      expect((err as ConflictException).message).toContain('99');
+      expect((err as ConflictException).message).toContain('already exists');
+    }
+  });
+
+  // ─── No P2028: transaction body stays minimal ─────────────────────────────
+  it('alignment runs OUTSIDE transaction (no P2028 risk)', async () => {
+    const txCallOrder: string[] = [];
+
+    (invoiceNumberService.alignSequenceWithExistingInvoices as jest.Mock)
+      .mockImplementation(async () => {
+        txCallOrder.push('align');
+      });
+
+    (prisma.$transaction as jest.Mock).mockImplementation(async (cb) => {
+      txCallOrder.push('tx-start');
+      const result = await cb(buildTx());
+      txCallOrder.push('tx-end');
+      return result;
+    });
+
+    (invoiceNumberService.getNextNumberWithTx as jest.Mock)
+      .mockImplementation(async () => {
+        txCallOrder.push('getNextNumber');
+        return '1';
+      });
+
     (prisma.invoice!.findFirst as jest.Mock).mockResolvedValueOnce({
       id: 'invoice-1',
       invoiceNumber: '1',
@@ -72,44 +239,25 @@ describe('InvoiceService', () => {
       account: { party: { name: 'Party' } },
     });
 
-    (prisma.$transaction as jest.Mock).mockImplementationOnce(async (cb) => {
-      const tx = {
-        product: {
-          findMany: jest.fn().mockResolvedValue([
-            { id: 'product-1', taxRate: 5 },
-          ]),
-        },
-        invoice: {
-          create: jest.fn().mockResolvedValue({
-            id: 'invoice-1',
-          }),
-        },
-        invoiceItem: {
-          createMany: jest.fn().mockResolvedValue({ count: 1 }),
-        },
-      };
-      return cb(tx);
-    });
-
-    const result = await service.create('company-1', null, 'user-1', {
+    await service.create('company-1', null, 'user-1', {
       invoiceType: 'SALE' as any,
       invoiceDate: '2026-04-10',
       accountId: 'account-1',
       items: [{ productId: 'product-1', quantity: 10, rate: 100 }],
     } as any);
 
-    expect(invoiceNumberService.getNextNumberWithTx).toHaveBeenCalled();
-    expect(result).toMatchObject({
-      id: 'invoice-1',
-      invoiceNumber: '1',
-    });
+    // alignment must come before tx starts
+    expect(txCallOrder.indexOf('align')).toBeLessThan(
+      txCallOrder.indexOf('tx-start'),
+    );
   });
 
+  // ─── Payment ledger tagging ───────────────────────────────────────────────
   it('records invoice payments as tagged ledger entries', async () => {
     (prisma.invoice!.findFirst as jest.Mock).mockResolvedValueOnce({
       id: 'invoice-1',
       accountId: 'account-1',
-      invoiceNumber: 'SAL-0001',
+      invoiceNumber: '5', // strictly numeric
       companyId: 'company-1',
       deletedAt: null,
       items: [],
@@ -140,7 +288,7 @@ describe('InvoiceService', () => {
     (prisma.invoice!.findFirst as jest.Mock).mockResolvedValueOnce({
       id: 'invoice-1',
       accountId: 'account-1',
-      invoiceNumber: 'SAL-0001',
+      invoiceNumber: '5', // strictly numeric
       companyId: 'company-1',
       deletedAt: null,
       items: [],
@@ -162,5 +310,13 @@ describe('InvoiceService', () => {
       select: { id: true, date: true, credit: true, narration: true },
     });
     expect(result).toEqual([{ id: 'p-1', credit: 100, narration: '[INVOICE_PAYMENT]' }]);
+  });
+
+  // ─── Invoice not found ────────────────────────────────────────────────────
+  it('throws NotFoundException when invoice does not exist', async () => {
+    (prisma.invoice!.findFirst as jest.Mock).mockResolvedValue(null);
+    await expect(service.findById('company-1', 'bad-id')).rejects.toThrow(
+      NotFoundException,
+    );
   });
 });

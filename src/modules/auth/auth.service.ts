@@ -802,6 +802,20 @@ export class AuthService {
         where: { userId: user.id, revokedAt: null },
         data: { revokedAt: new Date() },
       });
+
+      // Completing the invite link proves ownership of the email address.
+      // Create a VERIFY_EMAIL challenge that is already used so that
+      // getVerificationStatus() returns emailVerified = true immediately.
+      await tx.otpChallenge.create({
+        data: {
+          tenantId: user.tenantId,
+          userId: user.id,
+          purpose: PrismaOtpPurpose.VERIFY_EMAIL,
+          otpHash: this.hashOpaqueToken(randomUUID()),
+          expiresAt: new Date(),
+          usedAt: new Date(),
+        },
+      });
     });
 
     await this.redisService.del(key);

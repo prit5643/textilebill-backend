@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -53,37 +54,94 @@ export class InvoiceService {
       financialYearId ??
       (await this.resolveFinancialYearId(companyId, invoiceDate));
 
+    const manualInvoiceNumber = dto.invoiceNumber?.trim() || null;
+
+    // ── Validate & pre-check manual bill number ──────────────────────────────
+    // Numeric check is already enforced by @Matches in the DTO, but we guard
+    // again here for programmatic callers (e.g. convertInvoice).
+    if (manualInvoiceNumber) {
+      if (!/^\d+$/.test(manualInvoiceNumber)) {
+        throw new BadRequestException(
+          `Bill number "${manualInvoiceNumber}" is invalid. Bill numbers must be strictly numeric (e.g. 1, 2, 3).`,
+        );
+      }
+
+      // Duplicate check before transaction — scoped to the same invoice type
+      // so that e.g. PURCHASE #1 and SALE #1 can coexist independently.
+      const existing = await this.prisma.invoice.findFirst({
+        where: {
+          companyId,
+          financialYearId: fyId,
+          invoiceNumber: manualInvoiceNumber,
+          type: invoiceType,
+          deletedAt: null,
+        },
+        select: { invoiceNumber: true, type: true },
+      });
+      if (existing) {
+        throw new ConflictException(
+          `Bill number ${manualInvoiceNumber} already exists for this invoice type and financial year. ` +
+            `Please use a different number.`,
+        );
+      }
+    } else {
+      // Auto-number path: align sequence before entering transaction.
+      await this.invoiceNumberService.alignSequenceWithExistingInvoices(
+        companyId,
+        invoiceType,
+        fyId,
+      );
+    }
+
     const createdInvoiceId = await this.prisma.$transaction(async (tx) => {
       const items = await this.prepareItems(tx, companyId, dto.items);
       const totals = this.computeTotals(items);
 
       const invoiceNumber =
-        dto.invoiceNumber?.trim() ||
+        manualInvoiceNumber ||
         (await this.invoiceNumberService.getNextNumberWithTx(
           companyId,
           invoiceType,
           tx as any,
+          fyId,
         ));
 
-      const invoice = await tx.invoice.create({
-        data: {
-          tenantId: company.tenantId,
-          companyId,
-          accountId: dto.accountId,
-          financialYearId: fyId,
-          invoiceNumber,
-          invoiceDate,
-          type: invoiceType,
-          status: this.normalizeInvoiceStatus(dto.status as string | undefined),
-          version: 1,
-          isLatest: true,
-          notes: dto.narration ?? null,
-          subTotal: totals.subTotal,
-          taxAmount: totals.taxAmount,
-          discountAmount: totals.discountAmount,
-          totalAmount: totals.totalAmount,
-        },
-      });
+      let invoice: { id: string };
+      try {
+        invoice = await tx.invoice.create({
+          data: {
+            tenantId: company.tenantId,
+            companyId,
+            accountId: dto.accountId,
+            financialYearId: fyId,
+            invoiceNumber,
+            invoiceDate,
+            type: invoiceType,
+            status: this.normalizeInvoiceStatus(dto.status as string | undefined),
+            version: 1,
+            isLatest: true,
+            notes: dto.narration ?? null,
+            partyChallanNo: dto.partyChallanNo ?? null,
+            subTotal: totals.subTotal,
+            taxAmount: totals.taxAmount,
+            discountAmount: totals.discountAmount,
+            totalAmount: totals.totalAmount,
+          },
+        });
+      } catch (err) {
+        // Concurrent duplicate — catch DB unique-constraint violation (P2002)
+        // and turn it into a friendly conflict message instead of a 500.
+        if (
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === 'P2002'
+        ) {
+          throw new ConflictException(
+            `Bill number ${invoiceNumber} was already taken by a concurrent request. ` +
+              `Please retry; the next available number will be assigned automatically.`,
+          );
+        }
+        throw err;
+      }
 
       if (items.length > 0) {
         await tx.invoiceItem.createMany({
@@ -328,6 +386,7 @@ export class InvoiceService {
             ? { status: this.normalizeInvoiceStatus(dto.status as string) }
             : {}),
           ...(dto.narration !== undefined ? { notes: dto.narration ?? null } : {}),
+          ...(dto.partyChallanNo !== undefined ? { partyChallanNo: dto.partyChallanNo ?? null } : {}),
           subTotal: totals.subTotal,
           taxAmount: totals.taxAmount,
           discountAmount: totals.discountAmount,
@@ -531,10 +590,20 @@ export class InvoiceService {
         return InvoiceType.SALE;
       case 'PURCHASE':
         return InvoiceType.PURCHASE;
+      case 'QUOTATION':
+        return InvoiceType.QUOTATION;
+      case 'CHALLAN':
+        return InvoiceType.CHALLAN;
+      case 'PROFORMA':
+        return InvoiceType.PROFORMA;
       case 'SALE_RETURN':
         return InvoiceType.SALE_RETURN;
       case 'PURCHASE_RETURN':
         return InvoiceType.PURCHASE_RETURN;
+      case 'JOB_IN':
+        return InvoiceType.JOB_IN;
+      case 'JOB_OUT':
+        return InvoiceType.JOB_OUT;
       default:
         throw new BadRequestException(`Unsupported invoice type: ${value}`);
     }

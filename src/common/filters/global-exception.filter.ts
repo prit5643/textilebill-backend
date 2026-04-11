@@ -106,6 +106,25 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     return name === 'PrismaClientValidationError';
   }
 
+  private getUniqueConflictMessage(meta: unknown): string {
+    const target = (meta as { target?: unknown } | undefined)?.target;
+    const targetText = Array.isArray(target)
+      ? target.map((value) => String(value)).join(',')
+      : typeof target === 'string'
+        ? target
+        : '';
+    const normalizedTarget = targetText.toLowerCase();
+
+    if (
+      normalizedTarget.includes('invoice_company_fy_number_version_active_key') ||
+      normalizedTarget.includes('invoicenumber')
+    ) {
+      return 'Invoice number already exists. Please use a different number.';
+    }
+
+    return 'A record with these details already exists.';
+  }
+
   catch(exception: unknown, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
@@ -164,7 +183,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       // Map common Prisma errors to meaningful HTTP responses
       if (prismaError.code === 'P2002') {
         status = HttpStatus.CONFLICT;
-        message = 'A record with these details already exists.';
+        message = this.getUniqueConflictMessage(prismaError.meta);
       } else if (prismaError.code === 'P2025') {
         status = HttpStatus.NOT_FOUND;
         message = 'The requested information was not found.';

@@ -34,8 +34,13 @@ enum InvoiceStatus {
 enum InvoiceType {
   SALE
   PURCHASE
+  QUOTATION
+  CHALLAN
+  PROFORMA
   SALE_RETURN
   PURCHASE_RETURN
+  JOB_IN
+  JOB_OUT
 }
 
 enum EntityStatus {
@@ -60,8 +65,13 @@ enum AccountGroupType {
 enum VoucherType {
   SALE
   PURCHASE
+  QUOTATION
+  CHALLAN
+  PROFORMA
   SALE_RETURN
   PURCHASE_RETURN
+  JOB_IN
+  JOB_OUT
   PAYMENT
   RECEIPT
   JOURNAL
@@ -298,6 +308,13 @@ model Party {
   phone     String?
   email     String?
   address   String?
+  city      String?
+  state     String?
+  pincode   String?
+  contactPerson String?
+  bankName  String?
+  bankAccountNo String?
+  bankIfsc  String?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
@@ -316,8 +333,15 @@ model Account {
   tenantId       String
   companyId      String
   partyId        String
+  searchCode     String?
   group          AccountGroupType
+  gstType        String?
+  priceSelection String?
   openingBalance Decimal          @default(0) @db.Decimal(14, 2)
+  openingBalanceType String?
+  creditLimit    Decimal?         @db.Decimal(14, 2)
+  paymentDays    Int?
+  partyDiscountRate Decimal?      @db.Decimal(5, 2)
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
   deletedAt      DateTime?
@@ -484,6 +508,7 @@ model Invoice {
   originalId      String? // null on v1; subsequent versions point to root
   isLatest        Boolean       @default(true)
   notes           String?
+  partyChallanNo  String? // Party's challan reference number
   subTotal        Decimal       @db.Decimal(14, 2)
   taxAmount       Decimal       @db.Decimal(14, 2)
   discountAmount  Decimal       @default(0) @db.Decimal(14, 2)
@@ -504,8 +529,9 @@ model Invoice {
   stockMovements StockMovement[]
 
   // SQL:
-  // CREATE UNIQUE INDEX ON "Invoice"("companyId", "financialYearId", "invoiceNumber", version)
+  // CREATE UNIQUE INDEX ON "Invoice"("companyId", "financialYearId", "type", "invoiceNumber", version)
   //   WHERE "deletedAt" IS NULL;
+  //   ↑ Includes "type" so each invoice type (SALE, PURCHASE, etc.) has its own independent number sequence.
   // CREATE UNIQUE INDEX ON "Invoice"("originalId")
   //   WHERE "isLatest" = true AND "originalId" IS NOT NULL;
   // ALTER TABLE "Invoice" ADD CONSTRAINT chk_total
