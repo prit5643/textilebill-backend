@@ -1,4 +1,4 @@
-import { IsEnum, IsOptional, IsString } from 'class-validator';
+import { IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export enum ReimbursementSettlementModeEnum {
   DIRECT_PAYMENT = 'DIRECT_PAYMENT',
@@ -12,5 +12,6 @@ export class SettleReimbursementClaimDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   note?: string;
 }

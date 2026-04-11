@@ -75,9 +75,9 @@ describe('InvoiceService', () => {
     (prisma.$transaction as jest.Mock).mockImplementationOnce(async (cb) => {
       const tx = {
         product: {
-          findMany: jest.fn().mockResolvedValue([
-            { id: 'product-1', taxRate: 5 },
-          ]),
+          findMany: jest
+            .fn()
+            .mockResolvedValue([{ id: 'product-1', taxRate: 5 }]),
         },
         invoice: {
           create: jest.fn().mockResolvedValue({
@@ -161,6 +161,8 @@ describe('InvoiceService', () => {
       orderBy: { date: 'desc' },
       select: { id: true, date: true, credit: true, narration: true },
     });
-    expect(result).toEqual([{ id: 'p-1', credit: 100, narration: '[INVOICE_PAYMENT]' }]);
+    expect(result).toEqual([
+      { id: 'p-1', credit: 100, narration: '[INVOICE_PAYMENT]' },
+    ]);
   });
 });

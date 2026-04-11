@@ -36,7 +36,11 @@ export class CreateUserDto {
   @IsOptional()
   username?: string;
 
-  @ApiPropertyOptional({ example: 'TempPass123!', minLength: 8, description: 'If omitted, a secure invite link is emailed to the user.' })
+  @ApiPropertyOptional({
+    example: 'TempPass123!',
+    minLength: 8,
+    description: 'If omitted, a secure invite link is emailed to the user.',
+  })
   @IsString()
   @IsOptional()
   @MinLength(8)

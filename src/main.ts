@@ -55,7 +55,10 @@ async function bootstrap() {
 
   if (apiPrefixAlias) {
     app.use((req: Request, _res: Response, next: NextFunction) => {
-      if (req.url === apiPrefixAlias || req.url.startsWith(`${apiPrefixAlias}/`)) {
+      if (
+        req.url === apiPrefixAlias ||
+        req.url.startsWith(`${apiPrefixAlias}/`)
+      ) {
         req.url = `${normalizedApiPrefix}${req.url.slice(apiPrefixAlias.length)}`;
       }
       next();

@@ -125,7 +125,9 @@ describe('CompanyService', () => {
       id: 'company-1',
       name: 'Alpha Textiles',
     });
-    (prisma.user!.findMany as jest.Mock).mockResolvedValueOnce([{ id: 'user-1' }]);
+    (prisma.user!.findMany as jest.Mock).mockResolvedValueOnce([
+      { id: 'user-1' },
+    ]);
     (redisService.keys as jest.Mock).mockResolvedValueOnce([
       'auth:user:user-1:session:s1',
     ]);
@@ -134,10 +136,14 @@ describe('CompanyService', () => {
       name: 'Alpha Textiles',
     } as any);
 
-    expect(redisService.del).toHaveBeenCalledWith('auth:tenant-active:tenant-1');
+    expect(redisService.del).toHaveBeenCalledWith(
+      'auth:tenant-active:tenant-1',
+    );
     expect(redisService.del).toHaveBeenCalledWith(
       'auth:tenant-subscription:tenant-1',
     );
-    expect(redisService.del).toHaveBeenCalledWith('auth:user:user-1:session:s1');
+    expect(redisService.del).toHaveBeenCalledWith(
+      'auth:user:user-1:session:s1',
+    );
   });
 });

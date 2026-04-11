@@ -55,8 +55,7 @@ export class ProductController {
   @ApiQuery({
     name: 'isActive',
     required: false,
-    description:
-      'Optional active-state filter. Accepts true/false (or 1/0).',
+    description: 'Optional active-state filter. Accepts true/false (or 1/0).',
   })
   @ApiQuery({
     name: 'view',

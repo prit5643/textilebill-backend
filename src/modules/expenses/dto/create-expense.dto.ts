@@ -6,6 +6,7 @@ import {
   IsString,
   IsUUID,
   MaxLength,
+  Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -28,7 +29,8 @@ export class CreateExpenseDto {
   @IsDateString()
   date!: string;
 
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0.01)
   @Type(() => Number)
   amount!: number;
 

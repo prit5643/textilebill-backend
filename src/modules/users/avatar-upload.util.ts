@@ -23,7 +23,10 @@ const GENERATED_AVATAR_FILENAME_PATTERN =
 const LEGACY_AVATAR_FILENAME_PATTERN =
   /^[a-zA-Z0-9_-]+-\d{13}\.(jpg|jpeg|png|gif|webp)$/i;
 
-function startsWithMagic(buffer: Buffer, signature: readonly number[]): boolean {
+function startsWithMagic(
+  buffer: Buffer,
+  signature: readonly number[],
+): boolean {
   if (buffer.length < signature.length) {
     return false;
   }

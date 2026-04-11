@@ -61,7 +61,9 @@ export class OtpDeliveryService {
       const client = this.getResendClient(config);
       const from = config.resendFrom || config.from;
 
-      this.logger.log(`[OTP] Sending ${input.purpose} email to ${input.maskedTarget}...`);
+      this.logger.log(
+        `[OTP] Sending ${input.purpose} email to ${input.maskedTarget}...`,
+      );
 
       const result = await client.emails.send({
         from: from!,
@@ -77,7 +79,9 @@ export class OtpDeliveryService {
         throw new Error(`Resend API error: ${result.error.message}`);
       }
 
-      this.logger.log(`[OTP] Email sent successfully to ${input.maskedTarget}. ID: ${result.data?.id}`);
+      this.logger.log(
+        `[OTP] Email sent successfully to ${input.maskedTarget}. ID: ${result.data?.id}`,
+      );
       this.logger.log(
         `[OTP_MAIL_RESULT] ${JSON.stringify({
           status: 'accepted_by_provider',
@@ -106,11 +110,17 @@ export class OtpDeliveryService {
     }
   }
 
-  async sendInviteEmail(to: string, inviteLink: string, expiryMinutes = 30): Promise<boolean> {
+  async sendInviteEmail(
+    to: string,
+    inviteLink: string,
+    expiryMinutes = 30,
+  ): Promise<boolean> {
     const config = this.getMailConfig();
 
     if (!config.enabled) {
-      this.logger.log(`[INVITE] Dev mode -> target=${this.maskEmail(to)}, link=${inviteLink}`);
+      this.logger.log(
+        `[INVITE] Dev mode -> target=${this.maskEmail(to)}, link=${inviteLink}`,
+      );
       return true;
     }
 
@@ -138,19 +148,29 @@ export class OtpDeliveryService {
         return false;
       }
 
-      this.logger.log(`[INVITE] Email sent to ${this.maskEmail(to)}. ID: ${result.data?.id}`);
+      this.logger.log(
+        `[INVITE] Email sent to ${this.maskEmail(to)}. ID: ${result.data?.id}`,
+      );
       return true;
     } catch (error) {
-      this.logger.error(`[INVITE] Failed: ${error instanceof Error ? error.message : String(error)}`);
+      this.logger.error(
+        `[INVITE] Failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
       return false;
     }
   }
 
-  async sendPasswordResetLinkEmail(to: string, resetLink: string, expiryMinutes = 30): Promise<boolean> {
+  async sendPasswordResetLinkEmail(
+    to: string,
+    resetLink: string,
+    expiryMinutes = 30,
+  ): Promise<boolean> {
     const config = this.getMailConfig();
 
     if (!config.enabled) {
-      this.logger.log(`[PASSWORD_RESET] Dev mode -> target=${this.maskEmail(to)}, link=${resetLink}`);
+      this.logger.log(
+        `[PASSWORD_RESET] Dev mode -> target=${this.maskEmail(to)}, link=${resetLink}`,
+      );
       return true;
     }
 
@@ -174,14 +194,20 @@ export class OtpDeliveryService {
       });
 
       if (result.error) {
-        this.logger.error(`[PASSWORD_RESET] Resend API error: ${result.error.message}`);
+        this.logger.error(
+          `[PASSWORD_RESET] Resend API error: ${result.error.message}`,
+        );
         return false;
       }
 
-      this.logger.log(`[PASSWORD_RESET] Email sent to ${this.maskEmail(to)}. ID: ${result.data?.id}`);
+      this.logger.log(
+        `[PASSWORD_RESET] Email sent to ${this.maskEmail(to)}. ID: ${result.data?.id}`,
+      );
       return true;
     } catch (error) {
-      this.logger.error(`[PASSWORD_RESET] Failed: ${error instanceof Error ? error.message : String(error)}`);
+      this.logger.error(
+        `[PASSWORD_RESET] Failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
       return false;
     }
   }
@@ -359,7 +385,10 @@ export class OtpDeliveryService {
 </html>`;
   }
 
-  private buildPasswordResetHtml(resetLink: string, expiryMinutes: number): string {
+  private buildPasswordResetHtml(
+    resetLink: string,
+    expiryMinutes: number,
+  ): string {
     return `
 <!DOCTYPE html>
 <html lang="en">

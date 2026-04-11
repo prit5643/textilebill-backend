@@ -4,7 +4,10 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 
 export class ForgotPasswordDto {
-  @ApiProperty({ example: 'user@example.com', description: 'Email or mobile number' })
+  @ApiProperty({
+    example: 'user@example.com',
+    description: 'Email or mobile number',
+  })
   @IsString()
   @IsNotEmpty()
   @Transform(({ value, obj }) => {
@@ -24,12 +27,18 @@ export class ForgotPasswordDto {
   })
   identifier: string;
 
-  @ApiPropertyOptional({ example: 'user@example.com', description: 'Alias for identifier' })
+  @ApiPropertyOptional({
+    example: 'user@example.com',
+    description: 'Alias for identifier',
+  })
   @IsOptional()
   @IsString()
   email?: string;
 
-  @ApiPropertyOptional({ example: 'user@example.com', description: 'Alias for identifier' })
+  @ApiPropertyOptional({
+    example: 'user@example.com',
+    description: 'Alias for identifier',
+  })
   @IsOptional()
   @IsString()
   emailId?: string;

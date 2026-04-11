@@ -29,12 +29,16 @@ export class AuditLogInterceptor implements NestInterceptor {
       return next.handle();
     }
 
-    const requestPath = (request.originalUrl || request.url || '/').split('?')[0];
+    const requestPath = (request.originalUrl || request.url || '/').split(
+      '?',
+    )[0];
     const routeTemplate = request.route?.path
       ? `${request.baseUrl || ''}${request.route.path}`
       : requestPath;
     const entity = this.extractEntity(routeTemplate, requestPath);
-    const entityId = this.extractEntityId(request.params as Record<string, string>);
+    const entityId = this.extractEntityId(
+      request.params as Record<string, string>,
+    );
 
     let hasError = false;
 
@@ -83,7 +87,8 @@ export class AuditLogInterceptor implements NestInterceptor {
             },
           })
           .catch((error: unknown) => {
-            const message = error instanceof Error ? error.message : String(error);
+            const message =
+              error instanceof Error ? error.message : String(error);
             this.logger.warn(`Failed to persist audit log: ${message}`);
           });
       }),
@@ -102,12 +107,21 @@ export class AuditLogInterceptor implements NestInterceptor {
     return firstSegment.replace(/[-_]/g, ' ').toUpperCase();
   }
 
-  private extractEntityId(params: Record<string, string> | undefined): string | null {
+  private extractEntityId(
+    params: Record<string, string> | undefined,
+  ): string | null {
     if (!params) {
       return null;
     }
 
-    const preferredKeys = ['id', 'userId', 'tenantId', 'companyId', 'invoiceId', 'productId'];
+    const preferredKeys = [
+      'id',
+      'userId',
+      'tenantId',
+      'companyId',
+      'invoiceId',
+      'productId',
+    ];
     for (const key of preferredKeys) {
       if (typeof params[key] === 'string' && params[key].trim().length > 0) {
         return params[key];
@@ -130,7 +144,9 @@ export class AuditLogInterceptor implements NestInterceptor {
     }
 
     if (typeof value === 'string') {
-      return value.length > 1000 ? `${value.slice(0, 1000)}...[TRUNCATED]` : value;
+      return value.length > 1000
+        ? `${value.slice(0, 1000)}...[TRUNCATED]`
+        : value;
     }
 
     if (typeof value === 'number' || typeof value === 'boolean') {
@@ -138,7 +154,9 @@ export class AuditLogInterceptor implements NestInterceptor {
     }
 
     if (Array.isArray(value)) {
-      return value.slice(0, 20).map((entry) => this.redactSensitive(entry, depth + 1));
+      return value
+        .slice(0, 20)
+        .map((entry) => this.redactSensitive(entry, depth + 1));
     }
 
     if (typeof value !== 'object') {

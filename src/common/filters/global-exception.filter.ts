@@ -154,31 +154,31 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         status = HttpStatus.INTERNAL_SERVER_ERROR;
         message = this.getDefaultMessageForStatus(status);
       } else {
-      // Log full Prisma error details for debugging
-      this.logger.error(
-        `Prisma Error [${prismaError.code}] on ${request.method} ${request.url}\n` +
-          `  Message : ${prismaError.message}\n` +
-          `  Meta    : ${JSON.stringify(prismaError.meta)}`,
-        prismaError.stack,
-      );
-      // Map common Prisma errors to meaningful HTTP responses
-      if (prismaError.code === 'P2002') {
-        status = HttpStatus.CONFLICT;
-        message = 'A record with these details already exists.';
-      } else if (prismaError.code === 'P2025') {
-        status = HttpStatus.NOT_FOUND;
-        message = 'The requested information was not found.';
-      } else if (prismaError.code === 'P2003') {
-        status = HttpStatus.BAD_REQUEST;
-        message = 'This request could not be completed due to related data.';
-      } else if (prismaError.code === 'P2000') {
-        status = HttpStatus.BAD_REQUEST;
-        message = 'One or more fields contain invalid values.';
-      } else {
-        message = this.getDefaultMessageForStatus(
-          HttpStatus.INTERNAL_SERVER_ERROR,
+        // Log full Prisma error details for debugging
+        this.logger.error(
+          `Prisma Error [${prismaError.code}] on ${request.method} ${request.url}\n` +
+            `  Message : ${prismaError.message}\n` +
+            `  Meta    : ${JSON.stringify(prismaError.meta)}`,
+          prismaError.stack,
         );
-      }
+        // Map common Prisma errors to meaningful HTTP responses
+        if (prismaError.code === 'P2002') {
+          status = HttpStatus.CONFLICT;
+          message = 'A record with these details already exists.';
+        } else if (prismaError.code === 'P2025') {
+          status = HttpStatus.NOT_FOUND;
+          message = 'The requested information was not found.';
+        } else if (prismaError.code === 'P2003') {
+          status = HttpStatus.BAD_REQUEST;
+          message = 'This request could not be completed due to related data.';
+        } else if (prismaError.code === 'P2000') {
+          status = HttpStatus.BAD_REQUEST;
+          message = 'One or more fields contain invalid values.';
+        } else {
+          message = this.getDefaultMessageForStatus(
+            HttpStatus.INTERNAL_SERVER_ERROR,
+          );
+        }
       }
     } else if (this.isPrismaValidationError(exception)) {
       const prismaValidationMessage =

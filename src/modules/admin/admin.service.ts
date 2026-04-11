@@ -6,7 +6,12 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { EntityStatus, Prisma, SubscriptionStatus, UserRole } from '@prisma/client';
+import {
+  EntityStatus,
+  Prisma,
+  SubscriptionStatus,
+  UserRole,
+} from '@prisma/client';
 import { randomUUID, createHash } from 'crypto';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
@@ -165,54 +170,53 @@ export class AdminService {
       activeSubscriptions,
       expiringSubscriptions,
       subscriptionRevenue,
-    ] =
-      await Promise.all([
-        this.prisma.tenant.count({ where: { deletedAt: null } }),
-        this.prisma.tenant.count({
-          where: { deletedAt: null, status: EntityStatus.ACTIVE },
-        }),
-        this.prisma.user.count({
-          where: {
-            deletedAt: null,
+    ] = await Promise.all([
+      this.prisma.tenant.count({ where: { deletedAt: null } }),
+      this.prisma.tenant.count({
+        where: { deletedAt: null, status: EntityStatus.ACTIVE },
+      }),
+      this.prisma.user.count({
+        where: {
+          deletedAt: null,
+          userCompanies: {
+            some: {},
+          },
+          NOT: {
             userCompanies: {
-              some: {},
-            },
-            NOT: {
-              userCompanies: {
-                some: {
-                  role: UserRole.OWNER,
-                },
+              some: {
+                role: UserRole.OWNER,
               },
             },
           },
-        }),
-        this.prisma.company.count({ where: { deletedAt: null } }),
-        this.prisma.invoice.count({ where: { deletedAt: null } }),
-        this.prisma.subscription.count({
-          where: {
-            deletedAt: null,
-            status: SubscriptionStatus.ACTIVE,
-            endDate: { gte: now },
+        },
+      }),
+      this.prisma.company.count({ where: { deletedAt: null } }),
+      this.prisma.invoice.count({ where: { deletedAt: null } }),
+      this.prisma.subscription.count({
+        where: {
+          deletedAt: null,
+          status: SubscriptionStatus.ACTIVE,
+          endDate: { gte: now },
+        },
+      }),
+      this.prisma.subscription.count({
+        where: {
+          deletedAt: null,
+          status: SubscriptionStatus.ACTIVE,
+          endDate: {
+            gte: now,
+            lte: next30Days,
           },
-        }),
-        this.prisma.subscription.count({
-          where: {
-            deletedAt: null,
-            status: SubscriptionStatus.ACTIVE,
-            endDate: {
-              gte: now,
-              lte: next30Days,
-            },
-          },
-        }),
-        this.prisma.subscription.aggregate({
-          where: {
-            deletedAt: null,
-            paymentStatus: 'PAID',
-          },
-          _sum: { amountPaid: true },
-        }),
-      ]);
+        },
+      }),
+      this.prisma.subscription.aggregate({
+        where: {
+          deletedAt: null,
+          paymentStatus: 'PAID',
+        },
+        _sum: { amountPaid: true },
+      }),
+    ]);
 
     return {
       totalTenants,
@@ -236,14 +240,20 @@ export class AdminService {
             {
               companies: {
                 some: {
-                  name: { contains: query.search, mode: 'insensitive' as const },
+                  name: {
+                    contains: query.search,
+                    mode: 'insensitive' as const,
+                  },
                 },
               },
             },
             {
               companies: {
                 some: {
-                  gstin: { contains: query.search, mode: 'insensitive' as const },
+                  gstin: {
+                    contains: query.search,
+                    mode: 'insensitive' as const,
+                  },
                 },
               },
             },
@@ -540,14 +550,18 @@ export class AdminService {
             ...(typeof dto.address === 'string'
               ? { address: dto.address.trim() || null }
               : {}),
-            ...(typeof dto.city === 'string' ? { city: dto.city.trim() || null } : {}),
+            ...(typeof dto.city === 'string'
+              ? { city: dto.city.trim() || null }
+              : {}),
             ...(typeof dto.state === 'string'
               ? { state: dto.state.trim() || null }
               : {}),
             ...(typeof dto.pincode === 'string'
               ? { pincode: dto.pincode.trim() || null }
               : {}),
-            ...(typeof dto.phone === 'string' ? { phone: dto.phone.trim() || null } : {}),
+            ...(typeof dto.phone === 'string'
+              ? { phone: dto.phone.trim() || null }
+              : {}),
             ...(typeof dto.email === 'string'
               ? { email: dto.email.trim().toLowerCase() || null }
               : {}),
@@ -653,7 +667,7 @@ export class AdminService {
         price: dto.price,
         maxUsers: dto.maxUsers ?? 0,
         maxCompanies: dto.maxCompanies ?? 0,
-      }
+      },
     });
   }
 
@@ -664,7 +678,7 @@ export class AdminService {
 
     return this.prisma.plan.update({
       where: { id },
-      data: dto
+      data: dto,
     });
   }
 
@@ -673,8 +687,8 @@ export class AdminService {
       where: { id },
       data: {
         status: status ? 'ACTIVE' : 'INACTIVE',
-        deletedAt: status ? null : new Date()
-      }
+        deletedAt: status ? null : new Date(),
+      },
     });
   }
 
@@ -683,8 +697,8 @@ export class AdminService {
       where: { id },
       data: {
         status: 'INACTIVE',
-        deletedAt: new Date()
-      }
+        deletedAt: new Date(),
+      },
     });
   }
 
@@ -694,29 +708,33 @@ export class AdminService {
         where: {
           planId: id,
           deletedAt: null,
-          status: 'ACTIVE'
-        }
+          status: 'ACTIVE',
+        },
       }),
       this.prisma.subscription.findMany({
         where: {
           planId: id,
           deletedAt: null,
-          status: 'ACTIVE'
+          status: 'ACTIVE',
         },
         select: {
-          tenantId: true
+          tenantId: true,
         },
-        distinct: ['tenantId']
-      })
+        distinct: ['tenantId'],
+      }),
     ]);
 
     return {
       totalSubscriptions: subscriptionCount,
-      tenantsUsing: tenantCount.length
+      tenantsUsing: tenantCount.length,
     };
   }
 
-  async assignSubscription(dto: { gstin: string; planId: string; amount?: number }) {
+  async assignSubscription(dto: {
+    gstin: string;
+    planId: string;
+    amount?: number;
+  }) {
     const gstin = dto.gstin.trim().toUpperCase();
 
     // find tenant by gstin
@@ -724,9 +742,12 @@ export class AdminService {
       where: { gstin, deletedAt: null, status: EntityStatus.ACTIVE },
       select: { tenantId: true },
     });
-    if (!company) throw new NotFoundException('Company not found with given GSTIN');
-    
-    const plan = await this.prisma.plan.findUnique({ where: { id: dto.planId } });
+    if (!company)
+      throw new NotFoundException('Company not found with given GSTIN');
+
+    const plan = await this.prisma.plan.findUnique({
+      where: { id: dto.planId },
+    });
     if (!plan) throw new NotFoundException('Plan not found');
     this.assertSupportedPlanDuration(plan.durationDays);
 
@@ -780,17 +801,20 @@ export class AdminService {
       },
     );
 
-    await this.redisService.del(getTenantSubscriptionCacheKey(company.tenantId));
+    await this.redisService.del(
+      getTenantSubscriptionCacheKey(company.tenantId),
+    );
     return created;
   }
 
   private async buildUniqueTenantSlug(name: string) {
-    const baseSlug = name
-      .toLowerCase()
-      .trim()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 48) || 'tenant';
+    const baseSlug =
+      name
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 48) || 'tenant';
 
     let candidate = baseSlug;
     let suffix = 0;
@@ -832,7 +856,9 @@ export class AdminService {
     };
     if (query.status) {
       const status = query.status.toUpperCase();
-      if (Object.values(SubscriptionStatus).includes(status as SubscriptionStatus)) {
+      if (
+        Object.values(SubscriptionStatus).includes(status as SubscriptionStatus)
+      ) {
         where.status = status as SubscriptionStatus;
       }
     }
@@ -1012,8 +1038,12 @@ export class AdminService {
       ...(query.search
         ? {
             OR: [
-              { email: { contains: query.search, mode: 'insensitive' as const } },
-              { name: { contains: query.search, mode: 'insensitive' as const } },
+              {
+                email: { contains: query.search, mode: 'insensitive' as const },
+              },
+              {
+                name: { contains: query.search, mode: 'insensitive' as const },
+              },
             ],
           }
         : {}),
@@ -1061,11 +1091,16 @@ export class AdminService {
 
     const normalizedUsers = await Promise.all(
       users.map(async (user) => {
-        const [firstName, ...rest] = (user.name ?? '').trim().split(/\s+/).filter(Boolean);
+        const [firstName, ...rest] = (user.name ?? '')
+          .trim()
+          .split(/\s+/)
+          .filter(Boolean);
         const passwordSetupCompleted = (user._count?.refreshTokens ?? 0) > 0;
 
-        let passwordSetupStatus: 'SETUP_COMPLETED' | 'PENDING_SETUP' | 'LINK_EXPIRED' =
-          'SETUP_COMPLETED';
+        let passwordSetupStatus:
+          | 'SETUP_COMPLETED'
+          | 'PENDING_SETUP'
+          | 'LINK_EXPIRED' = 'SETUP_COMPLETED';
 
         if (passwordSetupCompleted) {
           passwordSetupStatus = 'SETUP_COMPLETED';
@@ -1073,7 +1108,8 @@ export class AdminService {
           const setupTtlSeconds = await this.redisService.getTtlSeconds(
             this.getUserPasswordSetupStateKey(user.id),
           );
-          passwordSetupStatus = setupTtlSeconds > 0 ? 'PENDING_SETUP' : 'LINK_EXPIRED';
+          passwordSetupStatus =
+            setupTtlSeconds > 0 ? 'PENDING_SETUP' : 'LINK_EXPIRED';
         }
 
         return {
@@ -1309,11 +1345,12 @@ export class AdminService {
     return createPaginatedResult(rows, total, page, limit);
   }
 
-  async getModulePermissions(_companyId: string) {
+  async getModulePermissions(companyId: string) {
+    void companyId;
     return [];
   }
 
-  async upsertModulePermission(_data: {
+  async upsertModulePermission(data: {
     companyId: string;
     role: string;
     module: string;
@@ -1324,6 +1361,7 @@ export class AdminService {
     canPayment?: boolean;
     canReminder?: boolean;
   }) {
+    void data;
     throw new BadRequestException(
       'Module permissions are deprecated because ModulePermission model was removed from schema v2.',
     );
@@ -1376,9 +1414,10 @@ export class AdminService {
       VIEWER: 1,
     };
 
-    return [...rows]
-      .map((row) => row.role)
-      .sort((a, b) => rank[b] - rank[a])[0] ?? UserRole.VIEWER;
+    return (
+      [...rows].map((row) => row.role).sort((a, b) => rank[b] - rank[a])[0] ??
+      UserRole.VIEWER
+    );
   }
 
   private toLegacyRole(role: UserRole): string {
@@ -1427,7 +1466,10 @@ export class AdminService {
     return baseUrl.replace(/\/+$/, '');
   }
 
-  private buildPublicLink(path: '/accept-invite' | '/reset-password', token: string) {
+  private buildPublicLink(
+    path: '/accept-invite' | '/reset-password',
+    token: string,
+  ) {
     const url = new URL(path, `${this.resolvePublicAppUrl()}/`);
     url.searchParams.set('token', token);
     return url.toString();
@@ -1435,14 +1477,20 @@ export class AdminService {
 
   private assertSupportedPlanDuration(durationDays: number) {
     const normalized = Math.trunc(Number(durationDays));
-    if (!Number.isFinite(normalized) || !ALLOWED_PLAN_DURATIONS.has(normalized)) {
+    if (
+      !Number.isFinite(normalized) ||
+      !ALLOWED_PLAN_DURATIONS.has(normalized)
+    ) {
       throw new BadRequestException(
         'Plan duration must be one of 30, 90, or 180 days.',
       );
     }
   }
 
-  private buildIstSubscriptionWindow(durationDays: number, anchor = new Date()) {
+  private buildIstSubscriptionWindow(
+    durationDays: number,
+    anchor = new Date(),
+  ) {
     const safeDuration = Math.max(1, Math.floor(durationDays || 1));
     const startDate = new Date(anchor);
     const endDate = this.toIstEndOfDayUtc(
@@ -1470,7 +1518,9 @@ export class AdminService {
       day: '2-digit',
     }).format(date);
 
-    const [year, month, day] = formatted.split('-').map((value) => Number(value));
+    const [year, month, day] = formatted
+      .split('-')
+      .map((value) => Number(value));
     return new Date(
       Date.UTC(year, month - 1, day, 0, 0, 0, 0) -
         IST_OFFSET_MINUTES * 60 * 1000,

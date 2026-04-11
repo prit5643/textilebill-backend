@@ -1,4 +1,4 @@
-import { IsBoolean, IsDateString, IsNumber, IsOptional, IsUUID } from 'class-validator';
+import { IsBoolean, IsDateString, IsNumber, IsOptional, IsUUID, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class CreateSalaryProfileDto {
@@ -6,12 +6,14 @@ export class CreateSalaryProfileDto {
   personId!: string;
 
   @IsOptional()
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0.01)
   @Type(() => Number)
   monthlyGross?: number;
 
   @IsOptional()
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0.01)
   @Type(() => Number)
   monthlySalary?: number;
 

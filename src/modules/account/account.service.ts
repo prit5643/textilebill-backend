@@ -228,10 +228,13 @@ export class AccountService {
 
     const partyPatch: Prisma.PartyUpdateInput = {};
     if (typeof dto.name === 'string') partyPatch.name = dto.name.trim();
-    if (typeof dto.gstin === 'string') partyPatch.gstin = dto.gstin.trim().toUpperCase();
+    if (typeof dto.gstin === 'string')
+      partyPatch.gstin = dto.gstin.trim().toUpperCase();
     if (typeof dto.phone === 'string') partyPatch.phone = dto.phone.trim();
-    if (typeof dto.email === 'string') partyPatch.email = dto.email.trim().toLowerCase();
-    if (typeof dto.address === 'string') partyPatch.address = dto.address.trim();
+    if (typeof dto.email === 'string')
+      partyPatch.email = dto.email.trim().toLowerCase();
+    if (typeof dto.address === 'string')
+      partyPatch.address = dto.address.trim();
 
     const accountPatch: Prisma.AccountUpdateInput = {};
     if (dto.groupId) {
@@ -321,27 +324,37 @@ export class AccountService {
   }
 
   // Broker model was removed in schema v2; keep endpoints explicit and safe.
-  async createBroker(_companyId: string, _dto: CreateBrokerDto) {
+  async createBroker(companyId: string, dto: CreateBrokerDto) {
+    void companyId;
+    void dto;
     throw new ConflictException(
       'Broker APIs are deprecated. Use parties/accounts with account groups instead.',
     );
   }
 
-  async findAllBrokers(_companyId: string) {
+  async findAllBrokers(companyId: string) {
+    void companyId;
     return [];
   }
 
-  async findBrokerById(_id: string, _companyId: string) {
+  async findBrokerById(id: string, companyId: string) {
+    void id;
+    void companyId;
     throw new NotFoundException('Broker not found');
   }
 
-  async updateBroker(_id: string, _companyId: string, _dto: UpdateBrokerDto) {
+  async updateBroker(id: string, companyId: string, dto: UpdateBrokerDto) {
+    void id;
+    void companyId;
+    void dto;
     throw new ConflictException(
       'Broker APIs are deprecated. Use parties/accounts with account groups instead.',
     );
   }
 
-  async removeBroker(_id: string, _companyId: string) {
+  async removeBroker(id: string, companyId: string) {
+    void id;
+    void companyId;
     throw new ConflictException(
       'Broker APIs are deprecated. Use parties/accounts with account groups instead.',
     );

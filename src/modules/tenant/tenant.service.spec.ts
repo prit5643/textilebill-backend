@@ -22,7 +22,9 @@ describe('TenantService', () => {
       user: {
         findMany: jest.fn(),
       },
-      $transaction: jest.fn().mockImplementation(async (callback: any) => callback(prisma)),
+      $transaction: jest
+        .fn()
+        .mockImplementation(async (callback: any) => callback(prisma)),
     };
 
     redisService = {

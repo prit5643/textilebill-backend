@@ -141,7 +141,9 @@ export class UsersController {
 
   @Post(':id/send-password-reset-link')
   @Roles('SUPER_ADMIN')
-  @ApiOperation({ summary: 'Send password reset link by admin override (Admin only)' })
+  @ApiOperation({
+    summary: 'Send password reset link by admin override (Admin only)',
+  })
   async sendPasswordResetLink(
     @Param('id') id: string,
     @CurrentUser('tenantId') tenantId: string,

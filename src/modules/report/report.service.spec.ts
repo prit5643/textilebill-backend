@@ -64,8 +64,16 @@ describe('ReportService', () => {
 
   it('builds monthly sales/purchase chart with dense Jan-Dec buckets', async () => {
     (prisma.invoice!.findMany as jest.Mock).mockResolvedValueOnce([
-      { invoiceDate: new Date('2026-01-10'), type: 'SALE', totalAmount: 2500.5 },
-      { invoiceDate: new Date('2026-01-15'), type: 'PURCHASE', totalAmount: 1200 },
+      {
+        invoiceDate: new Date('2026-01-10'),
+        type: 'SALE',
+        totalAmount: 2500.5,
+      },
+      {
+        invoiceDate: new Date('2026-01-15'),
+        type: 'PURCHASE',
+        totalAmount: 1200,
+      },
       { invoiceDate: new Date('2026-03-07'), type: 'SALE', totalAmount: 500 },
     ]);
 

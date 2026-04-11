@@ -135,9 +135,7 @@ export class ProductService {
       : normalized;
   }
 
-  private normalizeProductType(
-    value?: string | null,
-  ): ProductType | undefined {
+  private normalizeProductType(value?: string | null): ProductType | undefined {
     if (!value) return undefined;
     return Object.values(ProductType).includes(value as ProductType)
       ? (value as ProductType)
@@ -347,39 +345,45 @@ export class ProductService {
 
     await this.ensureNoDuplicateProduct(scopedCompanyId, name, hsnCode);
 
-    const [classification, cardType, category, serviceCategory, brand, explicitUom] =
-      await Promise.all([
-        this.ensureProductOption(
-          scopedCompanyId,
-          ProductOptionKind.CLASSIFICATION,
-          dto.classificationId,
-        ),
-        this.ensureProductOption(
-          scopedCompanyId,
-          ProductOptionKind.CARD_TYPE,
-          dto.cardTypeId,
-        ),
-        this.ensureProductOption(
-          scopedCompanyId,
-          ProductOptionKind.CATEGORY,
-          dto.categoryId,
-        ),
-        this.ensureProductOption(
-          scopedCompanyId,
-          ProductOptionKind.SERVICE_CATEGORY,
-          dto.serviceCategoryId,
-        ),
-        this.ensureProductOption(
-          scopedCompanyId,
-          ProductOptionKind.BRAND,
-          dto.brandId,
-        ),
-        this.ensureProductOption(
-          scopedCompanyId,
-          ProductOptionKind.UOM,
-          dto.uomId,
-        ),
-      ]);
+    const [
+      classification,
+      cardType,
+      category,
+      serviceCategory,
+      brand,
+      explicitUom,
+    ] = await Promise.all([
+      this.ensureProductOption(
+        scopedCompanyId,
+        ProductOptionKind.CLASSIFICATION,
+        dto.classificationId,
+      ),
+      this.ensureProductOption(
+        scopedCompanyId,
+        ProductOptionKind.CARD_TYPE,
+        dto.cardTypeId,
+      ),
+      this.ensureProductOption(
+        scopedCompanyId,
+        ProductOptionKind.CATEGORY,
+        dto.categoryId,
+      ),
+      this.ensureProductOption(
+        scopedCompanyId,
+        ProductOptionKind.SERVICE_CATEGORY,
+        dto.serviceCategoryId,
+      ),
+      this.ensureProductOption(
+        scopedCompanyId,
+        ProductOptionKind.BRAND,
+        dto.brandId,
+      ),
+      this.ensureProductOption(
+        scopedCompanyId,
+        ProductOptionKind.UOM,
+        dto.uomId,
+      ),
+    ]);
 
     const uom = explicitUom ?? (await this.getDefaultUom(scopedCompanyId));
 
@@ -781,7 +785,10 @@ export class ProductService {
   }
 
   async findAllCardTypes(companyId: string) {
-    return this.listProductOptionsByKind(companyId, ProductOptionKind.CARD_TYPE);
+    return this.listProductOptionsByKind(
+      companyId,
+      ProductOptionKind.CARD_TYPE,
+    );
   }
 
   async updateCardType(id: string, companyId: string, name: string) {

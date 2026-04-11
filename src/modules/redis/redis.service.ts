@@ -15,10 +15,13 @@ export class RedisService implements OnModuleDestroy {
 
   constructor(private configService: ConfigService) {
     const redisEnabled = this.configService.get<boolean>('redis.enabled');
-    const redisEnvironment = this.configService.get<string>('redis.environment');
-    
+    const redisEnvironment =
+      this.configService.get<string>('redis.environment');
+
     if (!redisEnabled) {
-      this.logger.log('Redis disabled by configuration; using in-memory fallback');
+      this.logger.log(
+        'Redis disabled by configuration; using in-memory fallback',
+      );
       return;
     }
 
@@ -47,7 +50,9 @@ export class RedisService implements OnModuleDestroy {
           ? { tls: { rejectUnauthorized: false } }
           : {};
         this.client = new Redis(redisUrl, { ...baseOptions, ...urlOptions });
-        this.logger.debug('Using REDIS_URL (Heroku add-on or managed instance)');
+        this.logger.debug(
+          'Using REDIS_URL (Heroku add-on or managed instance)',
+        );
       } else {
         const tlsEnabled = this.configService.get<boolean>('redis.tlsEnabled');
         this.client = new Redis({

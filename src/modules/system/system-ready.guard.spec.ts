@@ -1,7 +1,10 @@
 import { ExecutionContext, ServiceUnavailableException } from '@nestjs/common';
 import type { Request } from 'express';
 import { SystemReadyGuard } from './system-ready.guard';
-import { ReadinessSnapshot, SystemReadinessService } from './system-readiness.service';
+import {
+  ReadinessSnapshot,
+  SystemReadinessService,
+} from './system-readiness.service';
 
 const createContext = (path: string): ExecutionContext =>
   ({
@@ -49,8 +52,8 @@ describe('SystemReadyGuard', () => {
     const readiness = createReadiness({ ready: false, checkedAt: null });
     const guard = new SystemReadyGuard(readiness);
 
-    await expect(guard.canActivate(createContext('/api/products'))).rejects.toThrow(
-      ServiceUnavailableException,
-    );
+    await expect(
+      guard.canActivate(createContext('/api/products')),
+    ).rejects.toThrow(ServiceUnavailableException);
   });
 });

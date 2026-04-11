@@ -89,7 +89,9 @@ export class TenantService {
         await tx.company.update({
           where: { id: firstCompany.id },
           data: {
-            ...(typeof data.name === 'string' ? { name: data.name.trim() } : {}),
+            ...(typeof data.name === 'string'
+              ? { name: data.name.trim() }
+              : {}),
             ...(typeof data.gstin === 'string'
               ? { gstin: data.gstin.trim().toUpperCase() || null }
               : {}),

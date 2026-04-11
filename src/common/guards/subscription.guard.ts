@@ -46,7 +46,8 @@ export class SubscriptionGuard implements CanActivate {
     }
 
     const tenantActiveCacheKey = getTenantActiveCacheKey(user.tenantId);
-    const cachedTenantActive = await this.redisService.get(tenantActiveCacheKey);
+    const cachedTenantActive =
+      await this.redisService.get(tenantActiveCacheKey);
 
     if (cachedTenantActive === '0') {
       throw new ForbiddenException(this.deactivatedMessage);

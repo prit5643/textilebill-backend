@@ -51,7 +51,10 @@ export class UploadsController {
     );
     response.setHeader('X-Content-Type-Options', 'nosniff');
     // Avatars are overwritten at the same URL, so force revalidation to avoid stale photos.
-    response.setHeader('Cache-Control', 'private, no-cache, max-age=0, must-revalidate');
+    response.setHeader(
+      'Cache-Control',
+      'private, no-cache, max-age=0, must-revalidate',
+    );
     response.setHeader('Cross-Origin-Resource-Policy', 'same-site');
     response.sendFile(absolutePath);
   }

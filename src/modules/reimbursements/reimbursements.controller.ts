@@ -1,22 +1,42 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Query,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiConsumes,
   ApiOperation,
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import {
   CompanyAccessGuard,
   JwtAuthGuard,
   RolesGuard,
   SubscriptionGuard,
 } from '../../common/guards';
-import { CurrentCompanyId, RequireCompanyAccess } from '../../common/decorators';
+import {
+  CurrentCompanyId,
+  CurrentUser,
+  RequireCompanyAccess,
+} from '../../common/decorators';
 import {
   CreateReimbursementClaimDto,
   SettleReimbursementClaimDto,
 } from './dto';
 import { ReimbursementsService } from './reimbursements.service';
+import { isAllowedExpenseMimeType } from '../expenses/expense-attachment.util';
 
 @ApiTags('Reimbursements')
 @ApiBearerAuth('access-token')
@@ -70,5 +90,60 @@ export class ReimbursementsController {
     @Body() dto: SettleReimbursementClaimDto,
   ) {
     return this.reimbursementsService.settleClaim(companyId, id, dto);
+  }
+
+  @Post('claims/:id/attachments')
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Upload reimbursement claim attachment' })
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      fileFilter: (_req: any, file: Express.Multer.File, cb: any) => {
+        if (!isAllowedExpenseMimeType(file.mimetype)) {
+          return cb(
+            new BadRequestException('Unsupported attachment type'),
+            false,
+          );
+        }
+        return cb(null, true);
+      },
+      limits: {
+        fileSize: 10 * 1024 * 1024,
+      },
+    }),
+  )
+  uploadClaimAttachment(
+    @CurrentCompanyId() companyId: string,
+    @CurrentUser('id') userId: string,
+    @Param('id') id: string,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    return this.reimbursementsService.uploadClaimAttachment(
+      companyId,
+      id,
+      userId,
+      file,
+    );
+  }
+
+  @Get('claims/:id/attachments')
+  @ApiOperation({ summary: 'List reimbursement claim attachments' })
+  listClaimAttachments(
+    @CurrentCompanyId() companyId: string,
+    @Param('id') id: string,
+  ) {
+    return this.reimbursementsService.listClaimAttachments(companyId, id);
+  }
+
+  @Delete('attachments/:attachmentId')
+  @ApiOperation({ summary: 'Delete reimbursement claim attachment' })
+  deleteClaimAttachment(
+    @CurrentCompanyId() companyId: string,
+    @Param('attachmentId') attachmentId: string,
+  ) {
+    return this.reimbursementsService.deleteClaimAttachment(
+      companyId,
+      attachmentId,
+    );
   }
 }

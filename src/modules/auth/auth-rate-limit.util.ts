@@ -270,7 +270,10 @@ function getClientIp(request: RequestLikeForIp): string {
   const ipFromRealIpHeader = getHeaderValue(request.headers, 'x-real-ip');
 
   return normalizeIp(
-    request.ip || ipFromForwarded || ipFromRealIpHeader || request.socket?.remoteAddress,
+    request.ip ||
+      ipFromForwarded ||
+      ipFromRealIpHeader ||
+      request.socket?.remoteAddress,
   );
 }
 
@@ -314,7 +317,8 @@ function getWriteRateLimitKey(req: {
   const userIdFromToken = decodeJwtSubject(
     getHeaderValue(req.headers, 'authorization'),
   );
-  const userId = userIdFromReq ?? userIdFromToken ?? `ip:${req.ip ?? 'unknown'}`;
+  const userId =
+    userIdFromReq ?? userIdFromToken ?? `ip:${req.ip ?? 'unknown'}`;
 
   return `tenant:${tenantId}:user:${userId}`;
 }

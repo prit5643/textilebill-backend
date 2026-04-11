@@ -16,7 +16,7 @@ jest.mock('bcrypt');
 describe('UsersService', () => {
   let service: UsersService;
   let prisma: jest.Mocked<Partial<PrismaService>>;
-  let redisService: jest.Mocked<Pick<RedisService, 'del' | 'keys'>>;
+  let redisService: jest.Mocked<Pick<RedisService, 'set' | 'del' | 'keys'>>;
   let otpDeliveryService: jest.Mocked<
     Pick<OtpDeliveryService, 'sendInviteEmail' | 'sendPasswordResetLinkEmail'>
   >;
@@ -54,6 +54,7 @@ describe('UsersService', () => {
     };
 
     redisService = {
+      set: jest.fn().mockResolvedValue(undefined),
       del: jest.fn().mockResolvedValue(undefined),
       keys: jest.fn().mockResolvedValue([]),
     };
@@ -82,7 +83,9 @@ describe('UsersService', () => {
 
   describe('create', () => {
     it('throws ConflictException if email already exists in tenant', async () => {
-      (prisma.tenant!.findFirst as jest.Mock).mockResolvedValueOnce({ id: 't1' });
+      (prisma.tenant!.findFirst as jest.Mock).mockResolvedValueOnce({
+        id: 't1',
+      });
       (prisma.user!.findFirst as jest.Mock).mockResolvedValueOnce({ id: 'u1' });
 
       await expect(
@@ -95,7 +98,9 @@ describe('UsersService', () => {
     });
 
     it('creates a user and assigns company access rows', async () => {
-      (prisma.tenant!.findFirst as jest.Mock).mockResolvedValueOnce({ id: 't1' });
+      (prisma.tenant!.findFirst as jest.Mock).mockResolvedValueOnce({
+        id: 't1',
+      });
       (prisma.user!.findFirst as jest.Mock).mockResolvedValueOnce(null);
       (bcrypt.hash as jest.Mock).mockResolvedValueOnce('hashed-pass');
 
@@ -117,14 +122,16 @@ describe('UsersService', () => {
         .mockResolvedValue([{ id: 'c1' }, { id: 'c2' }]);
       const txUserCompanyCreateMany = jest.fn().mockResolvedValue({ count: 2 });
 
-      (prisma.$transaction as jest.Mock).mockImplementationOnce(async (callback) => {
-        const tx = {
-          user: { create: txUserCreate },
-          company: { findMany: txCompanyFindMany },
-          userCompany: { createMany: txUserCompanyCreateMany },
-        };
-        return callback(tx);
-      });
+      (prisma.$transaction as jest.Mock).mockImplementationOnce(
+        async (callback) => {
+          const tx = {
+            user: { create: txUserCreate },
+            company: { findMany: txCompanyFindMany },
+            userCompany: { createMany: txUserCompanyCreateMany },
+          };
+          return callback(tx);
+        },
+      );
 
       const result = await service.create('t1', {
         email: 'TEST@TEST.COM',
@@ -167,38 +174,56 @@ describe('UsersService', () => {
       expect(otpDeliveryService.sendInviteEmail).toHaveBeenCalledTimes(1);
       expect(otpDeliveryService.sendInviteEmail).toHaveBeenCalledWith(
         'test@test.com',
-        expect.stringContaining('http://localhost:3000/forgot-password?email='),
+        expect.stringContaining('http://localhost:3000/accept-invite?token='),
         30,
+      );
+
+      expect(redisService.set).toHaveBeenCalledTimes(2);
+      expect(redisService.set).toHaveBeenNthCalledWith(
+        1,
+        expect.stringMatching(/^auth:setup-link:/),
+        'u1',
+        1800,
+      );
+      expect(redisService.set).toHaveBeenNthCalledWith(
+        2,
+        'auth:setup-link:user:u1',
+        expect.any(String),
+        1800,
       );
     });
 
     it('throws BadRequestException if one or more companyIds are invalid', async () => {
-      (prisma.tenant!.findFirst as jest.Mock).mockResolvedValueOnce({ id: 't1' });
+      (prisma.tenant!.findFirst as jest.Mock).mockResolvedValueOnce({
+        id: 't1',
+      });
       (prisma.user!.findFirst as jest.Mock).mockResolvedValueOnce(null);
       (bcrypt.hash as jest.Mock).mockResolvedValueOnce('hashed-pass');
 
-      (prisma.$transaction as jest.Mock).mockImplementationOnce(async (callback) => {
-        const tx = {
-          user: {
-            create: jest.fn().mockResolvedValue({
-              id: 'u1',
-              tenantId: 't1',
-              email: 'test@test.com',
-              name: 'Test User',
-              phone: null,
-              status: 'ACTIVE',
-              createdAt: new Date(),
-              updatedAt: new Date(),
-              deletedAt: null,
-              userCompanies: [],
-            }),
-          },
-          company: { findMany: jest.fn().mockResolvedValue([{ id: 'c1' }]) },
-          userCompany: { createMany: jest.fn() },
-        };
+      (prisma.$transaction as jest.Mock).mockImplementationOnce(
+        async (callback) => {
+          const tx = {
+            user: {
+              create: jest.fn().mockResolvedValue({
+                id: 'u1',
+                tenantId: 't1',
+                email: 'test@test.com',
+                name: 'Test User',
+                phone: null,
+                status: 'ACTIVE',
+                createdAt: new Date(),
+                updatedAt: new Date(),
+                deletedAt: null,
+                userCompanies: [],
+              }),
+            },
+            company: { findMany: jest.fn().mockResolvedValue([{ id: 'c1' }]) },
+            userCompany: { createMany: jest.fn() },
+          };
 
-        return callback(tx);
-      });
+          return callback(tx);
+        },
+      );
 
       await expect(
         service.create('t1', {
@@ -306,28 +331,30 @@ describe('UsersService', () => {
         userCompanies: [{ companyId: 'c1', role: 'VIEWER' }],
       });
 
-      (prisma.$transaction as jest.Mock).mockImplementationOnce(async (callback) => {
-        const tx = {
-          user: {
-            update: jest.fn().mockResolvedValue({
-              id: 'u1',
-              tenantId: 'tenant-1',
-              email: 'test@test.com',
-              name: 'Test User',
-              phone: null,
-              status: 'ACTIVE',
-              createdAt: new Date(),
-              updatedAt: new Date(),
-              deletedAt: null,
-              userCompanies: [{ companyId: 'c1', role: 'VIEWER' }],
-            }),
-          },
-          userCompany: {
-            updateMany: jest.fn().mockResolvedValue({ count: 1 }),
-          },
-        };
-        return callback(tx);
-      });
+      (prisma.$transaction as jest.Mock).mockImplementationOnce(
+        async (callback) => {
+          const tx = {
+            user: {
+              update: jest.fn().mockResolvedValue({
+                id: 'u1',
+                tenantId: 'tenant-1',
+                email: 'test@test.com',
+                name: 'Test User',
+                phone: null,
+                status: 'ACTIVE',
+                createdAt: new Date(),
+                updatedAt: new Date(),
+                deletedAt: null,
+                userCompanies: [{ companyId: 'c1', role: 'VIEWER' }],
+              }),
+            },
+            userCompany: {
+              updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+            },
+          };
+          return callback(tx);
+        },
+      );
 
       (redisService.keys as jest.Mock).mockResolvedValueOnce([
         'auth:user:u1:session:s1',

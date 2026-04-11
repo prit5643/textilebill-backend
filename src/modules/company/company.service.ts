@@ -75,7 +75,8 @@ export class CompanyService {
 
   private getCurrentFinancialYearRange() {
     const now = new Date();
-    const startYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+    const startYear =
+      now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
     const endYear = startYear + 1;
     return {
       startDate: new Date(startYear, 3, 1),
@@ -87,38 +88,39 @@ export class CompanyService {
     await this.ensureTenant(tenantId);
 
     const now = new Date();
-    const [activeCompanies, activeUsers, activeSubscription] = await Promise.all([
-      this.prisma.company.count({
-        where: { tenantId, deletedAt: null, status: EntityStatus.ACTIVE },
-      }),
-      this.prisma.user.count({
-        where: { tenantId, deletedAt: null, status: EntityStatus.ACTIVE },
-      }),
-      this.prisma.subscription.findFirst({
-        where: {
-          tenantId,
-          deletedAt: null,
-          status: 'ACTIVE',
-          endDate: { gte: now },
-        },
-        orderBy: { endDate: 'desc' },
-        include: {
-          plan: {
-            select: {
-              id: true,
-              name: true,
-              description: true,
-              price: true,
-              durationDays: true,
-              maxUsers: true,
-              maxCompanies: true,
-              status: true,
-              deletedAt: true,
+    const [activeCompanies, activeUsers, activeSubscription] =
+      await Promise.all([
+        this.prisma.company.count({
+          where: { tenantId, deletedAt: null, status: EntityStatus.ACTIVE },
+        }),
+        this.prisma.user.count({
+          where: { tenantId, deletedAt: null, status: EntityStatus.ACTIVE },
+        }),
+        this.prisma.subscription.findFirst({
+          where: {
+            tenantId,
+            deletedAt: null,
+            status: 'ACTIVE',
+            endDate: { gte: now },
+          },
+          orderBy: { endDate: 'desc' },
+          include: {
+            plan: {
+              select: {
+                id: true,
+                name: true,
+                description: true,
+                price: true,
+                durationDays: true,
+                maxUsers: true,
+                maxCompanies: true,
+                status: true,
+                deletedAt: true,
+              },
             },
           },
-        },
-      }),
-    ]);
+        }),
+      ]);
 
     const maxCompanies =
       activeSubscription && activeSubscription.plan.maxCompanies > 0
@@ -311,14 +313,18 @@ export class CompanyService {
         ...(typeof dto.address === 'string'
           ? { address: dto.address.trim() || null }
           : {}),
-        ...(typeof dto.city === 'string' ? { city: dto.city.trim() || null } : {}),
+        ...(typeof dto.city === 'string'
+          ? { city: dto.city.trim() || null }
+          : {}),
         ...(typeof dto.state === 'string'
           ? { state: dto.state.trim() || null }
           : {}),
         ...(typeof dto.pincode === 'string'
           ? { pincode: dto.pincode.trim() || null }
           : {}),
-        ...(typeof dto.phone === 'string' ? { phone: dto.phone.trim() || null } : {}),
+        ...(typeof dto.phone === 'string'
+          ? { phone: dto.phone.trim() || null }
+          : {}),
         ...(typeof dto.email === 'string'
           ? { email: dto.email.trim().toLowerCase() || null }
           : {}),
@@ -383,7 +389,11 @@ export class CompanyService {
     await this.findById(companyId, tenantId);
 
     if (dto.defaultFinancialYearId) {
-      await this.setActiveFinancialYear(companyId, tenantId, dto.defaultFinancialYearId);
+      await this.setActiveFinancialYear(
+        companyId,
+        tenantId,
+        dto.defaultFinancialYearId,
+      );
     }
 
     return this.getSettings(companyId, tenantId);
@@ -431,7 +441,9 @@ export class CompanyService {
       throw new BadRequestException('Financial year already exists');
     }
 
-    const count = await this.prisma.financialYear.count({ where: { companyId } });
+    const count = await this.prisma.financialYear.count({
+      where: { companyId },
+    });
     return this.prisma.financialYear.create({
       data: {
         tenantId,
