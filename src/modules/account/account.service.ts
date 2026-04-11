@@ -31,6 +31,14 @@ const ACCOUNT_LIST_DEFAULT_SELECT = {
       gstin: true,
       phone: true,
       email: true,
+      address: true,
+      city: true,
+      state: true,
+      pincode: true,
+      contactPerson: true,
+      bankName: true,
+      bankAccountNo: true,
+      bankIfsc: true,
     },
   },
 } satisfies Prisma.AccountSelect;
@@ -43,6 +51,10 @@ const ACCOUNT_LIST_SELECTOR_SELECT = {
     select: {
       id: true,
       name: true,
+      city: true,
+      bankName: true,
+      bankAccountNo: true,
+      bankIfsc: true,
     },
   },
 } satisfies Prisma.AccountSelect;

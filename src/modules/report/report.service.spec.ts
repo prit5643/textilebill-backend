@@ -62,6 +62,37 @@ describe('ReportService', () => {
     });
   });
 
+  it('ignores non-sale and non-purchase invoices in outstanding KPI totals', async () => {
+    (prisma.invoice!.aggregate as jest.Mock)
+      .mockResolvedValueOnce({ _sum: { totalAmount: 0 } })
+      .mockResolvedValueOnce({ _sum: { totalAmount: 0 } });
+    (prisma.product!.count as jest.Mock).mockResolvedValueOnce(2);
+    (prisma.invoice!.findMany as jest.Mock).mockResolvedValueOnce([
+      { id: 'sale-1', type: 'SALE', totalAmount: 1000 },
+      { id: 'purchase-1', type: 'PURCHASE', totalAmount: 800 },
+      { id: 'sale-return-1', type: 'SALE_RETURN', totalAmount: 300 },
+      { id: 'purchase-return-1', type: 'PURCHASE_RETURN', totalAmount: 400 },
+      { id: 'quotation-1', type: 'QUOTATION', totalAmount: 700 },
+    ]);
+    (prisma.ledgerEntry!.groupBy as jest.Mock).mockResolvedValueOnce([
+      { invoiceId: 'sale-1', _sum: { credit: 100 } },
+      { invoiceId: 'purchase-1', _sum: { credit: 250 } },
+      { invoiceId: 'sale-return-1', _sum: { credit: 50 } },
+      { invoiceId: 'purchase-return-1', _sum: { credit: 10 } },
+      { invoiceId: 'quotation-1', _sum: { credit: 200 } },
+    ]);
+
+    const result = await service.getDashboardKpis('company-1');
+
+    expect(result).toEqual({
+      todaySales: 0,
+      todayPurchases: 0,
+      outstandingReceivable: 900,
+      outstandingPayable: 550,
+      totalProducts: 2,
+    });
+  });
+
   it('builds monthly sales/purchase chart with dense Jan-Dec buckets', async () => {
     (prisma.invoice!.findMany as jest.Mock).mockResolvedValueOnce([
       { invoiceDate: new Date('2026-01-10'), type: 'SALE', totalAmount: 2500.5 },

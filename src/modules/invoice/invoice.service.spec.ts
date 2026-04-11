@@ -25,7 +25,15 @@ function buildTx(invoiceId = 'invoice-1') {
     product: {
       findMany: jest
         .fn()
-        .mockResolvedValue([{ id: 'product-1', taxRate: 5 }]),
+        .mockResolvedValue([
+          {
+            id: 'product-1',
+            name: 'Cotton Fabric',
+            hsnCode: '5208',
+            unit: 'MTR',
+            taxRate: 5,
+          },
+        ]),
     },
     invoice: {
       create: jest.fn().mockResolvedValue({ id: invoiceId }),
@@ -97,6 +105,8 @@ describe('InvoiceService', () => {
 
   // ─── Happy path: auto-number ──────────────────────────────────────────────
   it('creates invoice with auto-generated numeric bill number', async () => {
+    const tx = buildTx();
+
     (prisma.invoice!.findFirst as jest.Mock).mockResolvedValueOnce({
       id: 'invoice-1',
       invoiceNumber: '1', // strictly numeric, no prefix
@@ -110,7 +120,7 @@ describe('InvoiceService', () => {
     });
 
     (prisma.$transaction as jest.Mock).mockImplementationOnce(async (cb) =>
-      cb(buildTx()),
+      cb(tx),
     );
 
     const result = await service.create('company-1', null, 'user-1', {
@@ -130,6 +140,17 @@ describe('InvoiceService', () => {
     // Result number is purely numeric
     expect(result.invoiceNumber).toMatch(/^\d+$/);
     expect(result.invoiceNumber).toBe('1');
+    expect(tx.invoiceItem.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.arrayContaining([
+          expect.objectContaining({
+            productName: 'Cotton Fabric',
+            productHsnCode: '5208',
+            productUnit: 'MTR',
+          }),
+        ]),
+      }),
+    );
   });
 
   // ─── Non-numeric manual bill number → BadRequestException ────────────────
@@ -310,6 +331,46 @@ describe('InvoiceService', () => {
       select: { id: true, date: true, credit: true, narration: true },
     });
     expect(result).toEqual([{ id: 'p-1', credit: 100, narration: '[INVOICE_PAYMENT]' }]);
+  });
+
+  it('prefers stored invoice-item product snapshot values over current product fields', async () => {
+    (prisma.invoice!.findFirst as jest.Mock).mockResolvedValueOnce({
+      id: 'invoice-1',
+      companyId: 'company-1',
+      accountId: 'account-1',
+      invoiceNumber: '5',
+      invoiceDate: new Date('2026-04-10'),
+      type: 'SALE',
+      status: 'ACTIVE',
+      items: [
+        {
+          id: 'item-1',
+          productId: 'product-1',
+          productName: 'Historic Cotton',
+          productHsnCode: '5201',
+          productUnit: 'KG',
+          quantity: 2,
+          rate: 100,
+          taxRate: 5,
+          taxAmount: 10,
+          amount: 200,
+          product: {
+            id: 'product-1',
+            name: 'Current Cotton',
+            sku: null,
+            hsnCode: '5208',
+            unit: 'MTR',
+          },
+        },
+      ],
+      account: { party: { id: 'party-1', name: 'Party' } },
+    });
+
+    const result = await service.findById('company-1', 'invoice-1');
+
+    expect(result.items?.[0]?.product?.name).toBe('Historic Cotton');
+    expect(result.items?.[0]?.product?.hsnCode).toBe('5201');
+    expect(result.items?.[0]?.product?.unit).toBe('KG');
   });
 
   // ─── Invoice not found ────────────────────────────────────────────────────

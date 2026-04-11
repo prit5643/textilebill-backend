@@ -591,6 +591,7 @@ export class ReportService {
         companyId,
         deletedAt: null,
         status: { not: InvoiceStatus.CANCELLED },
+        type: { in: [InvoiceType.SALE, InvoiceType.PURCHASE] },
       },
       select: {
         id: true,
@@ -599,11 +600,18 @@ export class ReportService {
       },
     });
 
+    if (invoices.length === 0) {
+      return {
+        receivable: 0,
+        payable: 0,
+      };
+    }
+
     const groupedPayments = await this.prisma.ledgerEntry.groupBy({
       by: ['invoiceId'],
       where: {
         companyId,
-        invoiceId: { not: null },
+        invoiceId: { in: invoices.map((invoice) => invoice.id) },
       },
       _sum: { credit: true },
     });
@@ -618,9 +626,9 @@ export class ReportService {
     for (const invoice of invoices) {
       const paid = paidMap.get(invoice.id) ?? 0;
       const remaining = Math.max(0, Number(invoice.totalAmount) - paid);
-      if (invoice.type === InvoiceType.SALE || invoice.type === InvoiceType.SALE_RETURN) {
+      if (invoice.type === InvoiceType.SALE) {
         receivable += remaining;
-      } else {
+      } else if (invoice.type === InvoiceType.PURCHASE) {
         payable += remaining;
       }
     }

@@ -149,8 +149,34 @@ export class PdfService {
           gstin: invoice.account.party.gstin,
           phone: invoice.account.party.phone,
           address: invoice.account.party.address,
+          city: invoice.account.party.city,
+          state: invoice.account.party.state,
+          pincode: invoice.account.party.pincode,
+          bankName: invoice.account.party.bankName,
+          bankAccountNo: invoice.account.party.bankAccountNo,
+          bankIfsc: invoice.account.party.bankIfsc,
         }
       : (invoice?.account ?? {});
+
+    const hasCompanyBankDetails = Boolean(
+      company?.bankName || company?.bankAccountNo || company?.bankIfsc || company?.bankBranch,
+    );
+
+    const bankSection = hasCompanyBankDetails
+      ? {
+          title: "Company's Bank Details",
+          name: company?.bankName || '',
+          accountNo: company?.bankAccountNo || '',
+          ifsc: company?.bankIfsc || '',
+          branch: company?.bankBranch || '',
+        }
+      : {
+          title: 'Account Holder Bank Details',
+          name: account?.bankName || '',
+          accountNo: account?.bankAccountNo || '',
+          ifsc: account?.bankIfsc || '',
+          branch: '',
+        };
 
     const normalizedItems = (invoice.items || []).map((item: any) => {
       const amount = asNumber(item.totalAmount ?? item.amount);
@@ -369,6 +395,18 @@ export class PdfService {
                     },
                     {
                       text: [
+                        account?.bankName ? `Bank: ${account.bankName}` : '',
+                        account?.bankAccountNo
+                          ? `A/C: ${account.bankAccountNo}`
+                          : '',
+                        account?.bankIfsc ? `IFSC: ${account.bankIfsc}` : '',
+                      ]
+                        .filter(Boolean)
+                        .join('   '),
+                      margin: [0, 0, 0, 2],
+                    },
+                    {
+                      text: [
                         { text: `State : `, bold: false },
                         {
                           text: `${account?.state || 'Gujarat'}`,
@@ -523,35 +561,35 @@ export class PdfService {
                 {
                   stack: [
                     {
-                      text: "Company's Bank Details",
+                      text: bankSection.title,
                       bold: true,
                       margin: [0, 0, 0, 4],
                     },
                     {
                       columns: [
                         { text: 'Name', width: 60 },
-                        { text: `: ${company?.bankName || ''}` },
+                        { text: `: ${bankSection.name}` },
                       ],
                       margin: [0, 0, 0, 2],
                     },
                     {
                       columns: [
                         { text: 'A/C. No', width: 60 },
-                        { text: `: ${company?.bankAccountNo || ''}` },
+                        { text: `: ${bankSection.accountNo}` },
                       ],
                       margin: [0, 0, 0, 2],
                     },
                     {
                       columns: [
                         { text: 'IFSC Code', width: 60 },
-                        { text: `: ${company?.bankIfsc || ''}` },
+                        { text: `: ${bankSection.ifsc}` },
                       ],
                       margin: [0, 0, 0, 2],
                     },
                     {
                       columns: [
                         { text: 'Branch', width: 60 },
-                        { text: `: ${company?.bankBranch || ''}` },
+                        { text: `: ${bankSection.branch}` },
                       ],
                       margin: [0, 0, 0, 2],
                     },

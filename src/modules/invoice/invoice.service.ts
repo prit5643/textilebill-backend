@@ -17,6 +17,9 @@ import {
 
 type PreparedItem = {
   productId: string;
+  productName: string;
+  productHsnCode: string | null;
+  productUnit: string;
   quantity: number;
   rate: number;
   taxRate: number;
@@ -150,6 +153,9 @@ export class InvoiceService {
             companyId,
             invoiceId: invoice.id,
             productId: item.productId,
+            productName: item.productName,
+            productHsnCode: item.productHsnCode,
+            productUnit: item.productUnit,
             quantity: item.quantity,
             rate: item.rate,
             taxRate: item.taxRate,
@@ -226,7 +232,23 @@ export class InvoiceService {
             select: {
               id: true,
               group: true,
-              party: { select: { id: true, name: true, gstin: true } },
+              party: {
+                select: {
+                  id: true,
+                  name: true,
+                  gstin: true,
+                  phone: true,
+                  email: true,
+                  address: true,
+                  city: true,
+                  state: true,
+                  pincode: true,
+                  contactPerson: true,
+                  bankName: true,
+                  bankAccountNo: true,
+                  bankIfsc: true,
+                },
+              },
             },
           },
           _count: { select: { items: true } },
@@ -314,6 +336,13 @@ export class InvoiceService {
                 phone: true,
                 email: true,
                 address: true,
+                city: true,
+                state: true,
+                pincode: true,
+                contactPerson: true,
+                bankName: true,
+                bankAccountNo: true,
+                bankIfsc: true,
               },
             },
           },
@@ -337,7 +366,21 @@ export class InvoiceService {
     if (!invoice) {
       throw new NotFoundException('Invoice not found');
     }
-    return invoice;
+
+    return {
+      ...invoice,
+      items: (invoice.items ?? []).map((item) => ({
+        ...item,
+        product: item.product
+          ? {
+              ...item.product,
+              name: item.productName ?? item.product.name,
+              hsnCode: item.productHsnCode ?? item.product.hsnCode,
+              unit: item.productUnit ?? item.product.unit,
+            }
+          : item.product,
+      })),
+    };
   }
 
   async getCompany(companyId: string) {
@@ -367,6 +410,9 @@ export class InvoiceService {
             companyId,
             invoiceId: id,
             productId: item.productId,
+            productName: item.productName,
+            productHsnCode: item.productHsnCode,
+            productUnit: item.productUnit,
             quantity: item.quantity,
             rate: item.rate,
             taxRate: item.taxRate,
@@ -509,6 +555,9 @@ export class InvoiceService {
         name: true,
         gstin: true,
         address: true,
+        city: true,
+        state: true,
+        pincode: true,
         phone: true,
         email: true,
       },
@@ -646,7 +695,7 @@ export class InvoiceService {
         id: { in: productIds },
         companyId,
       },
-      select: { id: true, taxRate: true },
+      select: { id: true, name: true, hsnCode: true, unit: true, taxRate: true },
     });
     const productMap = new Map(products.map((product) => [product.id, product]));
 
@@ -683,6 +732,9 @@ export class InvoiceService {
 
       return {
         productId: item.productId,
+        productName: String(productMap.get(item.productId)?.name ?? 'Unknown product'),
+        productHsnCode: productMap.get(item.productId)?.hsnCode ?? null,
+        productUnit: String(productMap.get(item.productId)?.unit ?? 'MTR'),
         quantity: this.round3(quantity),
         rate: this.round2(rate),
         amount: this.round2(taxable),
