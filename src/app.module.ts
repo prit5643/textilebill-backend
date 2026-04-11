@@ -33,7 +33,9 @@ const envFileCandidates = [
   join(process.cwd(), 'backend', '.env'),
 ];
 
-const envFilePath = envFileCandidates.filter((filePath) => existsSync(filePath));
+const envFilePath = envFileCandidates.filter((filePath) =>
+  existsSync(filePath),
+);
 
 @Module({
   imports: [

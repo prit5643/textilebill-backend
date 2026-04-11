@@ -23,17 +23,15 @@ import { InvoiceNumberService } from './invoice-number.service';
 function buildTx(invoiceId = 'invoice-1') {
   return {
     product: {
-      findMany: jest
-        .fn()
-        .mockResolvedValue([
-          {
-            id: 'product-1',
-            name: 'Cotton Fabric',
-            hsnCode: '5208',
-            unit: 'MTR',
-            taxRate: 5,
-          },
-        ]),
+      findMany: jest.fn().mockResolvedValue([
+        {
+          id: 'product-1',
+          name: 'Cotton Fabric',
+          hsnCode: '5208',
+          unit: 'MTR',
+          taxRate: 5,
+        },
+      ]),
     },
     invoice: {
       create: jest.fn().mockResolvedValue({ id: invoiceId }),
@@ -131,11 +129,9 @@ describe('InvoiceService', () => {
     } as any);
 
     // Auto-number flow: alignment runs BEFORE tx, then getNextNumberWithTx inside tx
-    expect(invoiceNumberService.alignSequenceWithExistingInvoices).toHaveBeenCalledWith(
-      'company-1',
-      'SALE',
-      'fy-1',
-    );
+    expect(
+      invoiceNumberService.alignSequenceWithExistingInvoices,
+    ).toHaveBeenCalledWith('company-1', 'SALE', 'fy-1');
     expect(invoiceNumberService.getNextNumberWithTx).toHaveBeenCalled();
     // Result number is purely numeric
     expect(result.invoiceNumber).toMatch(/^\d+$/);
@@ -230,10 +226,11 @@ describe('InvoiceService', () => {
   it('alignment runs OUTSIDE transaction (no P2028 risk)', async () => {
     const txCallOrder: string[] = [];
 
-    (invoiceNumberService.alignSequenceWithExistingInvoices as jest.Mock)
-      .mockImplementation(async () => {
-        txCallOrder.push('align');
-      });
+    (
+      invoiceNumberService.alignSequenceWithExistingInvoices as jest.Mock
+    ).mockImplementation(async () => {
+      txCallOrder.push('align');
+    });
 
     (prisma.$transaction as jest.Mock).mockImplementation(async (cb) => {
       txCallOrder.push('tx-start');
@@ -242,11 +239,12 @@ describe('InvoiceService', () => {
       return result;
     });
 
-    (invoiceNumberService.getNextNumberWithTx as jest.Mock)
-      .mockImplementation(async () => {
+    (invoiceNumberService.getNextNumberWithTx as jest.Mock).mockImplementation(
+      async () => {
         txCallOrder.push('getNextNumber');
         return '1';
-      });
+      },
+    );
 
     (prisma.invoice!.findFirst as jest.Mock).mockResolvedValueOnce({
       id: 'invoice-1',
@@ -330,7 +328,9 @@ describe('InvoiceService', () => {
       orderBy: { date: 'desc' },
       select: { id: true, date: true, credit: true, narration: true },
     });
-    expect(result).toEqual([{ id: 'p-1', credit: 100, narration: '[INVOICE_PAYMENT]' }]);
+    expect(result).toEqual([
+      { id: 'p-1', credit: 100, narration: '[INVOICE_PAYMENT]' },
+    ]);
   });
 
   it('prefers stored invoice-item product snapshot values over current product fields', async () => {

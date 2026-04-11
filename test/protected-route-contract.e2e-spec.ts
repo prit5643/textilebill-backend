@@ -27,10 +27,7 @@ import { AccountingController } from '../src/modules/accounting/accounting.contr
 
 describe('Protected route contract (e2e)', () => {
   it.each([
-    [
-      CompanyController,
-      [JwtAuthGuard, CompanyAccessGuard, RolesGuard],
-    ],
+    [CompanyController, [JwtAuthGuard, CompanyAccessGuard, RolesGuard]],
     [
       UsersController,
       [JwtAuthGuard, SubscriptionGuard, CompanyAccessGuard, RolesGuard],

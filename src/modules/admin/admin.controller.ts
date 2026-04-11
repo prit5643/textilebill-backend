@@ -150,7 +150,10 @@ export class AdminController {
   }
 
   @Patch('subscriptions/:id')
-  updateSubscription(@Param('id') id: string, @Body() dto: UpdateSubscriptionDto) {
+  updateSubscription(
+    @Param('id') id: string,
+    @Body() dto: UpdateSubscriptionDto,
+  ) {
     return this.adminService.updateSubscription(id, dto);
   }
 

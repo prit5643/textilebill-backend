@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma, MovementType } from '@prisma/client';
-import { Decimal } from '@prisma/client/runtime/library';
+import {} from '@prisma/client/runtime/library';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   CreateCashBookEntryDto,
@@ -408,7 +408,10 @@ export class AccountingService {
     return createPaginatedResult(data, total, page, limit);
   }
 
-  async createStockAdjustment(companyId: string, dto: CreateStockAdjustmentDto) {
+  async createStockAdjustment(
+    companyId: string,
+    dto: CreateStockAdjustmentDto,
+  ) {
     const company = await this.getCompanyContext(companyId);
     return this.prisma.stockMovement.create({
       data: {
@@ -590,7 +593,9 @@ export class AccountingService {
       },
     });
 
-    const accountMap = new Map(accounts.map((account) => [account.id, account]));
+    const accountMap = new Map(
+      accounts.map((account) => [account.id, account]),
+    );
 
     return grouped.map((row) => {
       const account = accountMap.get(row.accountId);
@@ -642,7 +647,10 @@ export class AccountingService {
     });
 
     const paidMap = new Map(
-      paymentGroups.map((row) => [row.invoiceId ?? '', Number(row._sum.credit ?? 0)]),
+      paymentGroups.map((row) => [
+        row.invoiceId ?? '',
+        Number(row._sum.credit ?? 0),
+      ]),
     );
 
     return invoices

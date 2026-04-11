@@ -172,7 +172,8 @@ export class InvoiceNumberService {
       throw new NotFoundException('Company not found');
     }
 
-    const fyId = financialYearId ?? (await this.resolveFinancialYear(tx, companyId)).id;
+    const fyId =
+      financialYearId ?? (await this.resolveFinancialYear(tx, companyId)).id;
     // Each invoice type maintains its own independent numbered sequence.
     // e.g. SALE 1,2,3... and PURCHASE 1,2,3... are fully separate counters.
     const voucherType = this.toVoucherType(invoiceType);

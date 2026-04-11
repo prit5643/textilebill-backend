@@ -120,7 +120,9 @@ export class InvoiceService {
             invoiceNumber,
             invoiceDate,
             type: invoiceType,
-            status: this.normalizeInvoiceStatus(dto.status as string | undefined),
+            status: this.normalizeInvoiceStatus(
+              dto.status as string | undefined,
+            ),
             version: 1,
             isLatest: true,
             notes: dto.narration ?? null,
@@ -294,7 +296,10 @@ export class InvoiceService {
     ]);
 
     const paidByInvoice = new Map(
-      groupedPayments.map((row) => [row.invoiceId ?? '', Number(row._sum.credit ?? 0)]),
+      groupedPayments.map((row) => [
+        row.invoiceId ?? '',
+        Number(row._sum.credit ?? 0),
+      ]),
     );
 
     const invoices = await this.prisma.invoice.findMany({
@@ -425,14 +430,22 @@ export class InvoiceService {
       await tx.invoice.update({
         where: { id },
         data: {
-          ...(dto.invoiceNumber ? { invoiceNumber: dto.invoiceNumber.trim() } : {}),
-          ...(dto.invoiceDate ? { invoiceDate: new Date(dto.invoiceDate) } : {}),
+          ...(dto.invoiceNumber
+            ? { invoiceNumber: dto.invoiceNumber.trim() }
+            : {}),
+          ...(dto.invoiceDate
+            ? { invoiceDate: new Date(dto.invoiceDate) }
+            : {}),
           ...(dto.accountId ? { accountId: dto.accountId } : {}),
           ...(dto.status
             ? { status: this.normalizeInvoiceStatus(dto.status as string) }
             : {}),
-          ...(dto.narration !== undefined ? { notes: dto.narration ?? null } : {}),
-          ...(dto.partyChallanNo !== undefined ? { partyChallanNo: dto.partyChallanNo ?? null } : {}),
+          ...(dto.narration !== undefined
+            ? { notes: dto.narration ?? null }
+            : {}),
+          ...(dto.partyChallanNo !== undefined
+            ? { partyChallanNo: dto.partyChallanNo ?? null }
+            : {}),
           subTotal: totals.subTotal,
           taxAmount: totals.taxAmount,
           discountAmount: totals.discountAmount,
@@ -524,21 +537,28 @@ export class InvoiceService {
     const source = await this.findById(companyId, id);
     const convertedType = this.normalizeInvoiceType(targetType);
     if (convertedType === source.type) {
-      throw new BadRequestException('Target type must be different from source');
+      throw new BadRequestException(
+        'Target type must be different from source',
+      );
     }
 
-    const result = await this.create(companyId, source.financialYearId, userId, {
-      invoiceType: convertedType as any,
-      invoiceDate: source.invoiceDate.toISOString(),
-      accountId: source.accountId,
-      narration: `Converted from invoice ${source.invoiceNumber}`,
-      items: source.items.map((item) => ({
-        productId: item.productId,
-        quantity: Number(item.quantity),
-        rate: Number(item.rate),
-        gstRate: Number(item.taxRate),
-      })),
-    } as CreateInvoiceDto);
+    const result = await this.create(
+      companyId,
+      source.financialYearId,
+      userId,
+      {
+        invoiceType: convertedType as any,
+        invoiceDate: source.invoiceDate.toISOString(),
+        accountId: source.accountId,
+        narration: `Converted from invoice ${source.invoiceNumber}`,
+        items: source.items.map((item) => ({
+          productId: item.productId,
+          quantity: Number(item.quantity),
+          rate: Number(item.rate),
+          gstRate: Number(item.taxRate),
+        })),
+      } as CreateInvoiceDto,
+    );
 
     return {
       sourceInvoiceId: source.id,
@@ -625,7 +645,10 @@ export class InvoiceService {
       );
     }
 
-    if (invoiceDate < financialYear.startDate || invoiceDate > financialYear.endDate) {
+    if (
+      invoiceDate < financialYear.startDate ||
+      invoiceDate > financialYear.endDate
+    ) {
       throw new BadRequestException(
         'Invoice date is outside the selected financial year. Choose a date within the selected financial year.',
       );
@@ -695,9 +718,17 @@ export class InvoiceService {
         id: { in: productIds },
         companyId,
       },
-      select: { id: true, name: true, hsnCode: true, unit: true, taxRate: true },
+      select: {
+        id: true,
+        name: true,
+        hsnCode: true,
+        unit: true,
+        taxRate: true,
+      },
     });
-    const productMap = new Map(products.map((product) => [product.id, product]));
+    const productMap = new Map(
+      products.map((product) => [product.id, product]),
+    );
 
     return items.map((item) => {
       if (!productMap.has(item.productId)) {
@@ -732,7 +763,9 @@ export class InvoiceService {
 
       return {
         productId: item.productId,
-        productName: String(productMap.get(item.productId)?.name ?? 'Unknown product'),
+        productName: String(
+          productMap.get(item.productId)?.name ?? 'Unknown product',
+        ),
         productHsnCode: productMap.get(item.productId)?.hsnCode ?? null,
         productUnit: String(productMap.get(item.productId)?.unit ?? 'MTR'),
         quantity: this.round3(quantity),
@@ -745,7 +778,10 @@ export class InvoiceService {
   }
 
   private computeTotals(items: PreparedItem[]) {
-    const subTotal = items.reduce((sum, item) => sum + item.quantity * item.rate, 0);
+    const subTotal = items.reduce(
+      (sum, item) => sum + item.quantity * item.rate,
+      0,
+    );
     const taxAmount = items.reduce((sum, item) => sum + item.taxAmount, 0);
     const taxableAmount = items.reduce((sum, item) => sum + item.amount, 0);
     const discountAmount = Math.max(0, subTotal - taxableAmount);

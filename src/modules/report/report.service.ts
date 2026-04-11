@@ -1,5 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { InvoiceStatus, InvoiceType, MovementType, Prisma } from '@prisma/client';
+import {
+  InvoiceStatus,
+  InvoiceType,
+  MovementType,
+  Prisma,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 type DateRangeInput = {
@@ -70,7 +75,20 @@ export class ReportService {
       select: { invoiceDate: true, type: true, totalAmount: true },
     });
 
-    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const monthNames = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
     const buckets = Array.from({ length: 12 }, (_, i) => ({
       month: monthNames[i],
       sales: 0,
@@ -212,7 +230,10 @@ export class ReportService {
     const openingByProduct = new Map<string, number>();
     for (const row of openingMovements) {
       const prev = openingByProduct.get(row.productId) ?? 0;
-      openingByProduct.set(row.productId, prev + this.stockSignedQty(row.type, Number(row.quantity)));
+      openingByProduct.set(
+        row.productId,
+        prev + this.stockSignedQty(row.type, Number(row.quantity)),
+      );
     }
 
     const periodInward = new Map<string, number>();
@@ -220,9 +241,15 @@ export class ReportService {
     for (const row of movementsInPeriod) {
       const qty = Number(row.quantity);
       if (row.type === MovementType.IN) {
-        periodInward.set(row.productId, (periodInward.get(row.productId) ?? 0) + qty);
+        periodInward.set(
+          row.productId,
+          (periodInward.get(row.productId) ?? 0) + qty,
+        );
       } else {
-        periodOutward.set(row.productId, (periodOutward.get(row.productId) ?? 0) + qty);
+        periodOutward.set(
+          row.productId,
+          (periodOutward.get(row.productId) ?? 0) + qty,
+        );
       }
     }
 
@@ -365,7 +392,12 @@ export class ReportService {
     const rows = await this.getProductDetails(companyId, query);
     const grouped = new Map<
       string,
-      { accountId: string; accountName: string; totalQty: number; totalAmount: number }
+      {
+        accountId: string;
+        accountName: string;
+        totalQty: number;
+        totalAmount: number;
+      }
     >();
 
     for (const row of rows) {
@@ -390,7 +422,10 @@ export class ReportService {
     }));
   }
 
-  async getGstr1(companyId: string, range: { dateFrom: string; dateTo: string }) {
+  async getGstr1(
+    companyId: string,
+    range: { dateFrom: string; dateTo: string },
+  ) {
     const { from, to } = this.parseRange(range);
     return this.prisma.invoice.findMany({
       where: {
@@ -423,7 +458,10 @@ export class ReportService {
     });
   }
 
-  async getGstr3b(companyId: string, range: { dateFrom: string; dateTo: string }) {
+  async getGstr3b(
+    companyId: string,
+    range: { dateFrom: string; dateTo: string },
+  ) {
     const { from, to } = this.parseRange(range);
     const [sales, purchases] = await Promise.all([
       this.prisma.invoice.aggregate({
@@ -468,7 +506,10 @@ export class ReportService {
     };
   }
 
-  async getGstSlabWise(companyId: string, range: { dateFrom: string; dateTo: string }) {
+  async getGstSlabWise(
+    companyId: string,
+    range: { dateFrom: string; dateTo: string },
+  ) {
     const { from, to } = this.parseRange(range);
     const slabs = await this.prisma.invoiceItem.groupBy({
       by: ['taxRate'],
@@ -617,7 +658,10 @@ export class ReportService {
     });
 
     const paidMap = new Map(
-      groupedPayments.map((row) => [row.invoiceId ?? '', Number(row._sum.credit ?? 0)]),
+      groupedPayments.map((row) => [
+        row.invoiceId ?? '',
+        Number(row._sum.credit ?? 0),
+      ]),
     );
 
     let receivable = 0;
@@ -676,10 +720,16 @@ export class ReportService {
       _sum: { credit: true },
     });
     const paidMap = new Map(
-      groupedPayments.map((row) => [row.invoiceId ?? '', Number(row._sum.credit ?? 0)]),
+      groupedPayments.map((row) => [
+        row.invoiceId ?? '',
+        Number(row._sum.credit ?? 0),
+      ]),
     );
 
-    const groupedByAccount = new Map<string, { totalDue: number; invoiceCount: number }>();
+    const groupedByAccount = new Map<
+      string,
+      { totalDue: number; invoiceCount: number }
+    >();
     for (const invoice of invoices) {
       const paid = paidMap.get(invoice.id) ?? 0;
       const due = Math.max(0, Number(invoice.totalAmount) - paid);
@@ -703,17 +753,19 @@ export class ReportService {
     });
     const accountMap = new Map(accounts.map((row) => [row.id, row]));
 
-    return Array.from(groupedByAccount.entries()).map(([accountId, summary]) => {
-      const account = accountMap.get(accountId);
-      return {
-        id: accountId,
-        name: account?.party?.name ?? 'Unknown',
-        gstin: account?.party?.gstin ?? null,
-        address: account?.party?.address ?? null,
-        totalDue: this.round2(summary.totalDue),
-        invoiceCount: summary.invoiceCount,
-      };
-    });
+    return Array.from(groupedByAccount.entries()).map(
+      ([accountId, summary]) => {
+        const account = accountMap.get(accountId);
+        return {
+          id: accountId,
+          name: account?.party?.name ?? 'Unknown',
+          gstin: account?.party?.gstin ?? null,
+          address: account?.party?.address ?? null,
+          totalDue: this.round2(summary.totalDue),
+          invoiceCount: summary.invoiceCount,
+        };
+      },
+    );
   }
 
   private async sumByType(

@@ -9,11 +9,7 @@ type TableCell = Record<string, unknown>;
 
 function resolvePdfFontPath(fileName: string): string {
   const candidates = [
-    path.join(
-      process.cwd(),
-      'node_modules/pdfmake/fonts/Roboto',
-      fileName,
-    ),
+    path.join(process.cwd(), 'node_modules/pdfmake/fonts/Roboto', fileName),
     path.join(
       path.dirname(require.resolve('pdfmake/package.json')),
       'fonts/Roboto',
@@ -159,7 +155,10 @@ export class PdfService {
       : (invoice?.account ?? {});
 
     const hasCompanyBankDetails = Boolean(
-      company?.bankName || company?.bankAccountNo || company?.bankIfsc || company?.bankBranch,
+      company?.bankName ||
+      company?.bankAccountNo ||
+      company?.bankIfsc ||
+      company?.bankBranch,
     );
 
     const bankSection = hasCompanyBankDetails
@@ -201,25 +200,51 @@ export class PdfService {
     });
 
     const subtotal = asNumber(
-      invoice.subtotal ?? invoice.subTotal ?? normalizedItems.reduce((sum: number, item: any) => sum + item.amount, 0),
+      invoice.subtotal ??
+        invoice.subTotal ??
+        normalizedItems.reduce(
+          (sum: number, item: any) => sum + item.amount,
+          0,
+        ),
     );
-    const totalDiscount = asNumber(invoice.totalDiscount ?? invoice.discountAmount);
+    const totalDiscount = asNumber(
+      invoice.totalDiscount ?? invoice.discountAmount,
+    );
     const taxableAmount = asNumber(
       invoice.taxableAmount ?? Math.max(0, subtotal - totalDiscount),
     );
     const totalCgst = asNumber(
-      invoice.totalCgst ?? normalizedItems.reduce((sum: number, item: any) => sum + item.cgstAmount, 0),
+      invoice.totalCgst ??
+        normalizedItems.reduce(
+          (sum: number, item: any) => sum + item.cgstAmount,
+          0,
+        ),
     );
     const totalSgst = asNumber(
-      invoice.totalSgst ?? normalizedItems.reduce((sum: number, item: any) => sum + item.sgstAmount, 0),
+      invoice.totalSgst ??
+        normalizedItems.reduce(
+          (sum: number, item: any) => sum + item.sgstAmount,
+          0,
+        ),
     );
     const totalIgst = asNumber(
-      invoice.totalIgst ?? normalizedItems.reduce((sum: number, item: any) => sum + item.igstAmount, 0),
+      invoice.totalIgst ??
+        normalizedItems.reduce(
+          (sum: number, item: any) => sum + item.igstAmount,
+          0,
+        ),
     );
-    const totalTax = asNumber(invoice.totalTax ?? invoice.taxAmount ?? totalCgst + totalSgst + totalIgst);
-    const grandTotal = asNumber(invoice.grandTotal ?? invoice.totalAmount ?? taxableAmount + totalTax);
+    const totalTax = asNumber(
+      invoice.totalTax ??
+        invoice.taxAmount ??
+        totalCgst + totalSgst + totalIgst,
+    );
+    const grandTotal = asNumber(
+      invoice.grandTotal ?? invoice.totalAmount ?? taxableAmount + totalTax,
+    );
     const roundOff = asNumber(
-      invoice.roundOff ?? Number((grandTotal - (taxableAmount + totalTax)).toFixed(2)),
+      invoice.roundOff ??
+        Number((grandTotal - (taxableAmount + totalTax)).toFixed(2)),
     );
 
     // --- 1. Items Calculation ---
@@ -384,11 +409,7 @@ export class PdfService {
                       margin: [0, 0, 0, 2],
                     },
                     {
-                      text: [
-                        account?.city,
-                        account?.state,
-                        account?.pincode,
-                      ]
+                      text: [account?.city, account?.state, account?.pincode]
                         .filter(Boolean)
                         .join(', '),
                       margin: [0, 0, 0, 2],

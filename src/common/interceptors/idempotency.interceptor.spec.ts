@@ -103,13 +103,9 @@ describe('IdempotencyInterceptor', () => {
 
   describe('Implicit Lock (Barrier Gate)', () => {
     it('skips implicit barrier lock for auth login endpoint', async () => {
-      const context = createMockContext(
-        'POST',
-        {},
-        '/api/auth/login',
-        null,
-        { username: 'owner@test.com' },
-      );
+      const context = createMockContext('POST', {}, '/api/auth/login', null, {
+        username: 'owner@test.com',
+      });
       const next = createMockCallHandler();
 
       const result = await interceptor.intercept(context, next);
@@ -158,6 +154,5 @@ describe('IdempotencyInterceptor', () => {
         },
       });
     });
-
   });
 });

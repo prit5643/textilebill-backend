@@ -25,7 +25,6 @@ import {
   CompanyAccessGuard,
   JwtAuthGuard,
   RolesGuard,
-  SubscriptionGuard,
 } from '../../common/guards';
 import {
   CurrentUser,

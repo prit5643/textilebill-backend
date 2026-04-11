@@ -8,7 +8,7 @@ import { AccountGroupType, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAccountDto } from './dto/create-account.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
-import { CreateBrokerDto, UpdateBrokerDto } from './dto/broker.dto';
+import {} from './dto/broker.dto';
 import {
   parsePagination,
   createPaginatedResult,
@@ -269,17 +269,22 @@ export class AccountService {
 
     const partyPatch: Prisma.PartyUpdateInput = {};
     if (typeof dto.name === 'string') partyPatch.name = dto.name.trim();
-    if (typeof dto.gstin === 'string') partyPatch.gstin = dto.gstin.trim().toUpperCase();
+    if (typeof dto.gstin === 'string')
+      partyPatch.gstin = dto.gstin.trim().toUpperCase();
     if (typeof dto.phone === 'string') partyPatch.phone = dto.phone.trim();
-    if (typeof dto.email === 'string') partyPatch.email = dto.email.trim().toLowerCase();
-    if (typeof dto.address === 'string') partyPatch.address = dto.address.trim();
+    if (typeof dto.email === 'string')
+      partyPatch.email = dto.email.trim().toLowerCase();
+    if (typeof dto.address === 'string')
+      partyPatch.address = dto.address.trim();
     if (typeof dto.city === 'string') partyPatch.city = dto.city.trim();
     if (typeof dto.state === 'string') partyPatch.state = dto.state.trim();
-    if (typeof dto.pincode === 'string') partyPatch.pincode = dto.pincode.trim();
+    if (typeof dto.pincode === 'string')
+      partyPatch.pincode = dto.pincode.trim();
     if (typeof dto.contactPerson === 'string') {
       partyPatch.contactPerson = dto.contactPerson.trim();
     }
-    if (typeof dto.bankName === 'string') partyPatch.bankName = dto.bankName.trim();
+    if (typeof dto.bankName === 'string')
+      partyPatch.bankName = dto.bankName.trim();
     if (typeof dto.bankAccountNo === 'string') {
       partyPatch.bankAccountNo = dto.bankAccountNo.trim();
     }
@@ -396,27 +401,27 @@ export class AccountService {
   }
 
   // Broker model was removed in schema v2; keep endpoints explicit and safe.
-  async createBroker(_companyId: string, _dto: CreateBrokerDto) {
+  async createBroker() {
     throw new ConflictException(
       'Broker APIs are deprecated. Use parties/accounts with account groups instead.',
     );
   }
 
-  async findAllBrokers(_companyId: string) {
+  async findAllBrokers() {
     return [];
   }
 
-  async findBrokerById(_id: string, _companyId: string) {
+  async findBrokerById() {
     throw new NotFoundException('Broker not found');
   }
 
-  async updateBroker(_id: string, _companyId: string, _dto: UpdateBrokerDto) {
+  async updateBroker() {
     throw new ConflictException(
       'Broker APIs are deprecated. Use parties/accounts with account groups instead.',
     );
   }
 
-  async removeBroker(_id: string, _companyId: string) {
+  async removeBroker() {
     throw new ConflictException(
       'Broker APIs are deprecated. Use parties/accounts with account groups instead.',
     );

@@ -103,7 +103,9 @@ describe('AuthService', () => {
     });
     (bcrypt.compare as jest.Mock).mockResolvedValueOnce(false);
 
-    await expect(service.validateUser('owner@test.com', 'WrongPass1!')).resolves.toBeNull();
+    await expect(
+      service.validateUser('owner@test.com', 'WrongPass1!'),
+    ).resolves.toBeNull();
   });
 
   it('issues cookie-ready session tokens on login', async () => {
@@ -134,7 +136,9 @@ describe('AuthService', () => {
     jwtService.sign
       .mockReturnValueOnce('access-token')
       .mockReturnValueOnce('session-token');
-    (prisma.refreshToken!.create as jest.Mock).mockResolvedValueOnce({ id: 'rt-1' });
+    (prisma.refreshToken!.create as jest.Mock).mockResolvedValueOnce({
+      id: 'rt-1',
+    });
 
     const result = await service.login({
       username: 'owner@test.com',
@@ -229,9 +233,9 @@ describe('AuthService', () => {
     });
     otpDeliveryService.deliver.mockResolvedValueOnce(false);
 
-    await expect(service.forgotPassword('owner@test.com')).rejects.toBeInstanceOf(
-      ServiceUnavailableException,
-    );
+    await expect(
+      service.forgotPassword('owner@test.com'),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 
   it('validates and consumes password reset link tokens', async () => {
@@ -251,7 +255,8 @@ describe('AuthService', () => {
 
     const setCalls = (redis.set as jest.Mock).mock.calls;
     const resetLinkCall = setCalls.find(
-      (call) => typeof call[0] === 'string' && call[0].startsWith('auth:reset-link:'),
+      (call) =>
+        typeof call[0] === 'string' && call[0].startsWith('auth:reset-link:'),
     );
     expect(resetLinkCall).toBeTruthy();
 
@@ -284,27 +289,33 @@ describe('AuthService', () => {
       userCompanies: [],
     });
     (bcrypt.hash as jest.Mock).mockResolvedValueOnce('new-hash');
-    (prisma.$transaction as jest.Mock).mockImplementationOnce(async (callback) => {
-      const tx = {
-        user: { update: jest.fn().mockResolvedValue({ id: 'user-1' }) },
-        refreshToken: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-      };
-      return callback(tx);
-    });
+    (prisma.$transaction as jest.Mock).mockImplementationOnce(
+      async (callback) => {
+        const tx = {
+          user: { update: jest.fn().mockResolvedValue({ id: 'user-1' }) },
+          refreshToken: {
+            updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+          },
+        };
+        return callback(tx);
+      },
+    );
 
     await service.resetPassword('owner@test.com', '123456', 'NewPass1!');
 
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(redis.del).toHaveBeenCalledWith('auth:forgot:otp:owner@test.com');
-    expect(redis.del).toHaveBeenCalledWith('auth:forgot:cooldown:owner@test.com');
+    expect(redis.del).toHaveBeenCalledWith(
+      'auth:forgot:cooldown:owner@test.com',
+    );
   });
 
   it('rejects verifyLoginOtp for missing challenge', async () => {
     (redis.get as jest.Mock).mockResolvedValueOnce(null);
 
-    await expect(service.verifyLoginOtp('missing', '123456')).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
+    await expect(
+      service.verifyLoginOtp('missing', '123456'),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('returns email as verified when a used VERIFY_EMAIL challenge exists', async () => {

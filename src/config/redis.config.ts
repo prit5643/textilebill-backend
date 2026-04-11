@@ -33,9 +33,7 @@ export default registerAs('redis', () => {
   return {
     enabled:
       parseBoolean(process.env.REDIS_ENABLED) ??
-      (nodeEnv === 'production'
-        ? Boolean(redisUrl || redisHost)
-        : true),
+      (nodeEnv === 'production' ? Boolean(redisUrl || redisHost) : true),
     url: redisUrl,
     host: redisHost,
     port: Number.parseInt(redisPort || '6379', 10),

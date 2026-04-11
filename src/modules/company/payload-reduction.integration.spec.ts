@@ -29,18 +29,32 @@ describe('Payload reduction integration', () => {
       } as any,
     };
 
-    accountController = new AccountController(new AccountService(prisma as PrismaService));
-    productController = new ProductController(new ProductService(prisma as PrismaService));
+    accountController = new AccountController(
+      new AccountService(prisma as PrismaService),
+    );
+    productController = new ProductController(
+      new ProductService(prisma as PrismaService),
+    );
     companyController = new CompanyController(
-      new CompanyService(prisma as PrismaService, {
-        del: jest.fn().mockResolvedValue(undefined),
-        keys: jest.fn().mockResolvedValue([]),
-      } as unknown as RedisService),
+      new CompanyService(
+        prisma as PrismaService,
+        {
+          del: jest.fn().mockResolvedValue(undefined),
+          keys: jest.fn().mockResolvedValue([]),
+        } as unknown as RedisService,
+      ),
     );
   });
 
   it('wires account selector view to a lightweight response projection', async () => {
-    await accountController.findAll('company-1', 1, 25, undefined, undefined, 'selector');
+    await accountController.findAll(
+      'company-1',
+      1,
+      25,
+      undefined,
+      undefined,
+      'selector',
+    );
 
     const queryArg = (prisma.account!.findMany as jest.Mock).mock.calls[0][0];
     expect(queryArg.select).toEqual(
@@ -93,7 +107,14 @@ describe('Payload reduction integration', () => {
   });
 
   it('wires company header view to a lightweight response projection', async () => {
-    await companyController.findAll('tenant-1', 'user-1', 'STAFF', 1, 25, 'header');
+    await companyController.findAll(
+      'tenant-1',
+      'user-1',
+      'STAFF',
+      1,
+      25,
+      'header',
+    );
 
     const queryArg = (prisma.company!.findMany as jest.Mock).mock.calls[0][0];
     expect(queryArg.select).toEqual(

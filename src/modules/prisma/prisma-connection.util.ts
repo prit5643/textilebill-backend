@@ -35,7 +35,9 @@ export function normalizeDatabaseUrl(rawUrl: string): string {
   }
 
   const connectionLimit = parsed.searchParams.get('connection_limit');
-  const parsedLimit = connectionLimit ? Number.parseInt(connectionLimit, 10) : NaN;
+  const parsedLimit = connectionLimit
+    ? Number.parseInt(connectionLimit, 10)
+    : NaN;
   if (!Number.isFinite(parsedLimit) || parsedLimit <= 0) {
     parsed.searchParams.set('connection_limit', '1');
   }

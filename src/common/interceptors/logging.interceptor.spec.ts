@@ -128,8 +128,9 @@ describe('LoggingInterceptor', () => {
     await lastValueFrom(
       interceptor.intercept(context, {
         handle: () =>
-          throwError(() => new Error('transient'))
-            .pipe(catchError(() => of({ recovered: true }))),
+          throwError(() => new Error('transient')).pipe(
+            catchError(() => of({ recovered: true })),
+          ),
       } as any),
     );
 

@@ -104,11 +104,15 @@ describe('AdminService', () => {
 
     await service.toggleTenant('tenant-1', false);
 
-    expect(redisService.del).toHaveBeenCalledWith('auth:tenant-active:tenant-1');
+    expect(redisService.del).toHaveBeenCalledWith(
+      'auth:tenant-active:tenant-1',
+    );
     expect(redisService.del).toHaveBeenCalledWith(
       'auth:tenant-subscription:tenant-1',
     );
-    expect(redisService.del).toHaveBeenCalledWith('auth:user:user-1:session:s1');
+    expect(redisService.del).toHaveBeenCalledWith(
+      'auth:user:user-1:session:s1',
+    );
   });
 
   it('clears the user auth cache when toggling a user', async () => {
@@ -123,8 +127,12 @@ describe('AdminService', () => {
 
     await service.toggleUser('user-1', false);
 
-    expect(redisService.keys).toHaveBeenCalledWith('auth:user:user-1:session:*');
-    expect(redisService.del).toHaveBeenCalledWith('auth:user:user-1:session:s1');
+    expect(redisService.keys).toHaveBeenCalledWith(
+      'auth:user:user-1:session:*',
+    );
+    expect(redisService.del).toHaveBeenCalledWith(
+      'auth:user:user-1:session:s1',
+    );
   });
 
   it('assigns subscription by expiring prior active rows and creating a single active row', async () => {
@@ -146,7 +154,7 @@ describe('AdminService', () => {
       status: 'ACTIVE',
     });
 
-    const result = await service.assignSubscription({
+    await service.assignSubscription({
       gstin: '24abcde1234f1z5',
       planId: 'plan-1',
     });
@@ -217,7 +225,7 @@ describe('AdminService', () => {
       return callback(tx);
     });
 
-    const result = await service.createTenant({
+    await service.createTenant({
       name: 'Alpha',
       email: 'admin@alpha.test',
       adminFirstName: 'Admin',
@@ -283,24 +291,29 @@ describe('AdminService', () => {
       id: 'plan-starter-1',
       name: 'Starter Plan',
       durationDays: 90,
-      price: 1299
+      price: 1299,
     });
-    
+
     // Make sure properties exist in tx
     const tx = {
       tenant: { create: jest.fn().mockResolvedValue({ id: 'tenant-new' }) },
       company: { create: jest.fn().mockResolvedValue({ id: 'company-new' }) },
-      user: { create: jest.fn().mockResolvedValue({ id: 'user-new' }), findFirst: jest.fn().mockResolvedValue(null) },
+      user: {
+        create: jest.fn().mockResolvedValue({ id: 'user-new' }),
+        findFirst: jest.fn().mockResolvedValue(null),
+      },
       userCompany: { create: jest.fn() },
       companySettings: { create: jest.fn() },
       accountGroup: { createMany: jest.fn() },
       plan: prisma.plan,
-      subscription: { create: jest.fn().mockResolvedValue({ id: 'sub-new' }) }
+      subscription: { create: jest.fn().mockResolvedValue({ id: 'sub-new' }) },
     };
 
-    (prisma.$transaction as jest.Mock).mockImplementationOnce(async (cb: any) => {
-      return cb(tx);
-    });
+    (prisma.$transaction as jest.Mock).mockImplementationOnce(
+      async (cb: any) => {
+        return cb(tx);
+      },
+    );
 
     const dto = {
       name: 'New Tenant LLC',
@@ -308,20 +321,20 @@ describe('AdminService', () => {
       adminFirstName: 'Admin',
       adminLastName: 'Tom',
       companyName: 'New Company',
-      pwd: 'Password123'
+      pwd: 'Password123',
     };
 
-    const result = await service.createTenant(dto as any);
-    
+    await service.createTenant(dto as any);
+
     expect(tx.subscription.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           tenantId: 'tenant-new',
           planId: 'plan-starter-1',
           amountPaid: 1299,
-          status: 'ACTIVE'
-        })
-      })
+          status: 'ACTIVE',
+        }),
+      }),
     );
   });
 
@@ -346,7 +359,7 @@ describe('AdminService', () => {
       { tenantId: 'tenant-2', _count: { _all: 2 } },
     ]);
 
-    const result = await service.listTenants({ page: 1, limit: 10 });
+    await service.listTenants({ page: 1, limit: 10 });
 
     expect(prisma.user.groupBy).toHaveBeenCalledWith({
       by: ['tenantId'],
@@ -396,7 +409,7 @@ describe('AdminService', () => {
       { tenantId: 'tenant-1', _count: { _all: 1 } },
     ]);
 
-    const result = await service.listTenants({ page: 1, limit: 10 });
+    await service.listTenants({ page: 1, limit: 10 });
 
     expect(result.data[0]).toEqual(
       expect.objectContaining({
@@ -436,7 +449,7 @@ describe('AdminService', () => {
       { tenantId: 'tenant-1', _count: { _all: 1 } },
     ]);
 
-    const result = await service.listTenants({ page: 1, limit: 10 });
+    await service.listTenants({ page: 1, limit: 10 });
 
     expect(prisma.tenant.findMany).toHaveBeenCalledTimes(2);
     expect(result.data[0]).toEqual(
@@ -481,7 +494,6 @@ describe('AdminService', () => {
     );
   });
 
-
   it('getTenant should fallback when city/state columns are missing in DB', async () => {
     prisma.tenant.findUnique
       .mockRejectedValueOnce({ code: 'P2022', meta: { column: 'state' } })
@@ -508,7 +520,7 @@ describe('AdminService', () => {
         ],
       });
 
-    const result = await service.getTenant('tenant-1');
+    await service.getTenant('tenant-1');
 
     expect(prisma.tenant.findUnique).toHaveBeenCalledTimes(2);
     expect(result).toEqual(
@@ -527,7 +539,10 @@ describe('AdminService', () => {
       users: [],
       companies: [],
     });
-    prisma.tenant.update.mockResolvedValueOnce({ id: 'tenant-1', name: 'Tenant One' });
+    prisma.tenant.update.mockResolvedValueOnce({
+      id: 'tenant-1',
+      name: 'Tenant One',
+    });
     prisma.company.findFirst.mockResolvedValueOnce({ id: 'company-1' });
     prisma.company.update.mockResolvedValueOnce({ id: 'company-1' });
     prisma.user.findMany.mockResolvedValueOnce([]);
@@ -599,7 +614,7 @@ describe('AdminService', () => {
     ]);
     prisma.subscription.count.mockResolvedValueOnce(1);
 
-    const result = await service.listSubscriptions({ page: 1, limit: 10 });
+    await service.listSubscriptions({ page: 1, limit: 10 });
 
     expect(prisma.subscription.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -638,12 +653,14 @@ describe('AdminService', () => {
         },
         refreshTokens: [{ createdAt: new Date('2026-04-02T00:00:00.000Z') }],
         tenant: { id: 'tenant-1', name: 'Tenant One', status: 'ACTIVE' },
-        userCompanies: [{ role: 'ADMIN', company: { id: 'company-1', name: 'Main' } }],
+        userCompanies: [
+          { role: 'ADMIN', company: { id: 'company-1', name: 'Main' } },
+        ],
       },
     ]);
     prisma.user.count.mockResolvedValueOnce(1);
 
-    const result = await service.listAllUsers({ page: 1, limit: 10 });
+    await service.listAllUsers({ page: 1, limit: 10 });
 
     expect(prisma.user.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -682,7 +699,9 @@ describe('AdminService', () => {
     expect(result.data).toHaveLength(1);
     expect(result.data[0].email).toBe('tenant@demo.test');
     expect(result.data[0].passwordSetupStatus).toBe('SETUP_COMPLETED');
-    expect(result.data[0].lastLoginAt).toEqual(new Date('2026-04-02T00:00:00.000Z'));
+    expect(result.data[0].lastLoginAt).toEqual(
+      new Date('2026-04-02T00:00:00.000Z'),
+    );
   });
 
   it('getAuditLogs should return paginated rows from persisted audit logs', async () => {
@@ -702,7 +721,7 @@ describe('AdminService', () => {
     ]);
     prisma.auditLog.count.mockResolvedValueOnce(1);
 
-    const result = await service.getAuditLogs({
+    await service.getAuditLogs({
       page: 1,
       limit: 50,
       companyId: 'company-1',
@@ -723,5 +742,4 @@ describe('AdminService', () => {
     expect(result.data).toHaveLength(1);
     expect(result.meta.total).toBe(1);
   });
-
 });

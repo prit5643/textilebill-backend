@@ -21,7 +21,8 @@ import {
 import { getUserAuthCachePattern } from '../auth/auth-request-cache.util';
 
 const PASSWORD_SETUP_LINK_EXPIRY_MINUTES = 30;
-const PASSWORD_SETUP_LINK_EXPIRY_SECONDS = PASSWORD_SETUP_LINK_EXPIRY_MINUTES * 60;
+const PASSWORD_SETUP_LINK_EXPIRY_SECONDS =
+  PASSWORD_SETUP_LINK_EXPIRY_MINUTES * 60;
 
 type AccessActor = {
   role: string;
@@ -74,76 +75,86 @@ export class UsersService {
     });
 
     if (existing) {
-      throw new ConflictException('User with this email already exists in tenant');
+      throw new ConflictException(
+        'User with this email already exists in tenant',
+      );
     }
 
     const rawPassword = dto.password ?? randomUUID().replace(/-/g, '');
     const passwordHash = await bcrypt.hash(rawPassword, 12);
-    const displayName = this.composeName(dto.firstName, dto.lastName, normalizedEmail);
+    const displayName = this.composeName(
+      dto.firstName,
+      dto.lastName,
+      normalizedEmail,
+    );
     const mappedRole = this.mapRole(dto.role);
 
-    const createdUser = await this.prisma.$transaction(async (tx) => {
-      const user = await tx.user.create({
-        data: {
-          tenantId,
-          email: normalizedEmail,
-          passwordHash,
-          name: displayName,
-          phone: dto.phone,
-          status: 'ACTIVE',
-        },
-        include: {
-          userCompanies: {
-            select: {
-              companyId: true,
-              role: true,
+    const createdUser = await this.prisma
+      .$transaction(async (tx) => {
+        const user = await tx.user.create({
+          data: {
+            tenantId,
+            email: normalizedEmail,
+            passwordHash,
+            name: displayName,
+            phone: dto.phone,
+            status: 'ACTIVE',
+          },
+          include: {
+            userCompanies: {
+              select: {
+                companyId: true,
+                role: true,
+              },
             },
           },
-        },
-      });
-
-      if (dto.companyIds?.length) {
-        const uniqueCompanyIds = Array.from(new Set(dto.companyIds));
-        const validCompanies = await tx.company.findMany({
-          where: {
-            tenantId,
-            deletedAt: null,
-            status: 'ACTIVE',
-            id: { in: uniqueCompanyIds },
-          },
-          select: { id: true },
         });
 
-        if (validCompanies.length !== uniqueCompanyIds.length) {
-          throw new BadRequestException(
-            'One or more companyIds are invalid for this tenant',
+        if (dto.companyIds?.length) {
+          const uniqueCompanyIds = Array.from(new Set(dto.companyIds));
+          const validCompanies = await tx.company.findMany({
+            where: {
+              tenantId,
+              deletedAt: null,
+              status: 'ACTIVE',
+              id: { in: uniqueCompanyIds },
+            },
+            select: { id: true },
+          });
+
+          if (validCompanies.length !== uniqueCompanyIds.length) {
+            throw new BadRequestException(
+              'One or more companyIds are invalid for this tenant',
+            );
+          }
+
+          await tx.userCompany.createMany({
+            data: uniqueCompanyIds.map((companyId) => ({
+              tenantId,
+              userId: user.id,
+              companyId,
+              role: mappedRole,
+            })),
+            skipDuplicates: true,
+          });
+
+          user.userCompanies = uniqueCompanyIds.map((companyId) => ({
+            companyId,
+            role: mappedRole,
+          }));
+        }
+
+        return user;
+      })
+      .catch((error: unknown) => {
+        if (this.isUniqueConstraintError(error)) {
+          throw new ConflictException(
+            'User with this email already exists in tenant',
           );
         }
 
-        await tx.userCompany.createMany({
-          data: uniqueCompanyIds.map((companyId) => ({
-            tenantId,
-            userId: user.id,
-            companyId,
-            role: mappedRole,
-          })),
-          skipDuplicates: true,
-        });
-
-        user.userCompanies = uniqueCompanyIds.map((companyId) => ({
-          companyId,
-          role: mappedRole,
-        }));
-      }
-
-      return user;
-    }).catch((error: unknown) => {
-      if (this.isUniqueConstraintError(error)) {
-        throw new ConflictException('User with this email already exists in tenant');
-      }
-
-      throw error;
-    });
+        throw error;
+      });
 
     const setupToken = randomUUID();
     await this.redisService.set(
@@ -162,7 +173,11 @@ export class UsersService {
     });
 
     this.otpDeliveryService
-      .sendInviteEmail(normalizedEmail, setupLink, PASSWORD_SETUP_LINK_EXPIRY_MINUTES)
+      .sendInviteEmail(
+        normalizedEmail,
+        setupLink,
+        PASSWORD_SETUP_LINK_EXPIRY_MINUTES,
+      )
       .catch((err: unknown) =>
         this.logger.error(
           `Failed to send setup guidance email to ${normalizedEmail}: ${
@@ -175,7 +190,9 @@ export class UsersService {
       ...this.toUserResponse(createdUser),
       passwordSetupStatus: 'PENDING_SETUP',
       passwordSetupLinkSentAt: new Date(),
-      passwordSetupExpiresAt: new Date(Date.now() + PASSWORD_SETUP_LINK_EXPIRY_SECONDS * 1000),
+      passwordSetupExpiresAt: new Date(
+        Date.now() + PASSWORD_SETUP_LINK_EXPIRY_SECONDS * 1000,
+      ),
     };
   }
 
@@ -255,7 +272,11 @@ export class UsersService {
     });
 
     this.otpDeliveryService
-      .sendInviteEmail(user.email, setupLink, PASSWORD_SETUP_LINK_EXPIRY_MINUTES)
+      .sendInviteEmail(
+        user.email,
+        setupLink,
+        PASSWORD_SETUP_LINK_EXPIRY_MINUTES,
+      )
       .catch((err: unknown) =>
         this.logger.error(
           `Failed to resend setup guidance email to ${user.email}: ${
@@ -268,7 +289,9 @@ export class UsersService {
       message: 'Password setup guidance email sent',
       email: user.email,
       status: 'RESEND_AVAILABLE',
-      expiresAt: new Date(Date.now() + PASSWORD_SETUP_LINK_EXPIRY_SECONDS * 1000),
+      expiresAt: new Date(
+        Date.now() + PASSWORD_SETUP_LINK_EXPIRY_SECONDS * 1000,
+      ),
     };
   }
 
@@ -551,7 +574,9 @@ export class UsersService {
     lastName: string | undefined,
     email: string,
   ): string {
-    const full = [firstName?.trim(), lastName?.trim()].filter(Boolean).join(' ');
+    const full = [firstName?.trim(), lastName?.trim()]
+      .filter(Boolean)
+      .join(' ');
     if (full) {
       return full;
     }
@@ -560,7 +585,10 @@ export class UsersService {
     return localPart || 'User';
   }
 
-  private splitName(name: string): { firstName: string | null; lastName: string | null } {
+  private splitName(name: string): {
+    firstName: string | null;
+    lastName: string | null;
+  } {
     const trimmed = name.trim();
     if (!trimmed) {
       return { firstName: null, lastName: null };
@@ -585,7 +613,9 @@ export class UsersService {
     return order[role];
   }
 
-  private resolveEffectiveRole(accessRows: Array<{ role: UserRole }> = []): UserRole | null {
+  private resolveEffectiveRole(
+    accessRows: Array<{ role: UserRole }> = [],
+  ): UserRole | null {
     if (!accessRows.length) {
       return null;
     }
@@ -638,9 +668,9 @@ export class UsersService {
   private isUniqueConstraintError(error: unknown): boolean {
     return Boolean(
       error &&
-        typeof error === 'object' &&
-        'code' in error &&
-        (error as { code?: string }).code === 'P2002',
+      typeof error === 'object' &&
+      'code' in error &&
+      (error as { code?: string }).code === 'P2002',
     );
   }
 
@@ -723,7 +753,10 @@ export class UsersService {
     return baseUrl.replace(/\/+$/, '');
   }
 
-  private buildPublicLink(path: string, query?: Record<string, string>): string {
+  private buildPublicLink(
+    path: string,
+    query?: Record<string, string>,
+  ): string {
     const normalizedPath = path.startsWith('/') ? path : `/${path}`;
     const url = new URL(normalizedPath, `${this.resolvePublicAppUrl()}/`);
 
