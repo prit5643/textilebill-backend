@@ -18,6 +18,9 @@ This folder is the backend documentation index for the schema-aligned codebase.
 | Test scenarios | `test-scenarios.md` |
 | Tech stack | `TECH_STACK_CURRENT.md` |
 | Environment variables | `env-variables-reference.md` |
+| Expense/salary/profitability plan | `plans/2026-04-09-expense-salary-advance-profitability-backend-plan.md` |
+| Expense/salary/profitability implementation audit | `plans/2026-04-12-expense-salary-advance-profitability-implementation-audit.md` |
+| Work-order handover | `2026-04-12-work-orders-backend-handover.md` |
 
 ## Historical / Audit Docs
 

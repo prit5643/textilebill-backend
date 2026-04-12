@@ -1,7 +1,7 @@
 # TextileBill API Contract
 
-Version: `2.1.0`  
-Last updated: `2026-03-30`  
+Version: `2.2.0`  
+Last updated: `2026-04-12`  
 Base URL: `/api`
 
 This contract is aligned to the current Prisma schema in `prisma/schema.prisma`.
@@ -167,6 +167,32 @@ Current invoice rules:
 
 These are compatibility routes over voucher-sequence-backed behavior.
 
+## Expenses & Reimbursements
+
+- `POST /expenses`
+- `GET /expenses`
+- `GET /expenses/:id`
+- `PATCH /expenses/:id`
+- `POST /expenses/:id/attachments`
+- `GET /expenses/:id/attachments`
+- `GET /reimbursements/claims`
+- `POST /reimbursements/claims`
+- `PATCH /reimbursements/claims/:id`
+- `POST /reimbursements/claims/:id/settle`
+
+## Work Orders
+
+- `POST /work-orders`
+- `GET /work-orders`
+- `GET /work-orders/:id`
+- `POST /work-orders/:id/split`
+- `POST /work-orders/:id/link-invoice`
+- `POST /work-orders/:id/loss-incidents`
+- `POST /work-orders/loss-incidents/:incidentId/retry`
+- `POST /work-orders/loss-incidents/:incidentId/reverse`
+- `PATCH /work-orders/:id/close`
+- `GET /work-orders/:id/profitability`
+
 ## Accounting
 
 Current accounting/reporting surfaces remain available for:
@@ -206,6 +232,91 @@ Available routes include:
 - profit/loss
 - balance sheet
 
+Work-order profitability report routes:
+
+- `GET /reports/monthly-profit-summary`
+- `GET /reports/vendor-margin-risk`
+
+## Expenses
+
+Main routes:
+
+- `POST /expenses`
+- `GET /expenses`
+- `GET /expenses/:id`
+- `PATCH /expenses/:id`
+- `POST /expenses/:id/submit`
+
+People and categories:
+
+- `POST /expenses/people`
+- `GET /expenses/people`
+- `PATCH /expenses/people/:id`
+- `POST /expenses/categories`
+- `GET /expenses/categories`
+
+Attachments (local-only storage):
+
+- `POST /expenses/:id/attachments` (multipart, authenticated)
+- `GET /expenses/:id/attachments`
+- `DELETE /expenses/attachments/:attachmentId`
+- `GET /uploads/expenses/:filename` (served from local `uploads/expenses`)
+
+Notes:
+
+- No presign endpoint is active for this module.
+- Attachment files are local server files in v1.
+
+## Reimbursements
+
+- `GET /reimbursements/claims`
+- `POST /reimbursements/claims`
+- `POST /reimbursements/claims/:id/settle`
+- `POST /reimbursements/claims/:id/attachments`
+- `GET /reimbursements/claims/:id/attachments`
+- `DELETE /reimbursements/attachments/:attachmentId`
+
+## Payroll
+
+- `POST /payroll/salary-profiles`
+- `GET /payroll/salary-profiles`
+- `POST /payroll/advances`
+- `GET /payroll/advances`
+- `POST /payroll/settlements/run`
+- `GET /payroll/settlements`
+- `POST /payroll/settlements/:id/mark-paid`
+
+## Cost Centers and Profitability
+
+- `POST /cost-centers`
+- `GET /cost-centers`
+- `GET /cost-centers/:id`
+- `POST /cost-centers/:id/allocations`
+- `GET /cost-centers/:id/allocations`
+- `GET /reports/profitability/cost-centers`
+- `GET /reports/profitability/cost-centers/:id`
+
+## AI Insights
+
+- `GET /ai/insights/expense-anomalies`
+- `GET /ai/insights/cost-hotspots`
+- `GET /ai/insights/salary-advance-risk`
+- `GET /ai/insights/margin-leakage`
+
+## Work Orders
+
+- `POST /work-orders`
+- `GET /work-orders`
+- `GET /work-orders/:id`
+- `POST /work-orders/:id/split`
+- `POST /work-orders/:id/link-sale-invoice`
+- `POST /work-orders/:id/link-purchase-invoice`
+- `POST /work-orders/:id/loss-incidents`
+- `POST /work-orders/loss-incidents/:incidentId/retry`
+- `POST /work-orders/loss-incidents/:incidentId/reverse`
+- `PATCH /work-orders/:id/close`
+- `GET /work-orders/:id/profitability`
+
 ## Removed Legacy Persistence
 
 The following are not active Prisma models and must not be documented as live persistence:
@@ -228,7 +339,7 @@ The following are not active Prisma models and must not be documented as live pe
 
 ## Verification Snapshot
 
-Validated on `2026-03-30`:
+Last full-system verification snapshot from `2026-03-30`:
 
 - `npx prisma validate --schema prisma/schema.prisma` -> pass
 - `npx tsc --noEmit` -> pass

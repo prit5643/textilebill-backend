@@ -68,26 +68,24 @@ Design a robust backend module to manage outsourced overflow work, invoice-linke
 - `GET /work-orders`
 - `GET /work-orders/:id`
 - `POST /work-orders/:id/split`
-- `POST /work-orders/:id/close`
+- `PATCH /work-orders/:id/close`
 
 ## 5.2 Invoice linking
 
-- `POST /work-orders/:id/invoices/link-sale`
-- `POST /work-orders/lots/:lotId/invoices/link-purchase`
+- `POST /work-orders/:id/link-sale-invoice`
+- `POST /work-orders/:id/link-purchase-invoice`
 
 ## 5.3 Loss and adjustments
 
 - `POST /work-orders/:id/loss-incidents`
-- `GET /work-orders/:id/loss-incidents`
-- `POST /work-orders/loss-incidents/:id/retry-adjustment`
-- `POST /work-orders/loss-incidents/:id/reverse`
+- `POST /work-orders/loss-incidents/:incidentId/retry`
+- `POST /work-orders/loss-incidents/:incidentId/reverse`
 
 ## 5.4 Reporting
 
 - `GET /work-orders/:id/profitability`
-- `GET /reports/work-orders/monthly-profit-summary?from=YYYY-MM&to=YYYY-MM`
-- `GET /reports/work-orders/vendor-margin-risk?from=YYYY-MM&to=YYYY-MM`
-- `GET /reports/work-orders/profitability/:id`
+- `GET /reports/monthly-profit-summary?year=YYYY[&month=MM]`
+- `GET /reports/vendor-margin-risk`
 
 ## 6) Validation Plan
 

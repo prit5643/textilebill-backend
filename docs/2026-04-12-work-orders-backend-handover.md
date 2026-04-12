@@ -1,17 +1,13 @@
-# Work Orders Backend Handover (Deferred Feature)
+# Work Orders Backend Handover
 
 Date: 2026-04-12  
 Branch target: `add-expense-feature`  
-Status: Documented only (feature intentionally not active on this branch)
+Status: Implemented on this branch
 
 ## 1) Why this doc exists
 
-Work-order (outsourced capacity + margin tracking) backend work was explored but intentionally deferred because:
-- current deployment priority is bug-fix stability
-- feature was not finished end-to-end
-- shipping partial implementation would increase deployment risk
-
-This handover doc captures exactly how to add it later with predictable behavior.
+Work-order (outsourced capacity + margin tracking) backend is now implemented on `add-expense-feature`.
+This document is the backend handover reference for the implemented routes, constraints, and rollout checks.
 
 ## 2) Target v1 scope (backend)
 
@@ -23,32 +19,30 @@ Implement a new `work-order` domain with:
 - one purchase invoice per outsourced lot
 4. loss incident tracking
 5. auto-adjustment lifecycle (`PENDING`, `POSTED`, `FAILED`, `REVERSED`)
-6. work-order reporting endpoints under `/reports/work-orders/*`
+6. work-order reporting endpoints under `/reports/monthly-profit-summary` and `/reports/vendor-margin-risk`
 
-## 3) API contract to implement
+## 3) API contract implemented
 
 ## 3.1 Work orders
 - `POST /work-orders`
 - `GET /work-orders`
 - `GET /work-orders/:id`
 - `POST /work-orders/:id/split`
-- `POST /work-orders/:id/close`
+- `PATCH /work-orders/:id/close`
 
 ## 3.2 Invoice linking
-- `POST /work-orders/:id/invoices/link-sale`
-- `POST /work-orders/lots/:lotId/invoices/link-purchase`
+- `POST /work-orders/:id/link-sale-invoice`
+- `POST /work-orders/:id/link-purchase-invoice`
 
 ## 3.3 Loss and adjustment
 - `POST /work-orders/:id/loss-incidents`
-- `GET /work-orders/:id/loss-incidents`
-- `POST /work-orders/loss-incidents/:id/retry-adjustment`
-- `POST /work-orders/loss-incidents/:id/reverse`
+- `POST /work-orders/loss-incidents/:incidentId/retry`
+- `POST /work-orders/loss-incidents/:incidentId/reverse`
 
 ## 3.4 Profit and reports
 - `GET /work-orders/:id/profitability`
-- `GET /reports/work-orders/monthly-profit-summary?from=YYYY-MM&to=YYYY-MM`
-- `GET /reports/work-orders/vendor-margin-risk?from=YYYY-MM&to=YYYY-MM`
-- `GET /reports/work-orders/profitability/:id`
+- `GET /reports/monthly-profit-summary?year=YYYY[&month=MM]`
+- `GET /reports/vendor-margin-risk`
 
 ## 4) Data model blueprint (Prisma)
 
@@ -169,7 +163,7 @@ Update:
 
 ## 10) Migration and deployment runbook
 
-When feature is resumed:
+For new environments:
 1. create migration in interactive local dev:
 - `npx prisma migrate dev --name add_work_orders_module`
 2. verify:
@@ -191,15 +185,18 @@ If post-deploy issue appears:
 3. keep tables intact (no destructive rollback in production)
 4. release patch for logic; avoid emergency schema drop
 
-## 12) Notes about previous partial implementation
+## 12) Current implementation notes
 
-A previous experimental implementation was intentionally removed from `add-expense-feature` to keep deployment safe.
+Implemented module files:
+- `src/modules/work-order/work-order.module.ts`
+- `src/modules/work-order/work-order.controller.ts`
+- `src/modules/work-order/work-order.service.ts`
+- `src/modules/work-order/dto/*`
 
-Important:
-- do not blindly cherry-pick mixed historical commits
-- re-introduce feature by following this file’s sequence
-- validate each step with tests before merging
+Integrated files:
+- `src/app.module.ts` (module registration)
+- `src/modules/report/report.controller.ts` (monthly profit summary + vendor margin risk routes)
 
 ---
 
-This document is the backend source of truth for re-introducing work-order functionality safely later.
+This document is the backend source of truth for current work-order functionality on `add-expense-feature`.

@@ -2,7 +2,7 @@
 
 Primary source of truth: `prisma/schema.prisma`
 
-Last updated: `2026-03-30`
+Last updated: `2026-04-12`
 
 ## Active Enums
 
@@ -16,6 +16,9 @@ Last updated: `2026-03-30`
 - `OtpPurpose`: `LOGIN`, `RESET_PASSWORD`, `VERIFY_EMAIL`
 - `SubscriptionStatus`: `ACTIVE`, `EXPIRED`, `CANCELLED`, `PENDING`
 - `PaymentStatus`: `PENDING`, `PAID`, `FAILED`, `REFUNDED`
+- `ExpenseSourceType`, `ExpenseStatus`, `ExpenseAttachmentType`
+- `ReimbursementStatus`, `ReimbursementSettlementMode`
+- `WorkOrderStatus`, `WorkOrderLotType`, `WorkOrderLotStatus`, `WorkOrderInvoiceLinkType`, `WorkOrderLossReasonCode`, `WorkOrderLossChargeTo`, `WorkOrderLossIncidentStatus`, `WorkOrderAutoAdjustMode`, `WorkOrderAdjustmentType`, `WorkOrderAdjustmentStatus`
 
 ## Active Models
 
@@ -43,6 +46,21 @@ Last updated: `2026-03-30`
 - `LedgerEntry`
 - `StockMovement`
 
+### Expenses & HR
+
+- `Expense`
+- `ExpenseAttachment`
+- `CostCenter`
+- `ReimbursementClaim`
+
+### Work Orders & Manufacturing
+
+- `WorkOrder`
+- `WorkOrderLot`
+- `WorkOrderInvoiceLink`
+- `WorkOrderLossIncident`
+- `WorkOrderAutoAdjustment`
+
 ### SaaS billing
 
 - `Plan`
@@ -59,6 +77,9 @@ Last updated: `2026-03-30`
 - `Invoice` belongs to `Company`, `Account`, and `FinancialYear`.
 - `InvoiceItem` links `Invoice` to `Product`.
 - `LedgerEntry` and `StockMovement` are the durable accounting and inventory ledgers.
+- `Expense` logs overheads linked to `CostCenter`, optionally attached to `WorkOrder`.
+- `ReimbursementClaim` tracks employee salary-advance claims (HR).
+- `WorkOrder` represents manufacturing requests tracking outsourced/in-house lots, linked to invoices and auto-adjustments.
 - `Plan` and `Subscription` remain part of the active schema and are used by admin/subscription flows.
 
 ## Key Field Conventions

@@ -1,6 +1,6 @@
 # Application Features
 
-Last updated: `2026-03-30`
+Last updated: `2026-04-12`
 
 This file lists currently implemented features only.
 
@@ -54,6 +54,22 @@ This file lists currently implemented features only.
 - invoice conversion support
 - voucher-sequence-based numbering
 - immutable versioning support via current invoice schema
+
+## Expenses & Reimbursements
+
+- general and work-order specific expense logging
+- expense categorical cost centers
+- bulk file attachment tracking directly into unified API responses
+- auto-advance matching directly to payroll settlements
+- reimbursement claims for salary adjustment/withholding
+
+## Work Orders (Outsourced Capacity)
+
+- creation, splitting, and tracking internal vs outsourced lots
+- invoice linking (sale and purchase)
+- capacity and loss incident tracking (auto expense adjustments/charge-backs)
+- real-time profitability/margin visibility (calculates revenue against out-of-pocket tracking)
+- vendor risk monitoring
 
 ## Accounting and Inventory
 
