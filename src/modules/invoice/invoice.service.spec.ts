@@ -330,7 +330,9 @@ describe('InvoiceService', () => {
       orderBy: { date: 'desc' },
       select: { id: true, date: true, credit: true, narration: true },
     });
-    expect(result).toEqual([{ id: 'p-1', credit: 100, narration: '[INVOICE_PAYMENT]' }]);
+    expect(result).toEqual([
+      { id: 'p-1', credit: 100, narration: '[INVOICE_PAYMENT]' },
+    ]);
   });
 
   it('prefers stored invoice-item product snapshot values over current product fields', async () => {

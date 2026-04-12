@@ -257,7 +257,10 @@ export class AuthService {
       throw new UnauthorizedException('User not found');
     }
 
-    const passwordMatches = await bcrypt.compare(currentPassword, user.passwordHash);
+    const passwordMatches = await bcrypt.compare(
+      currentPassword,
+      user.passwordHash,
+    );
     if (!passwordMatches) {
       throw new UnauthorizedException('Current password is incorrect');
     }
@@ -343,7 +346,11 @@ export class AuthService {
     };
   }
 
-  async verifyLoginOtp(requestId: string, otp: string, metadata?: SessionClientMetadata) {
+  async verifyLoginOtp(
+    requestId: string,
+    otp: string,
+    metadata?: SessionClientMetadata,
+  ) {
     const challenge = await this.getOtpChallenge(requestId);
 
     if (!challenge || challenge.purpose !== 'LOGIN') {
@@ -370,7 +377,10 @@ export class AuthService {
         throw new BadRequestException('OTP verification failed too many times');
       }
 
-      await this.storeOtpChallenge(challenge, this.getRemainingTtlSeconds(challenge));
+      await this.storeOtpChallenge(
+        challenge,
+        this.getRemainingTtlSeconds(challenge),
+      );
       throw new BadRequestException('Invalid OTP');
     }
 
@@ -480,7 +490,11 @@ export class AuthService {
     }
 
     const otp = this.generateOtpCode();
-    await this.redisService.set(this.getForgotPasswordOtpKey(normalized), otp, OTP_TTL_SECONDS);
+    await this.redisService.set(
+      this.getForgotPasswordOtpKey(normalized),
+      otp,
+      OTP_TTL_SECONDS,
+    );
     await this.redisService.set(cooldownKey, '1', OTP_RESEND_COOLDOWN_SECONDS);
 
     const delivered = await this.otpDeliveryService.deliver({
@@ -494,7 +508,9 @@ export class AuthService {
     if (!delivered) {
       await this.redisService.del(this.getForgotPasswordOtpKey(normalized));
       await this.redisService.del(cooldownKey);
-      throw new ServiceUnavailableException(PASSWORD_RESET_OTP_DELIVERY_FAILURE_MESSAGE);
+      throw new ServiceUnavailableException(
+        PASSWORD_RESET_OTP_DELIVERY_FAILURE_MESSAGE,
+      );
     }
 
     return {
@@ -505,9 +521,15 @@ export class AuthService {
     };
   }
 
-  async resetPassword(identifier: string, otp: string, newPassword: string): Promise<void> {
+  async resetPassword(
+    identifier: string,
+    otp: string,
+    newPassword: string,
+  ): Promise<void> {
     const normalized = identifier.trim().toLowerCase();
-    const storedOtp = await this.redisService.get(this.getForgotPasswordOtpKey(normalized));
+    const storedOtp = await this.redisService.get(
+      this.getForgotPasswordOtpKey(normalized),
+    );
 
     if (!storedOtp || storedOtp !== otp.trim()) {
       throw new BadRequestException('Invalid OTP');
@@ -589,7 +611,10 @@ export class AuthService {
     };
   }
 
-  async resetPasswordWithLink(token: string, newPassword: string): Promise<void> {
+  async resetPasswordWithLink(
+    token: string,
+    newPassword: string,
+  ): Promise<void> {
     const key = this.getPasswordResetLinkKey(token);
     const userId = await this.redisService.get(key);
 
@@ -777,7 +802,11 @@ export class AuthService {
     } satisfies PasswordSetupTokenValidation;
   }
 
-  async acceptInvite(token: string, newPassword: string, metadata?: SessionClientMetadata) {
+  async acceptInvite(
+    token: string,
+    newPassword: string,
+    metadata?: SessionClientMetadata,
+  ) {
     const key = this.getSetupLinkKey(token);
     const userId = await this.redisService.get(key);
 
@@ -842,14 +871,16 @@ export class AuthService {
 
     if (!userId) {
       return {
-        message: 'If an eligible account exists, a password setup link has been sent',
+        message:
+          'If an eligible account exists, a password setup link has been sent',
       };
     }
 
     const user = await this.findUserById(userId);
     if (!user || user.status !== 'ACTIVE' || user.deletedAt) {
       return {
-        message: 'If an eligible account exists, a password setup link has been sent',
+        message:
+          'If an eligible account exists, a password setup link has been sent',
       };
     }
 
@@ -880,7 +911,8 @@ export class AuthService {
     }
 
     return {
-      message: 'If an eligible account exists, a password setup link has been sent',
+      message:
+        'If an eligible account exists, a password setup link has been sent',
       expiresAt: new Date(Date.now() + PASSWORD_LINK_TTL_SECONDS * 1000),
     };
   }
@@ -978,10 +1010,15 @@ export class AuthService {
 
   private buildSessionUser(user: any) {
     const activeAssignments = (user.userCompanies ?? []).filter(
-      (row: any) => row.company && row.company.status === 'ACTIVE' && !row.company.deletedAt,
+      (row: any) =>
+        row.company &&
+        row.company.status === 'ACTIVE' &&
+        !row.company.deletedAt,
     );
 
-    const effectiveRole = this.toLegacyRole(this.getHighestRole(activeAssignments));
+    const effectiveRole = this.toLegacyRole(
+      this.getHighestRole(activeAssignments),
+    );
     const [firstName, ...restNameParts] = (user?.name ?? '')
       .trim()
       .split(/\s+/)
@@ -1007,7 +1044,9 @@ export class AuthService {
     };
   }
 
-  private getHighestRole(assignments: Array<{ role: UserRole }>): UserRole | null {
+  private getHighestRole(
+    assignments: Array<{ role: UserRole }>,
+  ): UserRole | null {
     if (!assignments.length) {
       return null;
     }
@@ -1081,7 +1120,10 @@ export class AuthService {
     return `auth:setup-link:user:${userId}`;
   }
 
-  private async storeOtpChallenge(challenge: CachedOtpChallenge, ttlSeconds: number) {
+  private async storeOtpChallenge(
+    challenge: CachedOtpChallenge,
+    ttlSeconds: number,
+  ) {
     await this.redisService.set(
       this.getOtpChallengeKey(challenge.requestId),
       JSON.stringify(challenge),
@@ -1089,7 +1131,9 @@ export class AuthService {
     );
   }
 
-  private async getOtpChallenge(requestId: string): Promise<CachedOtpChallenge | null> {
+  private async getOtpChallenge(
+    requestId: string,
+  ): Promise<CachedOtpChallenge | null> {
     const raw = await this.redisService.get(this.getOtpChallengeKey(requestId));
     if (!raw) {
       return null;
@@ -1151,7 +1195,10 @@ export class AuthService {
     return baseUrl.replace(/\/+$/, '');
   }
 
-  private buildPublicLink(path: '/accept-invite' | '/reset-password', token: string): string {
+  private buildPublicLink(
+    path: '/accept-invite' | '/reset-password',
+    token: string,
+  ): string {
     const url = new URL(path, `${this.resolvePublicAppUrl()}/`);
     url.searchParams.set('token', token);
     return url.toString();

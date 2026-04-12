@@ -94,7 +94,10 @@ export class AuthController {
   @ApiOperation({ summary: 'Request OTP for login' })
   async requestOtp(@Req() req: Request, @Body() dto: OtpRequestDto) {
     assertAllowedOrigin(req, this.configService);
-    return this.authService.requestLoginOtp(dto.identifier, dto.channel ?? 'EMAIL');
+    return this.authService.requestLoginOtp(
+      dto.identifier,
+      dto.channel ?? 'EMAIL',
+    );
   }
 
   @Post('otp/verify')
@@ -303,7 +306,9 @@ export class AuthController {
   }
 
   @Get('invite/validate')
-  @ApiOperation({ summary: 'Validate an invite token before showing the set-password form' })
+  @ApiOperation({
+    summary: 'Validate an invite token before showing the set-password form',
+  })
   async validateInvite(@Query('token') token: string) {
     if (!token) {
       return { valid: false };
@@ -312,7 +317,10 @@ export class AuthController {
   }
 
   @Get('password-setup/validate')
-  @ApiOperation({ summary: 'Validate a password setup token before showing the set-password form' })
+  @ApiOperation({
+    summary:
+      'Validate a password setup token before showing the set-password form',
+  })
   async validatePasswordSetup(@Query('token') token: string) {
     if (!token) {
       return { valid: false };
@@ -366,7 +374,9 @@ export class AuthController {
 
   @Post('password-setup/resend')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Resend password setup link (customer self-service)' })
+  @ApiOperation({
+    summary: 'Resend password setup link (customer self-service)',
+  })
   async resendPasswordSetupLink(
     @Req() req: Request,
     @Body() dto: PasswordSetupResendDto,

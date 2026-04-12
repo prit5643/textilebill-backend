@@ -92,7 +92,9 @@ describe('ProductService', () => {
   });
 
   it('throws conflict when duplicate active product exists', async () => {
-    (prisma.product!.findFirst as jest.Mock).mockResolvedValueOnce({ id: 'p1' });
+    (prisma.product!.findFirst as jest.Mock).mockResolvedValueOnce({
+      id: 'p1',
+    });
 
     await expect(
       service.createProduct('c1', { name: 'Dup Product' }),

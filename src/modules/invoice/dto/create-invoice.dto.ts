@@ -97,6 +97,10 @@ export class CreateInvoiceDto {
 
   @IsOptional()
   @IsUUID()
+  costCenterId?: string;
+
+  @IsOptional()
+  @IsUUID()
   brokerId?: string;
 
   @IsOptional()

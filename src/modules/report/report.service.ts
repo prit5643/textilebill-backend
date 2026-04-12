@@ -1,6 +1,13 @@
-import { Injectable } from '@nestjs/common';
-import { InvoiceStatus, InvoiceType, MovementType, Prisma } from '@prisma/client';
+import { Injectable, NotFoundException, Optional } from '@nestjs/common';
+import {
+  InvoiceStatus,
+  InvoiceType,
+  MovementType,
+  Prisma,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { RedisService } from '../redis/redis.service';
+import { createPaginatedResult, parsePagination } from '../../common/utils/pagination.util';
 
 type DateRangeInput = {
   dateFrom?: string;
@@ -9,7 +16,55 @@ type DateRangeInput = {
 
 @Injectable()
 export class ReportService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly profitabilityCacheTtlSeconds = 5 * 60;
+
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly redisService?: RedisService,
+  ) {}
+
+  private buildProfitabilityCacheKey(
+    companyId: string,
+    scope: 'summary' | 'detail',
+    params: Record<string, string | number | null | undefined>,
+  ) {
+    const sortedEntries = Object.entries(params).sort(([a], [b]) =>
+      a.localeCompare(b),
+    );
+    const serializedParams = sortedEntries
+      .map(([key, value]) => `${key}=${value ?? ''}`)
+      .join('&');
+    return `reports:profitability:${scope}:${companyId}:${serializedParams}`;
+  }
+
+  private async getCachedProfitability<T>(key: string): Promise<T | null> {
+    if (!this.redisService) {
+      return null;
+    }
+
+    const serialized = await this.redisService.get(key);
+    if (!serialized) {
+      return null;
+    }
+
+    try {
+      return JSON.parse(serialized) as T;
+    } catch {
+      return null;
+    }
+  }
+
+  private async setCachedProfitability<T>(key: string, value: T): Promise<void> {
+    if (!this.redisService) {
+      return;
+    }
+
+    await this.redisService.set(
+      key,
+      JSON.stringify(value),
+      this.profitabilityCacheTtlSeconds,
+    );
+  }
 
   async getDashboardKpis(companyId: string) {
     const now = new Date();
@@ -70,7 +125,20 @@ export class ReportService {
       select: { invoiceDate: true, type: true, totalAmount: true },
     });
 
-    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const monthNames = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
     const buckets = Array.from({ length: 12 }, (_, i) => ({
       month: monthNames[i],
       sales: 0,
@@ -212,7 +280,10 @@ export class ReportService {
     const openingByProduct = new Map<string, number>();
     for (const row of openingMovements) {
       const prev = openingByProduct.get(row.productId) ?? 0;
-      openingByProduct.set(row.productId, prev + this.stockSignedQty(row.type, Number(row.quantity)));
+      openingByProduct.set(
+        row.productId,
+        prev + this.stockSignedQty(row.type, Number(row.quantity)),
+      );
     }
 
     const periodInward = new Map<string, number>();
@@ -220,9 +291,15 @@ export class ReportService {
     for (const row of movementsInPeriod) {
       const qty = Number(row.quantity);
       if (row.type === MovementType.IN) {
-        periodInward.set(row.productId, (periodInward.get(row.productId) ?? 0) + qty);
+        periodInward.set(
+          row.productId,
+          (periodInward.get(row.productId) ?? 0) + qty,
+        );
       } else {
-        periodOutward.set(row.productId, (periodOutward.get(row.productId) ?? 0) + qty);
+        periodOutward.set(
+          row.productId,
+          (periodOutward.get(row.productId) ?? 0) + qty,
+        );
       }
     }
 
@@ -365,7 +442,12 @@ export class ReportService {
     const rows = await this.getProductDetails(companyId, query);
     const grouped = new Map<
       string,
-      { accountId: string; accountName: string; totalQty: number; totalAmount: number }
+      {
+        accountId: string;
+        accountName: string;
+        totalQty: number;
+        totalAmount: number;
+      }
     >();
 
     for (const row of rows) {
@@ -389,8 +471,223 @@ export class ReportService {
       totalAmount: this.round2(row.totalAmount),
     }));
   }
+  
+  async getCostCenterProfitability(
+    companyId: string,
+    query: { page?: number; limit?: number; fromDate?: string; toDate?: string },
+  ) {
+    const cacheKey = this.buildProfitabilityCacheKey(companyId, 'summary', {
+      page: query.page ?? null,
+      limit: query.limit ?? null,
+      fromDate: query.fromDate ?? null,
+      toDate: query.toDate ?? null,
+    });
+    const cached =
+      await this.getCachedProfitability<ReturnType<typeof createPaginatedResult>>(
+        cacheKey,
+      );
+    if (cached) {
+      return cached;
+    }
 
-  async getGstr1(companyId: string, range: { dateFrom: string; dateTo: string }) {
+    const { skip, take, page, limit } = parsePagination(query);
+    const { from, to } = this.parseRange({ dateFrom: query.fromDate, dateTo: query.toDate });
+
+    const where: Prisma.CostCenterWhereInput = {
+      companyId,
+      deletedAt: null,
+    };
+
+    const [centers, total] = await Promise.all([
+      this.prisma.costCenter.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, name: true, code: true },
+      }),
+      this.prisma.costCenter.count({ where }),
+    ]);
+
+    if (centers.length === 0) {
+      const emptyResult = createPaginatedResult([], total, page, limit);
+      await this.setCachedProfitability(cacheKey, emptyResult);
+      return emptyResult;
+    }
+
+    const profitabilityMap = await this.buildProfitabilityMap(
+      companyId,
+      centers.map((center) => center.id),
+      { from, to },
+    );
+
+    const data = centers.map((center) => {
+      const summary = profitabilityMap.get(center.id) ?? {
+        totalCost: 0,
+        totalSales: 0,
+        grossMargin: 0,
+        marginPercent: 0,
+      };
+      return {
+        costCenterId: center.id,
+        costCenterName: center.name,
+        costCenterCode: center.code ?? null,
+        ...summary,
+        periodStart: from ? from.toISOString().slice(0, 10) : null,
+        periodEnd: to ? to.toISOString().slice(0, 10) : null,
+      };
+    });
+
+    const result = createPaginatedResult(data, total, page, limit);
+    await this.setCachedProfitability(cacheKey, result);
+    return result;
+  }
+
+  async getCostCenterProfitabilityDetail(
+    companyId: string,
+    costCenterId: string,
+    query: { fromDate?: string; toDate?: string },
+  ) {
+    const cacheKey = this.buildProfitabilityCacheKey(companyId, 'detail', {
+      costCenterId,
+      fromDate: query.fromDate ?? null,
+      toDate: query.toDate ?? null,
+    });
+    const cached = await this.getCachedProfitability<any>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    const { from, to } = this.parseRange({ dateFrom: query.fromDate, dateTo: query.toDate });
+
+    const center = await this.prisma.costCenter.findFirst({
+      where: { id: costCenterId, companyId, deletedAt: null },
+      select: { id: true, name: true, code: true },
+    });
+
+    if (!center) {
+      throw new NotFoundException('Cost center not found');
+    }
+
+    const profitabilityMap = await this.buildProfitabilityMap(companyId, [center.id], { from, to });
+    const summary = profitabilityMap.get(center.id) ?? {
+      totalCost: 0,
+      totalSales: 0,
+      grossMargin: 0,
+      marginPercent: 0,
+    };
+
+    const result = {
+      costCenterId: center.id,
+      costCenterName: center.name,
+      costCenterCode: center.code ?? null,
+      ...summary,
+      periodStart: from ? from.toISOString().slice(0, 10) : null,
+      periodEnd: to ? to.toISOString().slice(0, 10) : null,
+    };
+    await this.setCachedProfitability(cacheKey, result);
+    return result;
+  }
+
+  private async buildProfitabilityMap(
+    companyId: string,
+    costCenterIds: string[],
+    range: { from?: Date; to?: Date },
+  ) {
+    const expenseDateFilter = range.from || range.to
+      ? {
+          expenseDate: {
+            ...(range.from ? { gte: range.from } : {}),
+            ...(range.to ? { lte: range.to } : {}),
+          },
+        }
+      : {};
+
+    const invoiceDateFilter = range.from || range.to
+      ? {
+          invoiceDate: {
+            ...(range.from ? { gte: range.from } : {}),
+            ...(range.to ? { lte: range.to } : {}),
+          },
+        }
+      : {};
+
+    const [allocations, sales, purchases] = await Promise.all([
+      this.prisma.costAllocation.groupBy({
+        by: ['costCenterId'],
+        where: {
+          companyId,
+          costCenterId: { in: costCenterIds },
+          expenseEntry: { deletedAt: null, ...expenseDateFilter },
+        },
+        _sum: { allocatedAmount: true },
+      }),
+      this.prisma.invoice.groupBy({
+        by: ['costCenterId'],
+        where: {
+          companyId,
+          costCenterId: { in: costCenterIds },
+          deletedAt: null,
+          status: { not: InvoiceStatus.CANCELLED },
+          type: InvoiceType.SALE,
+          ...invoiceDateFilter,
+        },
+        _sum: { totalAmount: true },
+      }),
+      this.prisma.invoice.groupBy({
+        by: ['costCenterId'],
+        where: {
+          companyId,
+          costCenterId: { in: costCenterIds },
+          deletedAt: null,
+          status: { not: InvoiceStatus.CANCELLED },
+          type: InvoiceType.PURCHASE,
+          ...invoiceDateFilter,
+        },
+        _sum: { totalAmount: true },
+      }),
+    ]);
+
+    const allocationMap = new Map(
+      allocations.map((row) => [row.costCenterId, Number(row._sum.allocatedAmount ?? 0)]),
+    );
+    const salesMap = new Map(
+      sales.map((row) => [row.costCenterId, Number(row._sum.totalAmount ?? 0)]),
+    );
+    const purchaseMap = new Map(
+      purchases.map((row) => [row.costCenterId, Number(row._sum.totalAmount ?? 0)]),
+    );
+
+    const result = new Map<string, {
+      totalCost: number;
+      totalSales: number;
+      grossMargin: number;
+      marginPercent: number;
+    }>();
+
+    for (const centerId of costCenterIds) {
+      const allocationsTotal = allocationMap.get(centerId) ?? 0;
+      const purchaseTotal = purchaseMap.get(centerId) ?? 0;
+      const salesTotal = salesMap.get(centerId) ?? 0;
+      const totalCost = allocationsTotal + purchaseTotal;
+      const grossMargin = salesTotal - totalCost;
+      const marginPercent = salesTotal > 0 ? (grossMargin / salesTotal) * 100 : 0;
+
+      result.set(centerId, {
+        totalCost: this.round2(totalCost),
+        totalSales: this.round2(salesTotal),
+        grossMargin: this.round2(grossMargin),
+        marginPercent: this.round2(marginPercent),
+      });
+    }
+
+    return result;
+  }
+
+  async getGstr1(
+    companyId: string,
+    range: { dateFrom: string; dateTo: string },
+  ) {
     const { from, to } = this.parseRange(range);
     return this.prisma.invoice.findMany({
       where: {
@@ -423,7 +720,10 @@ export class ReportService {
     });
   }
 
-  async getGstr3b(companyId: string, range: { dateFrom: string; dateTo: string }) {
+  async getGstr3b(
+    companyId: string,
+    range: { dateFrom: string; dateTo: string },
+  ) {
     const { from, to } = this.parseRange(range);
     const [sales, purchases] = await Promise.all([
       this.prisma.invoice.aggregate({
@@ -468,7 +768,10 @@ export class ReportService {
     };
   }
 
-  async getGstSlabWise(companyId: string, range: { dateFrom: string; dateTo: string }) {
+  async getGstSlabWise(
+    companyId: string,
+    range: { dateFrom: string; dateTo: string },
+  ) {
     const { from, to } = this.parseRange(range);
     const slabs = await this.prisma.invoiceItem.groupBy({
       by: ['taxRate'],
@@ -617,7 +920,10 @@ export class ReportService {
     });
 
     const paidMap = new Map(
-      groupedPayments.map((row) => [row.invoiceId ?? '', Number(row._sum.credit ?? 0)]),
+      groupedPayments.map((row) => [
+        row.invoiceId ?? '',
+        Number(row._sum.credit ?? 0),
+      ]),
     );
 
     let receivable = 0;
@@ -626,7 +932,10 @@ export class ReportService {
     for (const invoice of invoices) {
       const paid = paidMap.get(invoice.id) ?? 0;
       const remaining = Math.max(0, Number(invoice.totalAmount) - paid);
-      if (invoice.type === InvoiceType.SALE) {
+      if (
+        invoice.type === InvoiceType.SALE ||
+        invoice.type === InvoiceType.SALE_RETURN
+      ) {
         receivable += remaining;
       } else if (invoice.type === InvoiceType.PURCHASE) {
         payable += remaining;
@@ -676,10 +985,16 @@ export class ReportService {
       _sum: { credit: true },
     });
     const paidMap = new Map(
-      groupedPayments.map((row) => [row.invoiceId ?? '', Number(row._sum.credit ?? 0)]),
+      groupedPayments.map((row) => [
+        row.invoiceId ?? '',
+        Number(row._sum.credit ?? 0),
+      ]),
     );
 
-    const groupedByAccount = new Map<string, { totalDue: number; invoiceCount: number }>();
+    const groupedByAccount = new Map<
+      string,
+      { totalDue: number; invoiceCount: number }
+    >();
     for (const invoice of invoices) {
       const paid = paidMap.get(invoice.id) ?? 0;
       const due = Math.max(0, Number(invoice.totalAmount) - paid);
@@ -703,17 +1018,19 @@ export class ReportService {
     });
     const accountMap = new Map(accounts.map((row) => [row.id, row]));
 
-    return Array.from(groupedByAccount.entries()).map(([accountId, summary]) => {
-      const account = accountMap.get(accountId);
-      return {
-        id: accountId,
-        name: account?.party?.name ?? 'Unknown',
-        gstin: account?.party?.gstin ?? null,
-        address: account?.party?.address ?? null,
-        totalDue: this.round2(summary.totalDue),
-        invoiceCount: summary.invoiceCount,
-      };
-    });
+    return Array.from(groupedByAccount.entries()).map(
+      ([accountId, summary]) => {
+        const account = accountMap.get(accountId);
+        return {
+          id: accountId,
+          name: account?.party?.name ?? 'Unknown',
+          gstin: account?.party?.gstin ?? null,
+          address: account?.party?.address ?? null,
+          totalDue: this.round2(summary.totalDue),
+          invoiceCount: summary.invoiceCount,
+        };
+      },
+    );
   }
 
   private async sumByType(

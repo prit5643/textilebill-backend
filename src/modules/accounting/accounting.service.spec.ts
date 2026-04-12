@@ -84,14 +84,22 @@ describe('AccountingService', () => {
           id: 'entry-3',
           debit: 4,
           credit: 0,
-          account: { id: 'acc-1', group: 'SUNDRY_DEBTORS', party: { name: 'Party' } },
+          account: {
+            id: 'acc-1',
+            group: 'SUNDRY_DEBTORS',
+            party: { name: 'Party' },
+          },
           invoice: null,
         },
         {
           id: 'entry-4',
           debit: 0,
           credit: 2,
-          account: { id: 'acc-1', group: 'SUNDRY_DEBTORS', party: { name: 'Party' } },
+          account: {
+            id: 'acc-1',
+            group: 'SUNDRY_DEBTORS',
+            party: { name: 'Party' },
+          },
           invoice: null,
         },
       ]);
@@ -116,7 +124,9 @@ describe('AccountingService', () => {
   });
 
   it('creates opening stock as IN stock movement', async () => {
-    (prisma.stockMovement!.create as jest.Mock).mockResolvedValueOnce({ id: 'sm-1' });
+    (prisma.stockMovement!.create as jest.Mock).mockResolvedValueOnce({
+      id: 'sm-1',
+    });
 
     await expect(
       service.createOpeningStock('company-1', {

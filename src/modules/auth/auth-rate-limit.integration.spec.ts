@@ -315,8 +315,10 @@ describe('Write endpoint rate-limit integration', () => {
       throw new Error('Accounting write limiter not configured');
     }
 
-    app.post('/api/accounting/cash-book', accountingLimiter.middleware, (_req, res) =>
-      res.status(200).json({ ok: true }),
+    app.post(
+      '/api/accounting/cash-book',
+      accountingLimiter.middleware,
+      (_req, res) => res.status(200).json({ ok: true }),
     );
 
     const bearer = (sub: string) =>

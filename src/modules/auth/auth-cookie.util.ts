@@ -191,9 +191,12 @@ export function parseAllowedOrigins(configService: ConfigService) {
 }
 
 export function assertAllowedOrigin(
-  _request: Request,
-  _configService: ConfigService,
-  _logger?: LoggerService,
+  request: Request,
+  configService: ConfigService,
+  logger?: LoggerService,
 ) {
+  void request;
+  void configService;
+  void logger;
   return;
 }

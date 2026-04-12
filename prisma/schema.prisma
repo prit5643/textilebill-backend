@@ -106,6 +106,67 @@ enum ProductOptionKind {
   UOM
 }
 
+enum PersonType {
+  PARTNER
+  MANAGER
+  WORKER
+  ACCOUNTANT
+  OTHER
+}
+
+enum ExpenseSourceType {
+  COMPANY_CASH
+  COMPANY_BANK
+  PERSONAL
+  PERSONAL_OUT_OF_POCKET
+}
+
+enum ExpenseStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+  SETTLED
+}
+
+enum SalaryAdvanceStatus {
+  DRAFT
+  ACTIVE
+  PARTIALLY_ADJUSTED
+  SETTLED
+  CANCELLED
+}
+
+enum ReimbursementStatus {
+  DRAFT
+  SUBMITTED
+  SETTLED
+  REJECTED
+}
+
+enum ReimbursementSettlementMode {
+  DIRECT_PAYMENT
+  SALARY_ADDITION
+  CARRY_FORWARD
+}
+
+enum ExpenseAttachmentType {
+  BILL_IMAGE
+  INVOICE_PDF
+  PAYSLIP
+  OTHER
+}
+
+enum CostCenterType {
+  MONTHLY_POOL
+  PRODUCTION_LOT
+  ORDER
+  DEPARTMENT
+  MACHINE
+  LOT
+  MONTH
+}
+
 // ------------------------------------------
 // TENANT  (root of every relation)
 // ------------------------------------------
@@ -136,6 +197,16 @@ model Tenant {
   voucherSequences VoucherSequence[]
   otpChallenges    OtpChallenge[]
   auditLogs        AuditLog[]
+  companyPeople     CompanyPerson[]
+  expenseCategories ExpenseCategory[]
+  expenseEntries    ExpenseEntry[]
+  expenseAttachments ExpenseAttachment[]
+  salaryProfiles    SalaryProfile[]
+  salaryAdvances    SalaryAdvance[]
+  salarySettlements SalarySettlement[]
+  reimbursementClaims ReimbursementClaim[]
+  costCenters       CostCenter[]
+  costAllocations   CostAllocation[]
 
   @@index([deletedAt])
 }
@@ -174,6 +245,16 @@ model Company {
   products         Product[]
   productOptions   ProductOption[]
   auditLogs        AuditLog[]
+  companyPeople     CompanyPerson[]
+  expenseCategories ExpenseCategory[]
+  expenseEntries    ExpenseEntry[]
+  expenseAttachments ExpenseAttachment[]
+  salaryProfiles    SalaryProfile[]
+  salaryAdvances    SalaryAdvance[]
+  salarySettlements SalarySettlement[]
+  reimbursementClaims ReimbursementClaim[]
+  costCenters       CostCenter[]
+  costAllocations   CostAllocation[]
 
   @@unique([id, tenantId])
   @@index([tenantId, status])
@@ -202,6 +283,10 @@ model User {
   refreshTokens RefreshToken[]
   otpChallenges OtpChallenge[]
   auditLogs     AuditLog[]
+  expenseEntriesCreated ExpenseEntry[] @relation("ExpenseEntryCreatedBy")
+  expenseEntriesUpdated ExpenseEntry[] @relation("ExpenseEntryUpdatedBy")
+  expenseAttachmentsCreated ExpenseAttachment[] @relation("ExpenseAttachmentCreatedBy")
+  linkedCompanyPeople CompanyPerson[] @relation("CompanyPersonLinkedUser")
   // SQL: CREATE UNIQUE INDEX ON "User"(tenantId, LOWER(email)) WHERE "deletedAt" IS NULL;
 
   @@unique([id, tenantId])
@@ -499,6 +584,7 @@ model Invoice {
   companyId       String
   accountId       String
   financialYearId String
+  costCenterId    String?
   invoiceNumber   String
   invoiceDate     DateTime      @db.Date
   dueDate         DateTime?     @db.Date
@@ -521,6 +607,7 @@ model Invoice {
   company       Company       @relation(fields: [companyId, tenantId], references: [id, tenantId], onDelete: Restrict)
   account       Account       @relation(fields: [accountId, tenantId], references: [id, tenantId], onDelete: Restrict)
   financialYear FinancialYear @relation(fields: [financialYearId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  costCenter    CostCenter?   @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
   original      Invoice?      @relation("InvoiceVersions", fields: [originalId], references: [id])
   versions      Invoice[]     @relation("InvoiceVersions")
 
@@ -545,6 +632,7 @@ model Invoice {
   @@index([tenantId, companyId, accountId])
   @@index([tenantId, status, isLatest])
   @@index([originalId])
+  @@index([costCenterId])
   @@index([deletedAt])
 }
 
@@ -697,4 +785,288 @@ model Subscription {
   @@index([tenantId])
   @@index([planId])
   @@index([status, endDate])
+}
+
+// ------------------------------------------
+// EXPENSES, PAYROLL, AND PROFITABILITY
+// ------------------------------------------
+
+model CompanyPerson {
+  id          String       @id @default(uuid())
+  tenantId    String
+  companyId   String
+  linkedUserId String?
+  name        String
+  personType  PersonType
+  phone       String?
+  status      EntityStatus @default(ACTIVE)
+  joinedAt    DateTime?    @db.Date
+  leftAt      DateTime?    @db.Date
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  deletedAt   DateTime?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company Company @relation(fields: [companyId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  linkedUser User? @relation("CompanyPersonLinkedUser", fields: [linkedUserId, tenantId], references: [id, tenantId], onDelete: SetNull)
+
+  expenseEntries ExpenseEntry[]
+  salaryProfiles SalaryProfile[]
+  salaryAdvances SalaryAdvance[]
+  salarySettlements SalarySettlement[]
+  reimbursementClaims ReimbursementClaim[]
+
+  @@unique([id, tenantId])
+  @@index([tenantId, companyId])
+  @@index([companyId, status])
+  @@index([deletedAt])
+}
+
+model ExpenseCategory {
+  id             String   @id @default(uuid())
+  tenantId       String
+  companyId      String
+  code           String?
+  name           String
+  requiresPerson Boolean  @default(false)
+  isSystem       Boolean  @default(false)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  deletedAt      DateTime?
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company Company @relation(fields: [companyId, tenantId], references: [id, tenantId], onDelete: Restrict)
+
+  expenseEntries ExpenseEntry[]
+
+  @@unique([id, tenantId])
+  @@index([tenantId, companyId])
+  @@index([companyId, isActive])
+  @@index([deletedAt])
+}
+
+model ExpenseEntry {
+  id           String        @id @default(uuid())
+  tenantId     String
+  companyId    String
+  categoryId   String
+  personId     String?
+  costCenterId String?
+  referenceId  String?
+  expenseDate  DateTime      @db.Date
+  amount       Decimal       @db.Decimal(14, 2)
+  sourceType   ExpenseSourceType @default(COMPANY_CASH)
+  status       ExpenseStatus @default(DRAFT)
+  notes        String?
+  isBackdated  Boolean       @default(false)
+  createdById  String?
+  updatedById  String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  deletedAt    DateTime?
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company    Company    @relation(fields: [companyId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  category   ExpenseCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  person     CompanyPerson? @relation(fields: [personId], references: [id], onDelete: SetNull)
+  costCenter CostCenter? @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
+  createdBy  User? @relation("ExpenseEntryCreatedBy", fields: [createdById, tenantId], references: [id, tenantId], onDelete: SetNull)
+  updatedBy  User? @relation("ExpenseEntryUpdatedBy", fields: [updatedById, tenantId], references: [id, tenantId], onDelete: SetNull)
+
+  attachments ExpenseAttachment[]
+  allocations CostAllocation[]
+
+  @@unique([id, tenantId])
+  @@index([tenantId, companyId, expenseDate])
+  @@index([companyId, status])
+  @@index([categoryId])
+  @@index([personId])
+  @@index([costCenterId])
+  @@index([companyId, expenseDate, status, categoryId])
+  @@index([deletedAt])
+}
+
+model ExpenseAttachment {
+  id                  String  @id @default(uuid())
+  tenantId            String
+  companyId           String
+  expenseEntryId      String?
+  reimbursementClaimId String?
+  fileName            String
+  filePath            String
+  fileUrl             String
+  mimeType            String?
+  sizeBytes           Int?
+  attachmentType      ExpenseAttachmentType @default(OTHER)
+  createdById         String?
+  createdAt           DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company Company @relation(fields: [companyId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  expenseEntry ExpenseEntry? @relation(fields: [expenseEntryId], references: [id], onDelete: Cascade)
+  reimbursementClaim ReimbursementClaim? @relation(fields: [reimbursementClaimId], references: [id], onDelete: Cascade)
+  createdBy User? @relation("ExpenseAttachmentCreatedBy", fields: [createdById, tenantId], references: [id, tenantId], onDelete: SetNull)
+
+  @@unique([id, tenantId])
+  @@index([tenantId, companyId])
+  @@index([expenseEntryId])
+  @@index([reimbursementClaimId])
+}
+
+model SalaryProfile {
+  id           String   @id @default(uuid())
+  tenantId     String
+  companyId    String
+  personId     String
+  monthlyGross Decimal  @db.Decimal(14, 2)
+  effectiveFrom DateTime? @db.Date
+  effectiveTo   DateTime? @db.Date
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  deletedAt    DateTime?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company Company @relation(fields: [companyId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  person CompanyPerson @relation(fields: [personId], references: [id], onDelete: Restrict)
+
+  @@unique([id, tenantId])
+  @@index([tenantId, companyId])
+  @@index([personId])
+  @@index([companyId, isActive])
+  @@index([deletedAt])
+}
+
+model SalaryAdvance {
+  id             String   @id @default(uuid())
+  tenantId       String
+  companyId      String
+  personId       String
+  amount         Decimal  @db.Decimal(14, 2)
+  advanceDate    DateTime @db.Date
+  reason         String?
+  status         SalaryAdvanceStatus @default(ACTIVE)
+  remainingAmount Decimal @db.Decimal(14, 2)
+  settledAmount  Decimal  @default(0) @db.Decimal(14, 2)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  deletedAt      DateTime?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company Company @relation(fields: [companyId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  person CompanyPerson @relation(fields: [personId], references: [id], onDelete: Restrict)
+
+  @@unique([id, tenantId])
+  @@index([tenantId, companyId])
+  @@index([personId])
+  @@index([companyId, status])
+  @@index([deletedAt])
+}
+
+model SalarySettlement {
+  id                     String   @id @default(uuid())
+  tenantId               String
+  companyId              String
+  personId               String
+  year                   Int
+  month                  Int
+  grossSalary            Decimal @db.Decimal(14, 2)
+  advanceDeduction       Decimal @db.Decimal(14, 2)
+  reimbursementAddition  Decimal @db.Decimal(14, 2)
+  otherAdjustments       Decimal @db.Decimal(14, 2)
+  netPayable             Decimal @db.Decimal(14, 2)
+  paidAmount             Decimal @default(0) @db.Decimal(14, 2)
+  paidDate               DateTime? @db.Date
+  carryForwardAmount     Decimal @default(0) @db.Decimal(14, 2)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company Company @relation(fields: [companyId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  person CompanyPerson @relation(fields: [personId], references: [id], onDelete: Restrict)
+  reimbursementClaims ReimbursementClaim[]
+
+  @@unique([companyId, personId, year, month])
+  @@index([tenantId, companyId])
+  @@index([personId])
+}
+
+model ReimbursementClaim {
+  id                      String   @id @default(uuid())
+  tenantId                String
+  companyId               String
+  personId                String
+  claimDate               DateTime @db.Date
+  amount                  Decimal  @db.Decimal(14, 2)
+  status                  ReimbursementStatus @default(DRAFT)
+  notes                   String?
+  settlementMode          ReimbursementSettlementMode?
+  settledAt               DateTime? @db.Date
+  settledInSalarySettlementId String?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+  deletedAt               DateTime?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company Company @relation(fields: [companyId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  person CompanyPerson @relation(fields: [personId], references: [id], onDelete: Restrict)
+  settledInSalarySettlement SalarySettlement? @relation(fields: [settledInSalarySettlementId], references: [id], onDelete: SetNull)
+
+  attachments ExpenseAttachment[]
+
+  @@unique([id, tenantId])
+  @@index([tenantId, companyId])
+  @@index([personId])
+  @@index([status])
+  @@index([deletedAt])
+}
+
+model CostCenter {
+  id            String   @id @default(uuid())
+  tenantId      String
+  companyId     String
+  name          String
+  code          String?
+  scopeType     CostCenterType
+  scopeReference String?
+  startDate     DateTime? @db.Date
+  endDate       DateTime? @db.Date
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  deletedAt     DateTime?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company Company @relation(fields: [companyId, tenantId], references: [id, tenantId], onDelete: Restrict)
+
+  expenseEntries ExpenseEntry[]
+  costAllocations CostAllocation[]
+  invoices Invoice[]
+
+  @@unique([id, tenantId])
+  @@index([tenantId, companyId])
+  @@index([companyId, isActive])
+  @@index([deletedAt])
+}
+
+model CostAllocation {
+  id             String   @id @default(uuid())
+  tenantId       String
+  companyId      String
+  expenseEntryId String
+  costCenterId   String
+  allocatedAmount Decimal @db.Decimal(14, 2)
+  notes          String?
+  createdAt      DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company Company @relation(fields: [companyId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  expenseEntry ExpenseEntry @relation(fields: [expenseEntryId], references: [id], onDelete: Cascade)
+  costCenter CostCenter @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
+
+  @@unique([id, tenantId])
+  @@index([tenantId, companyId])
+  @@index([expenseEntryId])
+  @@index([costCenterId])
 }

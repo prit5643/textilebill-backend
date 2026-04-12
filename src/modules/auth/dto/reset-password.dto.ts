@@ -28,12 +28,18 @@ export class ResetPasswordDto {
   })
   identifier: string;
 
-  @ApiPropertyOptional({ example: 'user@example.com', description: 'Alias for identifier' })
+  @ApiPropertyOptional({
+    example: 'user@example.com',
+    description: 'Alias for identifier',
+  })
   @IsOptional()
   @IsString()
   email?: string;
 
-  @ApiPropertyOptional({ example: 'user@example.com', description: 'Alias for identifier' })
+  @ApiPropertyOptional({
+    example: 'user@example.com',
+    description: 'Alias for identifier',
+  })
   @IsOptional()
   @IsString()
   emailId?: string;

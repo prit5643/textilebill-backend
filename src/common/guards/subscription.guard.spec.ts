@@ -59,9 +59,7 @@ describe('SubscriptionGuard', () => {
   });
 
   it('allows cached active tenants without hitting the database', async () => {
-    redisService.get
-      .mockResolvedValueOnce('1')
-      .mockResolvedValueOnce('1');
+    redisService.get.mockResolvedValueOnce('1').mockResolvedValueOnce('1');
     const context = createContext({
       user: { id: 'user-1', role: 'ADMIN', tenantId: 'tenant-1' },
     });

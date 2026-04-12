@@ -46,9 +46,7 @@ describe('avatar-upload.util', () => {
 
   it('creates safe server-side filenames', () => {
     const generated = buildAvatarFilename('../../user-1', 'png');
-    expect(generated).toMatch(
-      /^[a-zA-Z0-9_-]+-\d{13}-[0-9a-f-]{36}\.png$/,
-    );
+    expect(generated).toMatch(/^[a-zA-Z0-9_-]+-\d{13}-[0-9a-f-]{36}\.png$/);
     expect(generated).not.toContain('/');
     expect(generated).not.toContain('..');
   });

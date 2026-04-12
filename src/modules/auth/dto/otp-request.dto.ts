@@ -5,7 +5,8 @@ import { IsIn, IsOptional, IsString } from 'class-validator';
 export class OtpRequestDto {
   @ApiProperty({
     example: 'owner@example.com',
-    description: 'Username, email, or phone number used to identify the account',
+    description:
+      'Username, email, or phone number used to identify the account',
   })
   @IsString()
   @Transform(({ value, obj }) => {
