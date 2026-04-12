@@ -44,6 +44,24 @@ export class ReportController {
     );
   }
 
+  @Get('monthly-profit-summary')
+  @ApiOperation({ summary: 'Monthly profit summary including work orders' })
+  @ApiQuery({ name: 'year', required: true, type: Number })
+  @ApiQuery({ name: 'month', required: false, type: Number })
+  async getMonthlyProfitSummary(
+    @CurrentCompanyId() companyId: string,
+    @Query('year') year: number,
+    @Query('month') month?: number,
+  ) {
+    return this.reportService.getMonthlyProfitSummary(companyId, Number(year), month ? Number(month) : undefined);
+  }
+
+  @Get('vendor-margin-risk')
+  @ApiOperation({ summary: 'Vendor margin risk and loss ratios' })
+  async getVendorMarginRisk(@CurrentCompanyId() companyId: string) {
+    return this.reportService.getVendorMarginRisk(companyId);
+  }
+
   // ─── OUTSTANDING ────────────────────
   @Get('outstanding/debtors')
   @ApiOperation({ summary: 'Outstanding receivables by customer' })

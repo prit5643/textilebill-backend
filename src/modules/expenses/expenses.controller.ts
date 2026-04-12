@@ -42,6 +42,8 @@ import {
 } from './dto';
 import { isAllowedExpenseMimeType } from './expense-attachment.util';
 
+const EXPENSE_ATTACHMENT_MAX_SIZE_BYTES = 10 * 1024 * 1024;
+
 @ApiTags('Expenses')
 @ApiBearerAuth('access-token')
 @RequireCompanyAccess()
@@ -211,12 +213,15 @@ export class ExpensesController {
       storage: memoryStorage(),
       fileFilter: (_req: any, file: Express.Multer.File, cb: any) => {
         if (!isAllowedExpenseMimeType(file.mimetype)) {
-          return cb(new BadRequestException('Unsupported attachment type'), false);
+          return cb(
+            new BadRequestException('Unsupported attachment type'),
+            false,
+          );
         }
         return cb(null, true);
       },
       limits: {
-        fileSize: 10 * 1024 * 1024,
+        fileSize: EXPENSE_ATTACHMENT_MAX_SIZE_BYTES,
       },
     }),
   )
@@ -226,7 +231,12 @@ export class ExpensesController {
     @Param('id') expenseId: string,
     @UploadedFile() file?: Express.Multer.File,
   ) {
-    return this.expensesService.uploadExpenseAttachment(companyId, expenseId, userId, file);
+    return this.expensesService.uploadExpenseAttachment(
+      companyId,
+      expenseId,
+      userId,
+      file,
+    );
   }
 
   @Get(':id/attachments')
@@ -244,6 +254,9 @@ export class ExpensesController {
     @CurrentCompanyId() companyId: string,
     @Param('attachmentId') attachmentId: string,
   ) {
-    return this.expensesService.deleteExpenseAttachment(companyId, attachmentId);
+    return this.expensesService.deleteExpenseAttachment(
+      companyId,
+      attachmentId,
+    );
   }
 }

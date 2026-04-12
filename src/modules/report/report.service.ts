@@ -7,7 +7,10 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
-import { createPaginatedResult, parsePagination } from '../../common/utils/pagination.util';
+import {
+  createPaginatedResult,
+  parsePagination,
+} from '../../common/utils/pagination.util';
 
 type DateRangeInput = {
   dateFrom?: string;
@@ -54,7 +57,10 @@ export class ReportService {
     }
   }
 
-  private async setCachedProfitability<T>(key: string, value: T): Promise<void> {
+  private async setCachedProfitability<T>(
+    key: string,
+    value: T,
+  ): Promise<void> {
     if (!this.redisService) {
       return;
     }
@@ -471,10 +477,148 @@ export class ReportService {
       totalAmount: this.round2(row.totalAmount),
     }));
   }
-  
+
+  async getMonthlyProfitSummary(companyId: string, year: number, month?: number) {
+    let from, to;
+    if (month !== undefined) {
+      from = new Date(year, month - 1, 1);
+      to = new Date(year, month, 1);
+    } else {
+      from = new Date(year, 0, 1);
+      to = new Date(year + 1, 0, 1);
+    }
+
+    const workOrders = await this.prisma.workOrder.findMany({
+      where: {
+        companyId,
+        createdAt: { gte: from, lt: to },
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        orderNumber: true,
+        status: true,
+        product: { select: { name: true } },
+        salePrice: true,
+        orderedQty: true,
+        lots: {
+          select: {
+            id: true,
+            lotType: true,
+            agreedRate: true,
+            acceptedQuantity: true,
+            quantity: true,
+            lossIncidents: { select: { lossAmount: true } },
+          }
+        },
+        autoAdjustments: {
+          select: { amount: true, type: true }
+        }
+      }
+    });
+
+    let totalRevenue = 0;
+    let totalCost = 0;
+    let totalAdjustments = 0;
+
+    for (const wo of workOrders) {
+      // Revenue
+      totalRevenue += Number(wo.salePrice) * Number(wo.orderedQty);
+
+      for (const lot of wo.lots) {
+        if (lot.lotType === 'OUTSOURCED' && lot.agreedRate) {
+          totalCost += Number(lot.agreedRate) * Number(lot.acceptedQuantity || lot.quantity);
+        } else {
+          // If in-house, what is cost? We'll assume internal logic handles it or 0.
+        }
+
+        for (const inc of lot.lossIncidents) {
+          totalAdjustments -= Number(inc.lossAmount);
+        }
+      }
+
+      for (const adj of wo.autoAdjustments) {
+        if (adj.type === 'LOSS_EXPENSE_NOTE') {
+          totalAdjustments -= Number(adj.amount);
+        }
+      }
+    }
+
+    const netProfit = totalRevenue - totalCost + totalAdjustments;
+    const margin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
+
+    return {
+      revenue: this.round2(totalRevenue),
+      costs: this.round2(totalCost),
+      adjustments: this.round2(totalAdjustments),
+      netProfit: this.round2(netProfit),
+      marginPercent: this.round2(margin),
+      workOrdersCount: workOrders.length,
+    };
+  }
+
+  async getVendorMarginRisk(companyId: string) {
+    const outsourcedLots = await this.prisma.workOrderLot.findMany({
+      where: {
+        companyId,
+        lotType: 'OUTSOURCED',
+      },
+      select: {
+        vendorAccountId: true,
+        vendorAccount: { select: { party: { select: { name: true } } } },
+        agreedRate: true,
+        quantity: true,
+        acceptedQuantity: true,
+        lossIncidents: {
+          select: {
+            lossType: true,
+            lossQuantity: true,
+            lossAmount: true,
+          }
+        }
+      }
+    });
+
+    const vendorMap = new Map<string, any>();
+    for (const lot of outsourcedLots) {
+      if (!lot.vendorAccountId) continue;
+      const v = vendorMap.get(lot.vendorAccountId) || {
+        vendorId: lot.vendorAccountId,
+        vendorName: lot.vendorAccount?.party?.name || 'Unknown',
+        totalOrders: 0,
+        totalCost: 0,
+        totalLossAmount: 0,
+      };
+
+      v.totalOrders++;
+      v.totalCost += Number(lot.agreedRate || 0) * Number(lot.quantity);
+
+      for (const incident of lot.lossIncidents) {
+        v.totalLossAmount += Number(incident.lossAmount);
+      }
+      vendorMap.set(lot.vendorAccountId, v);
+    }
+
+    const arr = Array.from(vendorMap.values()).map((v) => {
+      const riskRatio = v.totalCost > 0 ? (v.totalLossAmount / v.totalCost) * 100 : 0;
+      return {
+        ...v,
+        netLoss: this.round2(v.totalLossAmount),
+        riskRatio: this.round2(riskRatio),
+      };
+    });
+
+    return arr.sort((a, b) => b.riskRatio - a.riskRatio);
+  }
+
   async getCostCenterProfitability(
     companyId: string,
-    query: { page?: number; limit?: number; fromDate?: string; toDate?: string },
+    query: {
+      page?: number;
+      limit?: number;
+      fromDate?: string;
+      toDate?: string;
+    },
   ) {
     const cacheKey = this.buildProfitabilityCacheKey(companyId, 'summary', {
       page: query.page ?? null,
@@ -483,15 +627,18 @@ export class ReportService {
       toDate: query.toDate ?? null,
     });
     const cached =
-      await this.getCachedProfitability<ReturnType<typeof createPaginatedResult>>(
-        cacheKey,
-      );
+      await this.getCachedProfitability<
+        ReturnType<typeof createPaginatedResult>
+      >(cacheKey);
     if (cached) {
       return cached;
     }
 
     const { skip, take, page, limit } = parsePagination(query);
-    const { from, to } = this.parseRange({ dateFrom: query.fromDate, dateTo: query.toDate });
+    const { from, to } = this.parseRange({
+      dateFrom: query.fromDate,
+      dateTo: query.toDate,
+    });
 
     const where: Prisma.CostCenterWhereInput = {
       companyId,
@@ -558,7 +705,10 @@ export class ReportService {
       return cached;
     }
 
-    const { from, to } = this.parseRange({ dateFrom: query.fromDate, dateTo: query.toDate });
+    const { from, to } = this.parseRange({
+      dateFrom: query.fromDate,
+      dateTo: query.toDate,
+    });
 
     const center = await this.prisma.costCenter.findFirst({
       where: { id: costCenterId, companyId, deletedAt: null },
@@ -569,7 +719,11 @@ export class ReportService {
       throw new NotFoundException('Cost center not found');
     }
 
-    const profitabilityMap = await this.buildProfitabilityMap(companyId, [center.id], { from, to });
+    const profitabilityMap = await this.buildProfitabilityMap(
+      companyId,
+      [center.id],
+      { from, to },
+    );
     const summary = profitabilityMap.get(center.id) ?? {
       totalCost: 0,
       totalSales: 0,
@@ -594,23 +748,25 @@ export class ReportService {
     costCenterIds: string[],
     range: { from?: Date; to?: Date },
   ) {
-    const expenseDateFilter = range.from || range.to
-      ? {
-          expenseDate: {
-            ...(range.from ? { gte: range.from } : {}),
-            ...(range.to ? { lte: range.to } : {}),
-          },
-        }
-      : {};
+    const expenseDateFilter =
+      range.from || range.to
+        ? {
+            expenseDate: {
+              ...(range.from ? { gte: range.from } : {}),
+              ...(range.to ? { lte: range.to } : {}),
+            },
+          }
+        : {};
 
-    const invoiceDateFilter = range.from || range.to
-      ? {
-          invoiceDate: {
-            ...(range.from ? { gte: range.from } : {}),
-            ...(range.to ? { lte: range.to } : {}),
-          },
-        }
-      : {};
+    const invoiceDateFilter =
+      range.from || range.to
+        ? {
+            invoiceDate: {
+              ...(range.from ? { gte: range.from } : {}),
+              ...(range.to ? { lte: range.to } : {}),
+            },
+          }
+        : {};
 
     const [allocations, sales, purchases] = await Promise.all([
       this.prisma.costAllocation.groupBy({
@@ -649,21 +805,30 @@ export class ReportService {
     ]);
 
     const allocationMap = new Map(
-      allocations.map((row) => [row.costCenterId, Number(row._sum.allocatedAmount ?? 0)]),
+      allocations.map((row) => [
+        row.costCenterId,
+        Number(row._sum.allocatedAmount ?? 0),
+      ]),
     );
     const salesMap = new Map(
       sales.map((row) => [row.costCenterId, Number(row._sum.totalAmount ?? 0)]),
     );
     const purchaseMap = new Map(
-      purchases.map((row) => [row.costCenterId, Number(row._sum.totalAmount ?? 0)]),
+      purchases.map((row) => [
+        row.costCenterId,
+        Number(row._sum.totalAmount ?? 0),
+      ]),
     );
 
-    const result = new Map<string, {
-      totalCost: number;
-      totalSales: number;
-      grossMargin: number;
-      marginPercent: number;
-    }>();
+    const result = new Map<
+      string,
+      {
+        totalCost: number;
+        totalSales: number;
+        grossMargin: number;
+        marginPercent: number;
+      }
+    >();
 
     for (const centerId of costCenterIds) {
       const allocationsTotal = allocationMap.get(centerId) ?? 0;
@@ -671,7 +836,8 @@ export class ReportService {
       const salesTotal = salesMap.get(centerId) ?? 0;
       const totalCost = allocationsTotal + purchaseTotal;
       const grossMargin = salesTotal - totalCost;
-      const marginPercent = salesTotal > 0 ? (grossMargin / salesTotal) * 100 : 0;
+      const marginPercent =
+        salesTotal > 0 ? (grossMargin / salesTotal) * 100 : 0;
 
       result.set(centerId, {
         totalCost: this.round2(totalCost),
@@ -932,10 +1098,7 @@ export class ReportService {
     for (const invoice of invoices) {
       const paid = paidMap.get(invoice.id) ?? 0;
       const remaining = Math.max(0, Number(invoice.totalAmount) - paid);
-      if (
-        invoice.type === InvoiceType.SALE ||
-        invoice.type === InvoiceType.SALE_RETURN
-      ) {
+      if (invoice.type === InvoiceType.SALE) {
         receivable += remaining;
       } else if (invoice.type === InvoiceType.PURCHASE) {
         payable += remaining;

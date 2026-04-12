@@ -3,12 +3,20 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, ExpenseStatus, ExpenseSourceType, EntityStatus } from '@prisma/client';
+import {
+  Prisma,
+  ExpenseStatus,
+  ExpenseSourceType,
+  EntityStatus,
+} from '@prisma/client';
 import { join } from 'path';
 import { existsSync, mkdirSync, unlinkSync } from 'fs';
 import { readFile, writeFile } from 'fs/promises';
 import { PrismaService } from '../prisma/prisma.service';
-import { parsePagination, createPaginatedResult } from '../../common/utils/pagination.util';
+import {
+  parsePagination,
+  createPaginatedResult,
+} from '../../common/utils/pagination.util';
 import {
   CreateExpenseDto,
   UpdateExpenseDto,
@@ -99,7 +107,9 @@ export class ExpensesService {
     return undefined;
   }
 
-  private normalizeSourceType(value?: string | null): ExpenseSourceType | undefined {
+  private normalizeSourceType(
+    value?: string | null,
+  ): ExpenseSourceType | undefined {
     if (!value) return undefined;
     const normalized = value.toUpperCase() as ExpenseSourceType;
     if (Object.values(ExpenseSourceType).includes(normalized)) {
@@ -190,7 +200,8 @@ export class ExpensesService {
   async createPerson(companyId: string, dto: CreateExpensePersonDto) {
     const company = await this.getCompanyContext(companyId);
     const personType = (dto.personType ?? PersonTypeEnum.WORKER) as any;
-    const status = dto.isActive === false ? EntityStatus.INACTIVE : EntityStatus.ACTIVE;
+    const status =
+      dto.isActive === false ? EntityStatus.INACTIVE : EntityStatus.ACTIVE;
 
     return this.prisma.companyPerson.create({
       data: {
@@ -205,7 +216,11 @@ export class ExpensesService {
     });
   }
 
-  async updatePerson(companyId: string, id: string, dto: UpdateExpensePersonDto) {
+  async updatePerson(
+    companyId: string,
+    id: string,
+    dto: UpdateExpensePersonDto,
+  ) {
     await this.getCompanyContext(companyId);
 
     const existing = await this.prisma.companyPerson.findFirst({
@@ -220,11 +235,19 @@ export class ExpensesService {
       data: {
         ...(dto.name ? { name: dto.name.trim() } : {}),
         ...(dto.personType ? { personType: dto.personType as any } : {}),
-        ...(dto.phone !== undefined ? { phone: this.normalizeOptionalText(dto.phone) } : {}),
-        ...(dto.isActive !== undefined
-          ? { status: dto.isActive ? EntityStatus.ACTIVE : EntityStatus.INACTIVE }
+        ...(dto.phone !== undefined
+          ? { phone: this.normalizeOptionalText(dto.phone) }
           : {}),
-        ...(dto.linkedUserId !== undefined ? { linkedUserId: dto.linkedUserId ?? null } : {}),
+        ...(dto.isActive !== undefined
+          ? {
+              status: dto.isActive
+                ? EntityStatus.ACTIVE
+                : EntityStatus.INACTIVE,
+            }
+          : {}),
+        ...(dto.linkedUserId !== undefined
+          ? { linkedUserId: dto.linkedUserId ?? null }
+          : {}),
       },
     });
   }
@@ -357,7 +380,10 @@ export class ExpensesService {
           category: { select: EXPENSE_CATEGORY_SELECT },
           person: { select: EXPENSE_PERSON_SELECT },
           costCenter: { select: COST_CENTER_SELECT },
-          attachments: { select: ATTACHMENT_SELECT, orderBy: { createdAt: 'desc' } },
+          attachments: {
+            select: ATTACHMENT_SELECT,
+            orderBy: { createdAt: 'desc' },
+          },
         },
       }),
       this.prisma.expenseEntry.count({ where }),
@@ -373,7 +399,10 @@ export class ExpensesService {
         category: { select: EXPENSE_CATEGORY_SELECT },
         person: { select: EXPENSE_PERSON_SELECT },
         costCenter: { select: COST_CENTER_SELECT },
-        attachments: { select: ATTACHMENT_SELECT, orderBy: { createdAt: 'desc' } },
+        attachments: {
+          select: ATTACHMENT_SELECT,
+          orderBy: { createdAt: 'desc' },
+        },
       },
     });
 
@@ -384,7 +413,11 @@ export class ExpensesService {
     return expense;
   }
 
-  async createExpense(companyId: string, userId: string, dto: CreateExpenseDto) {
+  async createExpense(
+    companyId: string,
+    userId: string,
+    dto: CreateExpenseDto,
+  ) {
     const company = await this.getCompanyContext(companyId);
     const category = await this.prisma.expenseCategory.findFirst({
       where: { id: dto.categoryId, companyId, deletedAt: null, isActive: true },
@@ -425,10 +458,12 @@ export class ExpensesService {
 
     const expenseDate = new Date(dto.date);
     const isBackdated = expenseDate < new Date(new Date().toDateString());
-    const status = this.normalizeExpenseStatus(dto.status) ?? ExpenseStatus.DRAFT;
+    const status =
+      this.normalizeExpenseStatus(dto.status) ?? ExpenseStatus.DRAFT;
     const sourceType =
-      this.normalizeSourceType(dto.sourceType ?? ExpenseSourceTypeEnum.COMPANY_CASH) ??
-      ExpenseSourceType.COMPANY_CASH;
+      this.normalizeSourceType(
+        dto.sourceType ?? ExpenseSourceTypeEnum.COMPANY_CASH,
+      ) ?? ExpenseSourceType.COMPANY_CASH;
 
     return this.prisma.expenseEntry.create({
       data: {
@@ -454,7 +489,12 @@ export class ExpensesService {
     });
   }
 
-  async updateExpense(companyId: string, id: string, userId: string, dto: UpdateExpenseDto) {
+  async updateExpense(
+    companyId: string,
+    id: string,
+    userId: string,
+    dto: UpdateExpenseDto,
+  ) {
     const existing = await this.prisma.expenseEntry.findFirst({
       where: { id, companyId, deletedAt: null },
       select: { id: true, categoryId: true },
@@ -505,17 +545,26 @@ export class ExpensesService {
       where: { id },
       data: {
         categoryId,
-        ...(dto.personId !== undefined ? { personId: dto.personId ?? null } : {}),
-        ...(dto.costCenterId !== undefined ? { costCenterId: dto.costCenterId ?? null } : {}),
+        ...(dto.personId !== undefined
+          ? { personId: dto.personId ?? null }
+          : {}),
+        ...(dto.costCenterId !== undefined
+          ? { costCenterId: dto.costCenterId ?? null }
+          : {}),
         ...(updatedExpenseDate ? { expenseDate: updatedExpenseDate } : {}),
         ...(dto.amount !== undefined ? { amount: dto.amount } : {}),
         ...(dto.sourceType
           ? { sourceType: this.normalizeSourceType(dto.sourceType) }
           : {}),
         ...(dto.status
-          ? { status: this.normalizeExpenseStatus(dto.status) ?? ExpenseStatus.DRAFT }
+          ? {
+              status:
+                this.normalizeExpenseStatus(dto.status) ?? ExpenseStatus.DRAFT,
+            }
           : {}),
-        ...(dto.notes !== undefined ? { notes: this.normalizeOptionalText(dto.notes) } : {}),
+        ...(dto.notes !== undefined
+          ? { notes: this.normalizeOptionalText(dto.notes) }
+          : {}),
         ...(updatedExpenseDate
           ? {
               isBackdated:
@@ -528,7 +577,10 @@ export class ExpensesService {
         category: { select: EXPENSE_CATEGORY_SELECT },
         person: { select: EXPENSE_PERSON_SELECT },
         costCenter: { select: COST_CENTER_SELECT },
-        attachments: { select: ATTACHMENT_SELECT, orderBy: { createdAt: 'desc' } },
+        attachments: {
+          select: ATTACHMENT_SELECT,
+          orderBy: { createdAt: 'desc' },
+        },
       },
     });
 
@@ -602,7 +654,10 @@ export class ExpensesService {
 
     for (const candidate of duplicateCandidates) {
       const candidateFilename = candidate.fileUrl?.split('/').pop();
-      if (!candidateFilename || !isValidExpenseAttachmentFilename(candidateFilename)) {
+      if (
+        !candidateFilename ||
+        !isValidExpenseAttachmentFilename(candidateFilename)
+      ) {
         continue;
       }
 
@@ -652,7 +707,9 @@ export class ExpensesService {
       throw new NotFoundException('Attachment not found');
     }
 
-    await this.prisma.expenseAttachment.delete({ where: { id: attachment.id } });
+    await this.prisma.expenseAttachment.delete({
+      where: { id: attachment.id },
+    });
 
     if (attachment.fileUrl?.startsWith('/uploads/expenses/')) {
       const filename = attachment.fileUrl.split('/').pop();

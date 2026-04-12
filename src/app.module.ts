@@ -8,7 +8,6 @@ import {
   databaseConfig,
   redisConfig,
   jwtConfig,
-  s3Config,
   mailConfig,
   whatsappConfig,
 } from './config';
@@ -32,6 +31,7 @@ import { InsightsModule } from './modules/insights/insights.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { SystemModule } from './modules/system/system.module';
 import { SystemReadyGuard } from './modules/system/system-ready.guard';
+import { WorkOrderModule } from './modules/work-order/work-order.module';
 
 const envFileCandidates = [
   join(process.cwd(), '.env'),
@@ -52,7 +52,6 @@ const envFilePath = envFileCandidates.filter((filePath) =>
         databaseConfig,
         redisConfig,
         jwtConfig,
-        s3Config,
         mailConfig,
         whatsappConfig,
       ],
@@ -80,6 +79,7 @@ const envFilePath = envFileCandidates.filter((filePath) =>
     InsightsModule,
     AdminModule,
     SystemModule,
+    WorkOrderModule,
   ],
   providers: [
     {

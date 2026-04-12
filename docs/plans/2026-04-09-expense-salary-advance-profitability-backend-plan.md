@@ -30,7 +30,7 @@ In scope:
 Out of scope (phase 1):
 - statutory payroll filing automation
 - bank statement auto-ingestion
-- full OCR accounting automation (we keep OCR assist optional)
+- full OCR accounting automation (explicitly excluded for this module)
 - non-employee payee flows (vendors/contractors) in this module's person table for v1
 
 ## 3) Proposed domain model
@@ -161,10 +161,9 @@ Out of scope (phase 1):
 - `POST /expenses/:id/submit`
 
 ## 5.3 Attachments
-- `POST /expenses/:id/attachments` (supports cloud object storage metadata)
+- `POST /expenses/:id/attachments` (direct multipart upload to local storage)
 - `GET /expenses/:id/attachments`
 - `DELETE /expenses/attachments/:attachmentId`
-- `POST /expenses/attachments/presign` (v1 cloud upload helper)
 
 ## 5.4 Salary and advances
 - `POST /payroll/salary-profiles`
@@ -239,7 +238,7 @@ Safety and controls:
 - Future-ready role policy can be activated once role infrastructure is available.
 - When future approval mode is enabled, every approval/rejection must persist `who`, `when`, and note.
 - Attachment endpoints must validate mime type and path safety.
-- Attachment files are stored in cloud object storage from day 1; DB stores only metadata and secure URLs/keys.
+- Attachment files are stored on local server disk in `uploads/expenses`; DB stores metadata and local file URL/path.
 - PII minimization: only required employee fields.
 
 ## 9) Performance and reporting strategy
@@ -345,7 +344,7 @@ Confirmed decisions:
 5. Salary run supports monthly payouts only in v1.
 6. Advance/reimbursement impacts ledger at salary settlement time, while pending adjustments remain visible before settlement.
 7. Backdated entries are allowed in v1.
-8. Attachment storage is cloud-based from day 1.
+8. Attachment storage is local-only in v1.
 
 Pending decision (defer to phase 4 design gate):
 1. Profitability granularity: cost center only, or also invoice line/product batch.
