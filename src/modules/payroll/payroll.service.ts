@@ -12,7 +12,10 @@ import {
   ReimbursementStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { parsePagination, createPaginatedResult } from '../../common/utils/pagination.util';
+import {
+  parsePagination,
+  createPaginatedResult,
+} from '../../common/utils/pagination.util';
 import {
   CreateSalaryAdvanceDto,
   CreateSalaryProfileDto,
@@ -140,7 +143,12 @@ export class PayrollService {
 
   async listSalaryProfiles(
     companyId: string,
-    query: { page?: number; limit?: number; search?: string; isActive?: string },
+    query: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      isActive?: string;
+    },
   ) {
     const { skip, take, page, limit } = parsePagination(query);
     const where: Prisma.SalaryProfileWhereInput = {
@@ -153,7 +161,9 @@ export class PayrollService {
     }
 
     if (query.isActive !== undefined) {
-      const isActive = ['true', '1'].includes(String(query.isActive).toLowerCase());
+      const isActive = ['true', '1'].includes(
+        String(query.isActive).toLowerCase(),
+      );
       where.isActive = isActive;
     }
 
@@ -282,42 +292,50 @@ export class PayrollService {
     const { endExclusive } = this.getMonthRange(dto.year, dto.month);
     const adjustmentMap = this.buildAdjustmentMap(dto.adjustments);
 
-    const [profiles, advances, claims, existingSettlementCount] = await Promise.all([
-      this.prisma.salaryProfile.findMany({
-        where: { companyId, deletedAt: null, isActive: true },
-        include: { person: { select: PERSON_SELECT } },
-      }),
-      this.prisma.salaryAdvance.findMany({
-        where: {
-          companyId,
-          deletedAt: null,
-          remainingAmount: { gt: 0 },
-          status: { in: [SalaryAdvanceStatus.ACTIVE, SalaryAdvanceStatus.PARTIALLY_ADJUSTED] },
-          advanceDate: { lt: endExclusive },
-        },
-        include: { person: { select: PERSON_SELECT } },
-        orderBy: { advanceDate: 'asc' },
-      }),
-      this.prisma.reimbursementClaim.findMany({
-        where: {
-          companyId,
-          deletedAt: null,
-          settlementMode: ReimbursementSettlementMode.SALARY_ADDITION,
-          settledInSalarySettlementId: null,
-          claimDate: { lt: endExclusive },
-        },
-        include: { person: { select: PERSON_SELECT } },
-      }),
-      this.prisma.salarySettlement.count({
-        where: {
-          companyId,
-          year: dto.year,
-          month: dto.month,
-        },
-      }),
-    ]);
+    const [profiles, advances, claims, existingSettlementCount] =
+      await Promise.all([
+        this.prisma.salaryProfile.findMany({
+          where: { companyId, deletedAt: null, isActive: true },
+          include: { person: { select: PERSON_SELECT } },
+        }),
+        this.prisma.salaryAdvance.findMany({
+          where: {
+            companyId,
+            deletedAt: null,
+            remainingAmount: { gt: 0 },
+            status: {
+              in: [
+                SalaryAdvanceStatus.ACTIVE,
+                SalaryAdvanceStatus.PARTIALLY_ADJUSTED,
+              ],
+            },
+            advanceDate: { lt: endExclusive },
+          },
+          include: { person: { select: PERSON_SELECT } },
+          orderBy: { advanceDate: 'asc' },
+        }),
+        this.prisma.reimbursementClaim.findMany({
+          where: {
+            companyId,
+            deletedAt: null,
+            settlementMode: ReimbursementSettlementMode.SALARY_ADDITION,
+            settledInSalarySettlementId: null,
+            claimDate: { lt: endExclusive },
+          },
+          include: { person: { select: PERSON_SELECT } },
+        }),
+        this.prisma.salarySettlement.count({
+          where: {
+            companyId,
+            year: dto.year,
+            month: dto.month,
+          },
+        }),
+      ]);
 
-    const profileMap = new Map(profiles.map((profile) => [profile.personId, profile]));
+    const profileMap = new Map(
+      profiles.map((profile) => [profile.personId, profile]),
+    );
     const advancesByPerson = new Map<string, typeof advances>();
     for (const advance of advances) {
       const existing = advancesByPerson.get(advance.personId) ?? [];
@@ -341,16 +359,16 @@ export class PayrollService {
     const warningSet = new Set<string>();
     if (existingSettlementCount > 0) {
       warningSet.add(
-        `Settlement records already exist for ${dto.year}-${String(dto.month).padStart(
-          2,
-          '0',
-        )}. Finalize will update existing rows.`,
+        `Settlement records already exist for ${dto.year}-${String(
+          dto.month,
+        ).padStart(2, '0')}. Finalize will update existing rows.`,
       );
     }
 
     const lines = Array.from(personIds).map((personId) => {
       const profile = profileMap.get(personId);
-      const person = profile?.person ?? advancesByPerson.get(personId)?.[0]?.person;
+      const person =
+        profile?.person ?? advancesByPerson.get(personId)?.[0]?.person;
       const personName = person?.name ?? personId;
       const gross = Number(profile?.monthlyGross ?? 0);
       const advancesTotal = (advancesByPerson.get(personId) ?? []).reduce(
@@ -366,10 +384,16 @@ export class PayrollService {
 
       const available = gross + reimbursementsTotal + adjustment;
       const advanceDeduction = Math.max(0, Math.min(advancesTotal, available));
-      const netPayable = Math.max(0, gross - advanceDeduction + reimbursementsTotal + adjustment);
+      const netPayable = Math.max(
+        0,
+        gross - advanceDeduction + reimbursementsTotal + adjustment,
+      );
       const carryForwardAmount = Math.max(0, advancesTotal - advanceDeduction);
 
-      if (!profile && (advancesTotal > 0 || reimbursementsTotal > 0 || adjustment !== 0)) {
+      if (
+        !profile &&
+        (advancesTotal > 0 || reimbursementsTotal > 0 || adjustment !== 0)
+      ) {
         warningSet.add(
           `Missing active salary profile for ${personName}. Gross salary assumed as 0.00.`,
         );
@@ -438,18 +462,24 @@ export class PayrollService {
     }
 
     await this.prisma.$transaction(async (tx) => {
-      const salaryExpenseAccountId = await this.getOrCreateCompanyAccountByName(tx, {
-        tenantId: company.tenantId,
-        companyId,
-        group: AccountGroupType.EXPENSE,
-        accountName: 'Salary Expense',
-      });
-      const salaryPayableAccountId = await this.getOrCreateCompanyAccountByName(tx, {
-        tenantId: company.tenantId,
-        companyId,
-        group: AccountGroupType.SUNDRY_CREDITORS,
-        accountName: 'Salary Payable',
-      });
+      const salaryExpenseAccountId = await this.getOrCreateCompanyAccountByName(
+        tx,
+        {
+          tenantId: company.tenantId,
+          companyId,
+          group: AccountGroupType.EXPENSE,
+          accountName: 'Salary Expense',
+        },
+      );
+      const salaryPayableAccountId = await this.getOrCreateCompanyAccountByName(
+        tx,
+        {
+          tenantId: company.tenantId,
+          companyId,
+          group: AccountGroupType.SUNDRY_CREDITORS,
+          accountName: 'Salary Payable',
+        },
+      );
       const settlementDate = new Date(dto.year, dto.month, 0);
       const monthKey = `${dto.year}-${String(dto.month).padStart(2, '0')}`;
 
@@ -550,7 +580,9 @@ export class PayrollService {
           await tx.reimbursementClaim.update({
             where: { id: claim.id },
             data: {
-              settlementMode: claim.settlementMode ?? ReimbursementSettlementMode.SALARY_ADDITION,
+              settlementMode:
+                claim.settlementMode ??
+                ReimbursementSettlementMode.SALARY_ADDITION,
               settledInSalarySettlementId: settlement.id,
               settledAt: new Date(),
               status: ReimbursementStatus.SETTLED,
@@ -563,7 +595,10 @@ export class PayrollService {
     return preview;
   }
 
-  async listSettlements(companyId: string, query: { year?: number; month?: number }) {
+  async listSettlements(
+    companyId: string,
+    query: { year?: number; month?: number },
+  ) {
     const where: Prisma.SalarySettlementWhereInput = {
       companyId,
     };
@@ -607,16 +642,22 @@ export class PayrollService {
     const monthKey = `${settlement.year}-${String(settlement.month).padStart(2, '0')}`;
 
     return this.prisma.$transaction(async (tx) => {
-      const salaryPayableAccountId = await this.getOrCreateCompanyAccountByName(tx, {
-        tenantId: company.tenantId,
-        companyId,
-        group: AccountGroupType.SUNDRY_CREDITORS,
-        accountName: 'Salary Payable',
-      });
-      const cashOrBankAccountId = await this.getOrCreateCashOrBankAccountId(tx, {
-        tenantId: company.tenantId,
-        companyId,
-      });
+      const salaryPayableAccountId = await this.getOrCreateCompanyAccountByName(
+        tx,
+        {
+          tenantId: company.tenantId,
+          companyId,
+          group: AccountGroupType.SUNDRY_CREDITORS,
+          accountName: 'Salary Payable',
+        },
+      );
+      const cashOrBankAccountId = await this.getOrCreateCashOrBankAccountId(
+        tx,
+        {
+          tenantId: company.tenantId,
+          companyId,
+        },
+      );
       const paymentTag = `[PAYROLL_PAYMENT][SSET:${settlement.id}]`;
 
       await tx.ledgerEntry.deleteMany({

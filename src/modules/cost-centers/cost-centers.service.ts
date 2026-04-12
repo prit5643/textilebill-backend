@@ -1,8 +1,19 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma, CostCenterType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { createPaginatedResult, parsePagination } from '../../common/utils/pagination.util';
-import { CreateCostAllocationDto, CreateCostCenterDto, CostCenterTypeEnum } from './dto';
+import {
+  createPaginatedResult,
+  parsePagination,
+} from '../../common/utils/pagination.util';
+import {
+  CreateCostAllocationDto,
+  CreateCostCenterDto,
+  CostCenterTypeEnum,
+} from './dto';
 import {
   getRemainingAllocatableAmount,
   isAllocationWithinSourceExpense,
@@ -60,7 +71,8 @@ export class CostCentersService {
   }
 
   private normalizeScopeType(dto: CreateCostCenterDto): CostCenterType {
-    const candidate = dto.scopeType ?? dto.costCenterType ?? CostCenterTypeEnum.MONTHLY_POOL;
+    const candidate =
+      dto.scopeType ?? dto.costCenterType ?? CostCenterTypeEnum.MONTHLY_POOL;
     const normalized = String(candidate).toUpperCase() as CostCenterType;
     if (Object.values(CostCenterType).includes(normalized)) {
       return normalized;
@@ -91,7 +103,9 @@ export class CostCentersService {
     }
 
     if (query.isActive !== undefined) {
-      const isActive = ['true', '1'].includes(String(query.isActive).toLowerCase());
+      const isActive = ['true', '1'].includes(
+        String(query.isActive).toLowerCase(),
+      );
       where.isActive = isActive;
     }
 
@@ -224,7 +238,9 @@ export class CostCentersService {
         _sum: { allocatedAmount: true },
       });
 
-      const currentAllocatedAmount = Number(allocationSummary._sum.allocatedAmount ?? 0);
+      const currentAllocatedAmount = Number(
+        allocationSummary._sum.allocatedAmount ?? 0,
+      );
       const sourceExpenseAmount = Number(expense.amount ?? 0);
       const requestedAmount = Number(amount);
       if (

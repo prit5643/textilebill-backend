@@ -5,7 +5,6 @@ import {
   Body,
   Patch,
   Param,
-  Delete,
   Query,
   UseGuards,
   HttpCode,
@@ -20,7 +19,10 @@ import { CreateLossIncidentDto } from './dto/create-loss-incident.dto';
 import { CloseWorkOrderDto } from './dto/close-work-order.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CompanyAccessGuard } from '../../common/guards/company-access.guard';
-import { CurrentCompanyId, RequireCompanyAccess } from '../../common/decorators';
+import {
+  CurrentCompanyId,
+  RequireCompanyAccess,
+} from '../../common/decorators';
 import { Request } from 'express';
 
 @Controller('work-orders')
@@ -50,10 +52,7 @@ export class WorkOrderController {
   }
 
   @Get(':id')
-  findOne(
-    @CurrentCompanyId() companyId: string,
-    @Param('id') id: string,
-  ) {
+  findOne(@CurrentCompanyId() companyId: string, @Param('id') id: string) {
     return this.workOrderService.findById(companyId, id);
   }
 
@@ -66,7 +65,12 @@ export class WorkOrderController {
     @Req() req: Request,
   ) {
     const userId = (req.user as any)?.sub;
-    return this.workOrderService.splitWorkOrder(companyId, id, userId, splitDto);
+    return this.workOrderService.splitWorkOrder(
+      companyId,
+      id,
+      userId,
+      splitDto,
+    );
   }
 
   @Post(':id/link-sale-invoice')
@@ -78,7 +82,12 @@ export class WorkOrderController {
     @Req() req: Request,
   ) {
     const userId = (req.user as any)?.sub;
-    return this.workOrderService.linkSaleInvoice(companyId, id, userId, linkDto);
+    return this.workOrderService.linkSaleInvoice(
+      companyId,
+      id,
+      userId,
+      linkDto,
+    );
   }
 
   @Post(':id/link-purchase-invoice')
@@ -89,7 +98,12 @@ export class WorkOrderController {
     @Req() req: Request,
   ) {
     const userId = (req.user as any)?.sub;
-    return this.workOrderService.linkPurchaseInvoice(companyId, linkDto.workOrderLotId, userId, linkDto);
+    return this.workOrderService.linkPurchaseInvoice(
+      companyId,
+      linkDto.workOrderLotId,
+      userId,
+      linkDto,
+    );
   }
 
   @Post(':id/loss-incidents')
@@ -101,7 +115,12 @@ export class WorkOrderController {
   ) {
     const userId = (req.user as any)?.sub;
     // ensure workOrderId is on dto
-    return this.workOrderService.createLossIncident(companyId, id, userId, lossDto);
+    return this.workOrderService.createLossIncident(
+      companyId,
+      id,
+      userId,
+      lossDto,
+    );
   }
 
   @Post('loss-incidents/:incidentId/retry')
@@ -112,7 +131,11 @@ export class WorkOrderController {
     @Req() req: Request,
   ) {
     const userId = (req.user as any)?.sub;
-    return this.workOrderService.retryLossAdjustment(companyId, incidentId, userId);
+    return this.workOrderService.retryLossAdjustment(
+      companyId,
+      incidentId,
+      userId,
+    );
   }
 
   @Post('loss-incidents/:incidentId/reverse')
@@ -123,7 +146,11 @@ export class WorkOrderController {
     @Req() req: Request,
   ) {
     const userId = (req.user as any)?.sub;
-    return this.workOrderService.reverseLossIncident(companyId, incidentId, userId);
+    return this.workOrderService.reverseLossIncident(
+      companyId,
+      incidentId,
+      userId,
+    );
   }
 
   @Patch(':id/close')
@@ -135,7 +162,12 @@ export class WorkOrderController {
     @Req() req: Request,
   ) {
     const userId = (req.user as any)?.sub;
-    return this.workOrderService.closeWorkOrder(companyId, id, userId, closeDto);
+    return this.workOrderService.closeWorkOrder(
+      companyId,
+      id,
+      userId,
+      closeDto,
+    );
   }
 
   @Get(':id/profitability')

@@ -20,7 +20,10 @@ export type ExpenseAttachmentExtension = 'pdf' | 'jpg' | 'png' | 'webp';
 const GENERATED_ATTACHMENT_FILENAME_PATTERN =
   /^[a-zA-Z0-9_-]+-\d{13}-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.(pdf|jpg|png|webp)$/i;
 
-function startsWithMagic(buffer: Buffer, signature: readonly number[]): boolean {
+function startsWithMagic(
+  buffer: Buffer,
+  signature: readonly number[],
+): boolean {
   if (buffer.length < signature.length) {
     return false;
   }

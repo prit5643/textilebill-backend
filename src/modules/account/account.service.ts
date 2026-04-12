@@ -278,11 +278,13 @@ export class AccountService {
       partyPatch.address = dto.address.trim();
     if (typeof dto.city === 'string') partyPatch.city = dto.city.trim();
     if (typeof dto.state === 'string') partyPatch.state = dto.state.trim();
-    if (typeof dto.pincode === 'string') partyPatch.pincode = dto.pincode.trim();
+    if (typeof dto.pincode === 'string')
+      partyPatch.pincode = dto.pincode.trim();
     if (typeof dto.contactPerson === 'string') {
       partyPatch.contactPerson = dto.contactPerson.trim();
     }
-    if (typeof dto.bankName === 'string') partyPatch.bankName = dto.bankName.trim();
+    if (typeof dto.bankName === 'string')
+      partyPatch.bankName = dto.bankName.trim();
     if (typeof dto.bankAccountNo === 'string') {
       partyPatch.bankAccountNo = dto.bankAccountNo.trim();
     }

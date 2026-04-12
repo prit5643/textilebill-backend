@@ -1,4 +1,11 @@
-import { IsEnum, IsOptional, IsString, MaxLength, IsBoolean, IsUUID } from 'class-validator';
+import {
+  IsEnum,
+  IsOptional,
+  IsString,
+  MaxLength,
+  IsBoolean,
+  IsUUID,
+} from 'class-validator';
 
 export enum PersonTypeEnum {
   PARTNER = 'PARTNER',

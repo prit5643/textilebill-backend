@@ -47,10 +47,14 @@ export class ExpenseUploadsController {
     const extension = filename.split('.').pop()?.toLowerCase() || 'pdf';
     response.setHeader(
       'Content-Type',
-      ATTACHMENT_CONTENT_TYPE_BY_EXTENSION[extension] || 'application/octet-stream',
+      ATTACHMENT_CONTENT_TYPE_BY_EXTENSION[extension] ||
+        'application/octet-stream',
     );
     response.setHeader('X-Content-Type-Options', 'nosniff');
-    response.setHeader('Cache-Control', 'private, no-cache, max-age=0, must-revalidate');
+    response.setHeader(
+      'Cache-Control',
+      'private, no-cache, max-age=0, must-revalidate',
+    );
     response.setHeader('Cross-Origin-Resource-Policy', 'same-site');
     response.sendFile(absolutePath);
   }

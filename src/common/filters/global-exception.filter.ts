@@ -116,7 +116,9 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     const normalizedTarget = targetText.toLowerCase();
 
     if (
-      normalizedTarget.includes('invoice_company_fy_number_version_active_key') ||
+      normalizedTarget.includes(
+        'invoice_company_fy_number_version_active_key',
+      ) ||
       normalizedTarget.includes('invoicenumber')
     ) {
       return 'Invoice number already exists. Please use a different number.';

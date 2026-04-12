@@ -108,7 +108,9 @@ export class CreateAccountDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
-  @Matches(/^[0-9]{6}$/, { message: 'Shipping pincode must be a 6-digit number' })
+  @Matches(/^[0-9]{6}$/, {
+    message: 'Shipping pincode must be a 6-digit number',
+  })
   shippingPincode?: string;
 
   @ApiPropertyOptional({ example: 'Rajesh Shah' })

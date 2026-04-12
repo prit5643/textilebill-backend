@@ -155,7 +155,10 @@ export class PdfService {
       : (invoice?.account ?? {});
 
     const hasCompanyBankDetails = Boolean(
-      company?.bankName || company?.bankAccountNo || company?.bankIfsc || company?.bankBranch,
+      company?.bankName ||
+      company?.bankAccountNo ||
+      company?.bankIfsc ||
+      company?.bankBranch,
     );
 
     const bankSection = hasCompanyBankDetails

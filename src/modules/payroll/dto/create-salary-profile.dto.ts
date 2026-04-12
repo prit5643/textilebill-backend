@@ -1,4 +1,11 @@
-import { IsBoolean, IsDateString, IsNumber, IsOptional, IsUUID, Min } from 'class-validator';
+import {
+  IsBoolean,
+  IsDateString,
+  IsNumber,
+  IsOptional,
+  IsUUID,
+  Min,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class CreateSalaryProfileDto {

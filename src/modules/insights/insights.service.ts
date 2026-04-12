@@ -3,7 +3,6 @@ import {
   ExpenseStatus,
   InvoiceStatus,
   InvoiceType,
-  Prisma,
   SalaryAdvanceStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -45,7 +44,8 @@ export class InsightsService {
     if (expenses.length === 0) return [];
 
     const amounts = expenses.map((entry) => Number(entry.amount));
-    const mean = amounts.reduce((sum, value) => sum + value, 0) / amounts.length;
+    const mean =
+      amounts.reduce((sum, value) => sum + value, 0) / amounts.length;
     const variance =
       amounts.reduce((sum, value) => sum + Math.pow(value - mean, 2), 0) /
       Math.max(1, amounts.length - 1);
@@ -59,9 +59,9 @@ export class InsightsService {
         id: entry.id,
         source: 'EXPENSE_ANOMALY',
         title: `${entry.category?.name || 'Expense'} spike detected`,
-        description: `Expense of INR ${this.round2(Number(entry.amount))} on ${
-          entry.expenseDate.toISOString().slice(0, 10)
-        } exceeds recent averages.`,
+        description: `Expense of INR ${this.round2(Number(entry.amount))} on ${entry.expenseDate
+          .toISOString()
+          .slice(0, 10)} exceeds recent averages.`,
         impactAmount: Number(entry.amount),
         confidence: 72,
         actionLabel: 'Review expense',
@@ -70,7 +70,10 @@ export class InsightsService {
           `Average 30-day expense is INR ${this.round2(mean)}`,
           `Threshold set at INR ${this.round2(threshold)}`,
         ],
-        suggestedActions: ['Verify supporting proof', 'Confirm category selection'],
+        suggestedActions: [
+          'Verify supporting proof',
+          'Confirm category selection',
+        ],
       }));
   }
 
@@ -110,7 +113,11 @@ export class InsightsService {
   async getSalaryAdvanceRisk(companyId: string) {
     const profiles = await this.prisma.salaryProfile.findMany({
       where: { companyId, deletedAt: null, isActive: true },
-      select: { personId: true, monthlyGross: true, person: { select: { name: true } } },
+      select: {
+        personId: true,
+        monthlyGross: true,
+        person: { select: { name: true } },
+      },
     });
     if (profiles.length === 0) return [];
 
@@ -120,13 +127,21 @@ export class InsightsService {
         companyId,
         deletedAt: null,
         remainingAmount: { gt: 0 },
-        status: { in: [SalaryAdvanceStatus.ACTIVE, SalaryAdvanceStatus.PARTIALLY_ADJUSTED] },
+        status: {
+          in: [
+            SalaryAdvanceStatus.ACTIVE,
+            SalaryAdvanceStatus.PARTIALLY_ADJUSTED,
+          ],
+        },
       },
       _sum: { remainingAmount: true },
     });
 
     const advanceMap = new Map(
-      advances.map((row) => [row.personId, Number(row._sum.remainingAmount ?? 0)]),
+      advances.map((row) => [
+        row.personId,
+        Number(row._sum.remainingAmount ?? 0),
+      ]),
     );
 
     return profiles
@@ -145,7 +160,8 @@ export class InsightsService {
         id: `advance-risk-${entry.profile.personId}-${idx}`,
         source: 'SALARY_ADVANCE_RISK',
         title: `Advance exposure for ${entry.profile.person?.name || 'worker'}`,
-        description: 'Outstanding advances are high relative to monthly salary.',
+        description:
+          'Outstanding advances are high relative to monthly salary.',
         impactAmount: entry.outstanding,
         confidence: 66,
         actionLabel: 'Open Salary & Advances',
@@ -200,13 +216,22 @@ export class InsightsService {
     });
 
     const allocationsByCenter = new Map(
-      allocationTotals.map((row) => [row.costCenterId, Number(row._sum.allocatedAmount ?? 0)]),
+      allocationTotals.map((row) => [
+        row.costCenterId,
+        Number(row._sum.allocatedAmount ?? 0),
+      ]),
     );
     const salesByCenter = new Map(
-      salesTotals.map((row) => [row.costCenterId, Number(row._sum.totalAmount ?? 0)]),
+      salesTotals.map((row) => [
+        row.costCenterId,
+        Number(row._sum.totalAmount ?? 0),
+      ]),
     );
     const purchasesByCenter = new Map(
-      purchaseTotals.map((row) => [row.costCenterId, Number(row._sum.totalAmount ?? 0)]),
+      purchaseTotals.map((row) => [
+        row.costCenterId,
+        Number(row._sum.totalAmount ?? 0),
+      ]),
     );
 
     return costCenters

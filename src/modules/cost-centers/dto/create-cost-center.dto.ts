@@ -1,4 +1,11 @@
-import { IsBoolean, IsDateString, IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
+import {
+  IsBoolean,
+  IsDateString,
+  IsEnum,
+  IsOptional,
+  IsString,
+  MaxLength,
+} from 'class-validator';
 
 export enum CostCenterTypeEnum {
   MONTHLY_POOL = 'MONTHLY_POOL',

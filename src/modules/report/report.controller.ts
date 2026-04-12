@@ -53,7 +53,11 @@ export class ReportController {
     @Query('year') year: number,
     @Query('month') month?: number,
   ) {
-    return this.reportService.getMonthlyProfitSummary(companyId, Number(year), month ? Number(month) : undefined);
+    return this.reportService.getMonthlyProfitSummary(
+      companyId,
+      Number(year),
+      month ? Number(month) : undefined,
+    );
   }
 
   @Get('vendor-margin-risk')

@@ -6,7 +6,10 @@ import {
   RolesGuard,
   SubscriptionGuard,
 } from '../../common/guards';
-import { CurrentCompanyId, RequireCompanyAccess } from '../../common/decorators';
+import {
+  CurrentCompanyId,
+  RequireCompanyAccess,
+} from '../../common/decorators';
 import { InsightsService } from './insights.service';
 
 @ApiTags('AI Insights')

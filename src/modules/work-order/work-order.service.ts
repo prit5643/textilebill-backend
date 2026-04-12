@@ -18,7 +18,10 @@ import {
   WorkOrderStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { createPaginatedResult, parsePagination } from '../../common/utils/pagination.util';
+import {
+  createPaginatedResult,
+  parsePagination,
+} from '../../common/utils/pagination.util';
 import {
   CloseWorkOrderDto,
   CreateLossIncidentDto,
@@ -113,7 +116,10 @@ export class WorkOrderService {
     return company;
   }
 
-  private async ensureAccountBelongsToCompany(companyId: string, accountId: string) {
+  private async ensureAccountBelongsToCompany(
+    companyId: string,
+    accountId: string,
+  ) {
     const account = await this.prisma.account.findFirst({
       where: { id: accountId, companyId, deletedAt: null },
       select: { id: true },
@@ -171,7 +177,8 @@ export class WorkOrderService {
     const netRevenue = saleTotal - customerReductions;
     const netOutsourceCost = purchaseTotal - vendorReductions;
     const contribution = netRevenue - netOutsourceCost - directLoss;
-    const marginPercent = netRevenue > 0 ? (contribution / netRevenue) * 100 : 0;
+    const marginPercent =
+      netRevenue > 0 ? (contribution / netRevenue) * 100 : 0;
 
     return {
       netRevenue: this.round2(netRevenue),
@@ -182,9 +189,15 @@ export class WorkOrderService {
     };
   }
 
-  private async buildProfitabilityMap(companyId: string, workOrderIds: string[]) {
+  private async buildProfitabilityMap(
+    companyId: string,
+    workOrderIds: string[],
+  ) {
     if (workOrderIds.length === 0) {
-      return new Map<string, ReturnType<typeof this.buildProfitabilitySummary>>();
+      return new Map<
+        string,
+        ReturnType<typeof this.buildProfitabilitySummary>
+      >();
     }
 
     const [links, lossRows] = await Promise.all([
@@ -211,7 +224,10 @@ export class WorkOrderService {
     for (const link of links) {
       const total = this.toNumber(link.invoice.totalAmount);
       if (link.linkType === WorkOrderInvoiceLinkType.SALE) {
-        saleTotals.set(link.workOrderId, (saleTotals.get(link.workOrderId) ?? 0) + total);
+        saleTotals.set(
+          link.workOrderId,
+          (saleTotals.get(link.workOrderId) ?? 0) + total,
+        );
       } else if (link.linkType === WorkOrderInvoiceLinkType.PURCHASE) {
         purchaseTotals.set(
           link.workOrderId,
@@ -243,7 +259,10 @@ export class WorkOrderService {
       }
     }
 
-    const result = new Map<string, ReturnType<typeof this.buildProfitabilitySummary>>();
+    const result = new Map<
+      string,
+      ReturnType<typeof this.buildProfitabilitySummary>
+    >();
     for (const workOrderId of workOrderIds) {
       result.set(
         workOrderId,
@@ -269,7 +288,9 @@ export class WorkOrderService {
       select: { id: true },
     });
     if (existing) {
-      throw new ConflictException('Order reference already exists for this company');
+      throw new ConflictException(
+        'Order reference already exists for this company',
+      );
     }
 
     await this.ensureAccountBelongsToCompany(companyId, dto.customerAccountId);
@@ -358,7 +379,8 @@ export class WorkOrderService {
     );
 
     const data = rows.map((row) => {
-      const profitability = profitabilityMap.get(row.id) ??
+      const profitability =
+        profitabilityMap.get(row.id) ??
         this.buildProfitabilitySummary(0, 0, 0, 0, 0);
       const lotCounts = row.lots.reduce(
         (acc, lot) => {
@@ -402,8 +424,14 @@ export class WorkOrderService {
       include: {
         customerAccount: { select: WORK_ORDER_ACCOUNT_SELECT },
         lots: { select: WORK_ORDER_LOT_SELECT, orderBy: { createdAt: 'asc' } },
-        invoiceLinks: { select: WORK_ORDER_INVOICE_LINK_SELECT, orderBy: { createdAt: 'asc' } },
-        lossIncidents: { select: WORK_ORDER_LOSS_INCIDENT_SELECT, orderBy: { createdAt: 'desc' } },
+        invoiceLinks: {
+          select: WORK_ORDER_INVOICE_LINK_SELECT,
+          orderBy: { createdAt: 'asc' },
+        },
+        lossIncidents: {
+          select: WORK_ORDER_LOSS_INCIDENT_SELECT,
+          orderBy: { createdAt: 'desc' },
+        },
       },
     });
 
@@ -411,8 +439,11 @@ export class WorkOrderService {
       throw new NotFoundException('Work order not found');
     }
 
-    const profitabilityMap = await this.buildProfitabilityMap(companyId, [workOrder.id]);
-    const profitability = profitabilityMap.get(workOrder.id) ??
+    const profitabilityMap = await this.buildProfitabilityMap(companyId, [
+      workOrder.id,
+    ]);
+    const profitability =
+      profitabilityMap.get(workOrder.id) ??
       this.buildProfitabilitySummary(0, 0, 0, 0, 0);
 
     return {
@@ -441,7 +472,10 @@ export class WorkOrderService {
         quantity: this.round3(this.toNumber(lot.quantity)),
         acceptedQuantity: this.round3(this.toNumber(lot.acceptedQuantity)),
         rejectedQuantity: this.round3(this.toNumber(lot.rejectedQuantity)),
-        agreedRate: lot.agreedRate == null ? null : this.round2(this.toNumber(lot.agreedRate)),
+        agreedRate:
+          lot.agreedRate == null
+            ? null
+            : this.round2(this.toNumber(lot.agreedRate)),
         notes: lot.notes ?? null,
         vendorAccount: lot.vendorAccount
           ? { id: lot.vendorAccount.id, name: lot.vendorAccount.party.name }
@@ -458,7 +492,10 @@ export class WorkOrderService {
           status: link.invoice.status,
           totalAmount: this.round2(this.toNumber(link.invoice.totalAmount)),
           account: link.invoice.account
-            ? { id: link.invoice.account.id, name: link.invoice.account.party.name }
+            ? {
+                id: link.invoice.account.id,
+                name: link.invoice.account.party.name,
+              }
             : null,
         },
       })),
@@ -470,7 +507,9 @@ export class WorkOrderService {
         reasonNote: incident.reasonNote,
         chargeTo: incident.chargeTo,
         status: incident.status,
-        occurredAt: incident.occurredAt ? incident.occurredAt.toISOString().slice(0, 10) : null,
+        occurredAt: incident.occurredAt
+          ? incident.occurredAt.toISOString().slice(0, 10)
+          : null,
         createdAt: incident.createdAt.toISOString(),
         adjustment: incident.adjustment
           ? {
@@ -504,19 +543,30 @@ export class WorkOrderService {
       throw new BadRequestException('At least one lot is required');
     }
 
-    const totalQty = dto.lots.reduce((sum, lot) => sum + Number(lot.quantity || 0), 0);
+    const totalQty = dto.lots.reduce(
+      (sum, lot) => sum + Number(lot.quantity || 0),
+      0,
+    );
     const orderedQty = this.toNumber(workOrder.orderedQuantity);
     const mismatch = Math.abs(totalQty - orderedQty) > 0.0005;
 
     if (mismatch && !dto.overrideReason) {
-      throw new BadRequestException('Override reason is required for quantity mismatch');
+      throw new BadRequestException(
+        'Override reason is required for quantity mismatch',
+      );
     }
 
     const existingPurchaseLinks = await this.prisma.workOrderInvoiceLink.count({
-      where: { companyId, workOrderId: id, linkType: WorkOrderInvoiceLinkType.PURCHASE },
+      where: {
+        companyId,
+        workOrderId: id,
+        linkType: WorkOrderInvoiceLinkType.PURCHASE,
+      },
     });
     if (existingPurchaseLinks > 0) {
-      throw new ConflictException('Cannot split work order after purchase invoices are linked');
+      throw new ConflictException(
+        'Cannot split work order after purchase invoices are linked',
+      );
     }
 
     for (const lot of dto.lots) {
@@ -530,12 +580,19 @@ export class WorkOrderService {
       }
       if (lotType === WorkOrderLotType.OUTSOURCED) {
         if (!lot.vendorAccountId) {
-          throw new BadRequestException('Outsourced lot requires a vendor account');
+          throw new BadRequestException(
+            'Outsourced lot requires a vendor account',
+          );
         }
         if (lot.agreedRate === undefined || lot.agreedRate === null) {
-          throw new BadRequestException('Outsourced lot requires an agreed rate');
+          throw new BadRequestException(
+            'Outsourced lot requires an agreed rate',
+          );
         }
-        await this.ensureAccountBelongsToCompany(companyId, lot.vendorAccountId);
+        await this.ensureAccountBelongsToCompany(
+          companyId,
+          lot.vendorAccountId,
+        );
       }
     }
 
@@ -563,7 +620,9 @@ export class WorkOrderService {
       await tx.workOrder.update({
         where: { id },
         data: {
-          splitOverrideReason: mismatch ? dto.overrideReason?.trim() || null : null,
+          splitOverrideReason: mismatch
+            ? dto.overrideReason?.trim() || null
+            : null,
           splitOverrideAt: mismatch ? new Date() : null,
           splitOverrideById: mismatch ? userId : null,
           updatedById: userId,
@@ -574,28 +633,47 @@ export class WorkOrderService {
     return this.findById(companyId, id);
   }
 
-  async linkSaleInvoice(companyId: string, id: string, userId: string, dto: LinkInvoiceDto) {
+  async linkSaleInvoice(
+    companyId: string,
+    id: string,
+    userId: string,
+    dto: LinkInvoiceDto,
+  ) {
     await this.getWorkOrderOrThrow(companyId, id);
-    const invoice = await this.ensureInvoiceBelongsToCompany(companyId, dto.invoiceId);
+    const invoice = await this.ensureInvoiceBelongsToCompany(
+      companyId,
+      dto.invoiceId,
+    );
 
     if (invoice.type !== InvoiceType.SALE) {
-      throw new BadRequestException('Sale invoice link requires a SALE invoice');
+      throw new BadRequestException(
+        'Sale invoice link requires a SALE invoice',
+      );
     }
 
     const existingSaleLink = await this.prisma.workOrderInvoiceLink.findFirst({
-      where: { companyId, workOrderId: id, linkType: WorkOrderInvoiceLinkType.SALE },
+      where: {
+        companyId,
+        workOrderId: id,
+        linkType: WorkOrderInvoiceLinkType.SALE,
+      },
       select: { id: true },
     });
     if (existingSaleLink) {
-      throw new ConflictException('Sale invoice already linked to this work order');
+      throw new ConflictException(
+        'Sale invoice already linked to this work order',
+      );
     }
 
-    const existingInvoiceLink = await this.prisma.workOrderInvoiceLink.findFirst({
-      where: { companyId, invoiceId: dto.invoiceId },
-      select: { id: true },
-    });
+    const existingInvoiceLink =
+      await this.prisma.workOrderInvoiceLink.findFirst({
+        where: { companyId, invoiceId: dto.invoiceId },
+        select: { id: true },
+      });
     if (existingInvoiceLink) {
-      throw new ConflictException('Invoice is already linked to another work order');
+      throw new ConflictException(
+        'Invoice is already linked to another work order',
+      );
     }
 
     await this.prisma.workOrderInvoiceLink.create({
@@ -626,12 +704,19 @@ export class WorkOrderService {
       throw new NotFoundException('Work order lot not found');
     }
     if (lot.lotType !== WorkOrderLotType.OUTSOURCED) {
-      throw new BadRequestException('Purchase invoice link is only allowed for outsourced lots');
+      throw new BadRequestException(
+        'Purchase invoice link is only allowed for outsourced lots',
+      );
     }
 
-    const invoice = await this.ensureInvoiceBelongsToCompany(companyId, dto.invoiceId);
+    const invoice = await this.ensureInvoiceBelongsToCompany(
+      companyId,
+      dto.invoiceId,
+    );
     if (invoice.type !== InvoiceType.PURCHASE) {
-      throw new BadRequestException('Purchase invoice link requires a PURCHASE invoice');
+      throw new BadRequestException(
+        'Purchase invoice link requires a PURCHASE invoice',
+      );
     }
 
     const existingLotLink = await this.prisma.workOrderInvoiceLink.findFirst({
@@ -639,15 +724,20 @@ export class WorkOrderService {
       select: { id: true },
     });
     if (existingLotLink) {
-      throw new ConflictException('Purchase invoice already linked to this lot');
+      throw new ConflictException(
+        'Purchase invoice already linked to this lot',
+      );
     }
 
-    const existingInvoiceLink = await this.prisma.workOrderInvoiceLink.findFirst({
-      where: { companyId, invoiceId: dto.invoiceId },
-      select: { id: true },
-    });
+    const existingInvoiceLink =
+      await this.prisma.workOrderInvoiceLink.findFirst({
+        where: { companyId, invoiceId: dto.invoiceId },
+        select: { id: true },
+      });
     if (existingInvoiceLink) {
-      throw new ConflictException('Invoice is already linked to another work order');
+      throw new ConflictException(
+        'Invoice is already linked to another work order',
+      );
     }
 
     await this.prisma.workOrderInvoiceLink.create({
@@ -735,7 +825,9 @@ export class WorkOrderService {
       reasonNote: incident.reasonNote,
       chargeTo: incident.chargeTo,
       status: incident.status,
-      occurredAt: incident.occurredAt ? incident.occurredAt.toISOString().slice(0, 10) : null,
+      occurredAt: incident.occurredAt
+        ? incident.occurredAt.toISOString().slice(0, 10)
+        : null,
       createdAt: incident.createdAt.toISOString(),
       adjustment: incident.adjustment
         ? {
@@ -755,7 +847,11 @@ export class WorkOrderService {
     }));
   }
 
-  async retryLossAdjustment(companyId: string, incidentId: string, userId: string) {
+  async retryLossAdjustment(
+    companyId: string,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    userId: string,
+  ) {
     const incident = await this.prisma.workOrderLossIncident.findFirst({
       where: { id: incidentId, companyId },
       include: { adjustment: true },
@@ -793,7 +889,11 @@ export class WorkOrderService {
     return this.listLossIncidents(companyId, incident.workOrderId);
   }
 
-  async reverseLossIncident(companyId: string, incidentId: string, userId: string) {
+  async reverseLossIncident(
+    companyId: string,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    userId: string,
+  ) {
     const incident = await this.prisma.workOrderLossIncident.findFirst({
       where: { id: incidentId, companyId },
       include: { adjustment: true },
@@ -844,7 +944,9 @@ export class WorkOrderService {
     });
 
     if (openLots > 0 && !dto.overrideReason) {
-      throw new BadRequestException('Override reason is required to close with open lots');
+      throw new BadRequestException(
+        'Override reason is required to close with open lots',
+      );
     }
 
     await this.prisma.workOrder.update({

@@ -5,7 +5,9 @@ describe('expense-attachment.util', () => {
     it('returns deterministic hash for same content', () => {
       const fileBuffer = Buffer.from('sample-proof-content');
       const hashA = computeExpenseAttachmentHash(fileBuffer);
-      const hashB = computeExpenseAttachmentHash(Buffer.from('sample-proof-content'));
+      const hashB = computeExpenseAttachmentHash(
+        Buffer.from('sample-proof-content'),
+      );
 
       expect(hashA).toBe(hashB);
       expect(hashA).toMatch(/^[a-f0-9]{64}$/);
@@ -19,4 +21,3 @@ describe('expense-attachment.util', () => {
     });
   });
 });
-

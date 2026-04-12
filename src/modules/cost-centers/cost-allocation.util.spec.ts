@@ -25,4 +25,3 @@ describe('cost-allocation.util', () => {
     });
   });
 });
-

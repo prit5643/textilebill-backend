@@ -125,7 +125,9 @@ export class InvoiceService {
             invoiceNumber,
             invoiceDate,
             type: invoiceType,
-            status: this.normalizeInvoiceStatus(dto.status as string | undefined),
+            status: this.normalizeInvoiceStatus(
+              dto.status as string | undefined,
+            ),
             version: 1,
             isLatest: true,
             notes: dto.narration ?? null,
@@ -450,8 +452,12 @@ export class InvoiceService {
           ...(dto.status
             ? { status: this.normalizeInvoiceStatus(dto.status as string) }
             : {}),
-          ...(dto.narration !== undefined ? { notes: dto.narration ?? null } : {}),
-          ...(dto.partyChallanNo !== undefined ? { partyChallanNo: dto.partyChallanNo ?? null } : {}),
+          ...(dto.narration !== undefined
+            ? { notes: dto.narration ?? null }
+            : {}),
+          ...(dto.partyChallanNo !== undefined
+            ? { partyChallanNo: dto.partyChallanNo ?? null }
+            : {}),
           subTotal: totals.subTotal,
           taxAmount: totals.taxAmount,
           discountAmount: totals.discountAmount,
@@ -744,7 +750,13 @@ export class InvoiceService {
         id: { in: productIds },
         companyId,
       },
-      select: { id: true, name: true, hsnCode: true, unit: true, taxRate: true },
+      select: {
+        id: true,
+        name: true,
+        hsnCode: true,
+        unit: true,
+        taxRate: true,
+      },
     });
     const productMap = new Map(
       products.map((product) => [product.id, product]),
@@ -783,7 +795,9 @@ export class InvoiceService {
 
       return {
         productId: item.productId,
-        productName: String(productMap.get(item.productId)?.name ?? 'Unknown product'),
+        productName: String(
+          productMap.get(item.productId)?.name ?? 'Unknown product',
+        ),
         productHsnCode: productMap.get(item.productId)?.hsnCode ?? null,
         productUnit: String(productMap.get(item.productId)?.unit ?? 'MTR'),
         quantity: this.round3(quantity),

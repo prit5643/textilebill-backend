@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -11,7 +19,10 @@ import {
   RolesGuard,
   SubscriptionGuard,
 } from '../../common/guards';
-import { CurrentCompanyId, RequireCompanyAccess } from '../../common/decorators';
+import {
+  CurrentCompanyId,
+  RequireCompanyAccess,
+} from '../../common/decorators';
 import {
   CreateSalaryAdvanceDto,
   CreateSalaryProfileDto,

@@ -478,7 +478,11 @@ export class ReportService {
     }));
   }
 
-  async getMonthlyProfitSummary(companyId: string, year: number, month?: number) {
+  async getMonthlyProfitSummary(
+    companyId: string,
+    year: number,
+    month?: number,
+  ) {
     let from, to;
     if (month !== undefined) {
       from = new Date(year, month - 1, 1);
@@ -509,12 +513,12 @@ export class ReportService {
             acceptedQuantity: true,
             quantity: true,
             lossIncidents: { select: { amount: true } },
-          }
+          },
         },
         adjustments: {
-          select: { amount: true, adjustmentType: true }
-        }
-      }
+          select: { amount: true, adjustmentType: true },
+        },
+      },
     });
 
     let totalRevenue = 0;
@@ -527,7 +531,9 @@ export class ReportService {
 
       for (const lot of wo.lots) {
         if (lot.lotType === 'OUTSOURCED' && lot.agreedRate) {
-          totalCost += Number(lot.agreedRate) * Number(lot.acceptedQuantity || lot.quantity);
+          totalCost +=
+            Number(lot.agreedRate) *
+            Number(lot.acceptedQuantity || lot.quantity);
         } else {
           // If in-house, what is cost? We'll assume internal logic handles it or 0.
         }
@@ -573,9 +579,9 @@ export class ReportService {
           select: {
             reasonCode: true,
             amount: true,
-          }
-        }
-      }
+          },
+        },
+      },
     });
 
     const vendorMap = new Map<string, any>();
@@ -599,7 +605,8 @@ export class ReportService {
     }
 
     const arr = Array.from(vendorMap.values()).map((v) => {
-      const riskRatio = v.totalCost > 0 ? (v.totalLossAmount / v.totalCost) * 100 : 0;
+      const riskRatio =
+        v.totalCost > 0 ? (v.totalLossAmount / v.totalCost) * 100 : 0;
       return {
         ...v,
         netLoss: this.round2(v.totalLossAmount),
