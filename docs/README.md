@@ -1,33 +1,48 @@
 # TextileBill Backend Documentation
 
 This folder is the backend documentation index for the schema-aligned codebase.
+To maintain clarity and reduce ambiguity for engineering teams and AI agents, documentation is organized into clear subdirectories.
 
-## Canonical Docs
+## Documentation Navigation
 
-| Topic | File |
-|---|---|
-| API contract | `API_CONTRACT.md` |
-| Database schema | `database-schema.md` |
-| Authentication | `authentication-flows.md` |
-| Setup | `setup-guide.md` |
-| Database operations | `database-operations.md` |
-| Operations handbook | `backend-operations-handbook.md` |
-| Validation and error handling | `data-validation.md` |
-| App behavior | `app-workflow-and-behavior-guide.md` |
-| Feature inventory | `features.md` |
-| Test scenarios | `test-scenarios.md` |
-| Tech stack | `TECH_STACK_CURRENT.md` |
-| Environment variables | `env-variables-reference.md` |
-| Expense/salary/profitability plan | `plans/2026-04-09-expense-salary-advance-profitability-backend-plan.md` |
-| Expense/salary/profitability implementation audit | `plans/2026-04-12-expense-salary-advance-profitability-implementation-audit.md` |
+### [api/](./api/)
+Integration contracts for external interfaces and the frontend.
+- `API_CONTRACT.md` (Current REST API endpoints and payload behaviors)
 
-## Historical / Audit Docs
+### [architecture/](./architecture/)
+System design, high-level behavior, and active database structure.
+- `TECH_STACK_CURRENT.md`
+- `app-workflow-and-behavior-guide.md`
+- `database-schema.md` (The source of truth for the active Prisma models)
 
-These are kept for change history, not as field-level source of truth:
+### [development/](./development/)
+Guides for setting up the local environment and navigating the codebase.
+- `setup-guide.md`
+- `env-variables-reference.md`
+- `code-navigation.md`
 
-- `DOCUMENTATION_AUDIT_2026-03-21.md`
-- `DOCUMENTATION_UPDATE_SUMMARY.md`
-- `USER_DB_RELATIONS_AND_SIMPLE_MIGRATION.md`
-- root migration tracker docs in the workspace
+### [operations/](./operations/)
+Runbooks and guides for managing the schema and running the application backend.
+- `backend-operations-handbook.md`
+- `database-operations.md`
+- `data-validation.md`
 
-Use `prisma/schema.prisma` and the canonical docs above when there is any conflict.
+### [security/](./security/)
+Details on authentication strategies and security observability mechanisms.
+- `authentication-flows.md`
+- `security-observability.md`
+
+### [testing/](./testing/)
+Playbooks and scenarios for preventing regressions and verifying functional expectations.
+- `regression-playbook.md`
+- `test-scenarios.md`
+
+### [features/](./features/)
+Inventories and details of specific feature implementations.
+- `features.md`
+- `mail-configuration.md`
+
+### [deployment/](./deployment/)
+Guides for deploying the application to staging and production environments.
+- `DEPLOYMENT_GUIDE.md`
+- `ECR_RENDER_RUNBOOK.md`
