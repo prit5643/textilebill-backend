@@ -134,7 +134,7 @@ export class WorkOrderController {
     return this.workOrderService.retryLossAdjustment(
       companyId,
       incidentId,
-      userId,
+      
     );
   }
 
@@ -149,7 +149,7 @@ export class WorkOrderController {
     return this.workOrderService.reverseLossIncident(
       companyId,
       incidentId,
-      userId,
+      
     );
   }
 

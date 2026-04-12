@@ -849,8 +849,7 @@ export class WorkOrderService {
 
   async retryLossAdjustment(
     companyId: string,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    userId: string,
+    incidentId: string,
   ) {
     const incident = await this.prisma.workOrderLossIncident.findFirst({
       where: { id: incidentId, companyId },
@@ -891,8 +890,7 @@ export class WorkOrderService {
 
   async reverseLossIncident(
     companyId: string,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    userId: string,
+    incidentId: string,
   ) {
     const incident = await this.prisma.workOrderLossIncident.findFirst({
       where: { id: incidentId, companyId },
