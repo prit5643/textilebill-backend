@@ -257,6 +257,26 @@ export class AdminService {
                 },
               },
             },
+            {
+              companies: {
+                some: {
+                  email: {
+                    contains: query.search,
+                    mode: 'insensitive' as const,
+                  },
+                },
+              },
+            },
+            {
+              companies: {
+                some: {
+                  phone: {
+                    contains: query.search,
+                    mode: 'insensitive' as const,
+                  },
+                },
+              },
+            },
           ],
         }
       : { deletedAt: null };
