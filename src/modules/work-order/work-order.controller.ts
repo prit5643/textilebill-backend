@@ -30,92 +30,119 @@ export class WorkOrderController {
   constructor(private readonly workOrderService: WorkOrderService) {}
 
   @Post()
-  create(@Body() createWorkOrderDto: CreateWorkOrderDto, @Req() req: Request) {
-    const userId = req.user['sub'];
-    return this.workOrderService.createWorkOrder(createWorkOrderDto, userId);
+  create(
+    @CurrentCompanyId() companyId: string,
+    @Body() createWorkOrderDto: CreateWorkOrderDto,
+    @Req() req: Request,
+  ) {
+    const userId = (req.user as any)?.sub;
+    return this.workOrderService.create(companyId, userId, createWorkOrderDto);
   }
 
   @Get()
   findAll(
-    @Query('status') status?: string,
-    @Query('companyId') companyId?: string,
+    @CurrentCompanyId() companyId: string,
+    @Query('status') status?: any,
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 20,
   ) {
-    const params: any = {};
-    if (status) params.status = status;
-    if (companyId) params.companyId = companyId;
-    return this.workOrderService.getWorkOrders(params);
+    return this.workOrderService.list(companyId, { page, limit, status });
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.workOrderService.getWorkOrderById(id);
+  findOne(
+    @CurrentCompanyId() companyId: string,
+    @Param('id') id: string,
+  ) {
+    return this.workOrderService.findById(companyId, id);
   }
 
   @Post(':id/split')
   @HttpCode(HttpStatus.OK)
   split(
+    @CurrentCompanyId() companyId: string,
     @Param('id') id: string,
     @Body() splitDto: SplitWorkOrderDto,
     @Req() req: Request,
   ) {
-    const userId = req.user['sub'];
-    return this.workOrderService.splitWorkOrder(id, splitDto, userId);
+    const userId = (req.user as any)?.sub;
+    return this.workOrderService.splitWorkOrder(companyId, id, userId, splitDto);
   }
 
-  @Post(':id/link-invoice')
+  @Post(':id/link-sale-invoice')
   @HttpCode(HttpStatus.OK)
-  linkInvoice(
+  linkSaleInvoice(
+    @CurrentCompanyId() companyId: string,
     @Param('id') id: string,
     @Body() linkDto: LinkInvoiceDto,
     @Req() req: Request,
   ) {
-    const userId = req.user['sub'];
-    return this.workOrderService.linkInvoice(id, linkDto, userId);
+    const userId = (req.user as any)?.sub;
+    return this.workOrderService.linkSaleInvoice(companyId, id, userId, linkDto);
+  }
+
+  @Post(':id/link-purchase-invoice')
+  @HttpCode(HttpStatus.OK)
+  linkPurchaseInvoice(
+    @CurrentCompanyId() companyId: string,
+    @Body() linkDto: any,
+    @Req() req: Request,
+  ) {
+    const userId = (req.user as any)?.sub;
+    return this.workOrderService.linkPurchaseInvoice(companyId, linkDto.workOrderLotId, userId, linkDto);
   }
 
   @Post(':id/loss-incidents')
   createLossIncident(
+    @CurrentCompanyId() companyId: string,
     @Param('id') id: string,
     @Body() lossDto: CreateLossIncidentDto,
     @Req() req: Request,
   ) {
-    const userId = req.user['sub'];
-    return this.workOrderService.recordLossIncident(id, lossDto, userId);
+    const userId = (req.user as any)?.sub;
+    // ensure workOrderId is on dto
+    return this.workOrderService.createLossIncident(companyId, id, userId, lossDto);
   }
 
   @Post('loss-incidents/:incidentId/retry')
   @HttpCode(HttpStatus.OK)
   retryLossIncident(
+    @CurrentCompanyId() companyId: string,
     @Param('incidentId') incidentId: string,
     @Req() req: Request,
   ) {
-    const userId = req.user['sub'];
-    return this.workOrderService.retryLossIncident(incidentId, userId);
+    const userId = (req.user as any)?.sub;
+    return this.workOrderService.retryLossAdjustment(companyId, incidentId, userId);
   }
 
   @Post('loss-incidents/:incidentId/reverse')
   @HttpCode(HttpStatus.OK)
   reverseLossIncident(
+    @CurrentCompanyId() companyId: string,
     @Param('incidentId') incidentId: string,
     @Req() req: Request,
   ) {
-    const userId = req.user['sub'];
-    return this.workOrderService.reverseLossIncident(incidentId, userId);
+    const userId = (req.user as any)?.sub;
+    return this.workOrderService.reverseLossIncident(companyId, incidentId, userId);
   }
 
   @Patch(':id/close')
   @HttpCode(HttpStatus.OK)
   close(
+    @CurrentCompanyId() companyId: string,
     @Param('id') id: string,
     @Body() closeDto: CloseWorkOrderDto,
     @Req() req: Request,
   ) {
-    const userId = req.user['sub'];
-    return this.workOrderService.closeWorkOrder(id, closeDto, userId);
+    const userId = (req.user as any)?.sub;
+    return this.workOrderService.closeWorkOrder(companyId, id, userId, closeDto);
   }
 
   @Get(':id/profitability')
-  getProfitability(@Param('id') id: string) {
-    return this.workOrderService.getWorkOrderProfitability(id);
+  getProfitability(
+    @CurrentCompanyId() companyId: string,
+    @Param('id') id: string,
+  ) {
+    return this.workOrderService.getWorkOrderProfitability(companyId, id);
   }
 }

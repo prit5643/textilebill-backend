@@ -496,11 +496,11 @@ export class ReportService {
       },
       select: {
         id: true,
-        orderNumber: true,
+        orderRef: true,
         status: true,
-        product: { select: { name: true } },
-        salePrice: true,
-        orderedQty: true,
+        itemName: true,
+        saleRate: true,
+        orderedQuantity: true,
         lots: {
           select: {
             id: true,
@@ -508,11 +508,11 @@ export class ReportService {
             agreedRate: true,
             acceptedQuantity: true,
             quantity: true,
-            lossIncidents: { select: { lossAmount: true } },
+            lossIncidents: { select: { amount: true } },
           }
         },
-        autoAdjustments: {
-          select: { amount: true, type: true }
+        adjustments: {
+          select: { amount: true, adjustmentType: true }
         }
       }
     });
@@ -523,7 +523,7 @@ export class ReportService {
 
     for (const wo of workOrders) {
       // Revenue
-      totalRevenue += Number(wo.salePrice) * Number(wo.orderedQty);
+      totalRevenue += Number(wo.saleRate) * Number(wo.orderedQuantity);
 
       for (const lot of wo.lots) {
         if (lot.lotType === 'OUTSOURCED' && lot.agreedRate) {
@@ -533,12 +533,12 @@ export class ReportService {
         }
 
         for (const inc of lot.lossIncidents) {
-          totalAdjustments -= Number(inc.lossAmount);
+          totalAdjustments -= Number(inc.amount);
         }
       }
 
-      for (const adj of wo.autoAdjustments) {
-        if (adj.type === 'LOSS_EXPENSE_NOTE') {
+      for (const adj of wo.adjustments) {
+        if (adj.adjustmentType === 'LOSS_EXPENSE_NOTE') {
           totalAdjustments -= Number(adj.amount);
         }
       }
@@ -571,9 +571,8 @@ export class ReportService {
         acceptedQuantity: true,
         lossIncidents: {
           select: {
-            lossType: true,
-            lossQuantity: true,
-            lossAmount: true,
+            reasonCode: true,
+            amount: true,
           }
         }
       }
@@ -594,7 +593,7 @@ export class ReportService {
       v.totalCost += Number(lot.agreedRate || 0) * Number(lot.quantity);
 
       for (const incident of lot.lossIncidents) {
-        v.totalLossAmount += Number(incident.lossAmount);
+        v.totalLossAmount += Number(incident.amount);
       }
       vendorMap.set(lot.vendorAccountId, v);
     }
