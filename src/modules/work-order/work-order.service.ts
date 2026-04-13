@@ -847,10 +847,7 @@ export class WorkOrderService {
     }));
   }
 
-  async retryLossAdjustment(
-    companyId: string,
-    incidentId: string,
-  ) {
+  async retryLossAdjustment(companyId: string, incidentId: string) {
     const incident = await this.prisma.workOrderLossIncident.findFirst({
       where: { id: incidentId, companyId },
       include: { adjustment: true },
@@ -888,10 +885,7 @@ export class WorkOrderService {
     return this.listLossIncidents(companyId, incident.workOrderId);
   }
 
-  async reverseLossIncident(
-    companyId: string,
-    incidentId: string,
-  ) {
+  async reverseLossIncident(companyId: string, incidentId: string) {
     const incident = await this.prisma.workOrderLossIncident.findFirst({
       where: { id: incidentId, companyId },
       include: { adjustment: true },

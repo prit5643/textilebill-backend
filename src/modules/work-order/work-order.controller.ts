@@ -128,14 +128,8 @@ export class WorkOrderController {
   retryLossIncident(
     @CurrentCompanyId() companyId: string,
     @Param('incidentId') incidentId: string,
-    @Req() req: Request,
   ) {
-    const userId = (req.user as any)?.sub;
-    return this.workOrderService.retryLossAdjustment(
-      companyId,
-      incidentId,
-      
-    );
+    return this.workOrderService.retryLossAdjustment(companyId, incidentId);
   }
 
   @Post('loss-incidents/:incidentId/reverse')
@@ -143,14 +137,8 @@ export class WorkOrderController {
   reverseLossIncident(
     @CurrentCompanyId() companyId: string,
     @Param('incidentId') incidentId: string,
-    @Req() req: Request,
   ) {
-    const userId = (req.user as any)?.sub;
-    return this.workOrderService.reverseLossIncident(
-      companyId,
-      incidentId,
-      
-    );
+    return this.workOrderService.reverseLossIncident(companyId, incidentId);
   }
 
   @Patch(':id/close')

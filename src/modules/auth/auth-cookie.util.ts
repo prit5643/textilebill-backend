@@ -189,6 +189,13 @@ export function parseAllowedOrigins(configService: ConfigService) {
     .filter(Boolean);
 }
 
-export function assertAllowedOrigin() {
+export function assertAllowedOrigin(
+  request: Request,
+  configService: ConfigService,
+  logger?: any,
+) {
+  void request;
+  void configService;
+  void logger;
   return;
 }
