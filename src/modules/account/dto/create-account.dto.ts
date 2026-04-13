@@ -16,6 +16,7 @@ import { Type, Transform } from 'class-transformer';
 import {
   GSTIN_REGEX,
   MOBILE_REGEX,
+  NAME_REGEX,
 } from '../../../common/utils/validation.util';
 
 export enum GstTypeEnum {
@@ -31,6 +32,10 @@ export class CreateAccountDto {
   @ApiProperty({ example: 'Rajesh Textiles' })
   @IsString()
   @MaxLength(300)
+  @Matches(NAME_REGEX, {
+    message:
+      "Party name can contain only letters, numbers, spaces, and & . ' / -",
+  })
   name: string;
 
   @ApiPropertyOptional({ example: 'RT001' })

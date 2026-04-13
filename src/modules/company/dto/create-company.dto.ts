@@ -10,12 +10,17 @@ import { Transform } from 'class-transformer';
 import {
   GSTIN_REGEX,
   MOBILE_REGEX,
+  NAME_REGEX,
 } from '../../../common/utils/validation.util';
 
 export class CreateCompanyDto {
   @ApiProperty({ example: 'Shiv Fashion' })
   @IsString()
   @MaxLength(200)
+  @Matches(NAME_REGEX, {
+    message:
+      "Company name can contain only letters, numbers, spaces, and & . ' / -",
+  })
   name: string;
 
   @ApiPropertyOptional({ example: '24AABCU9603R1ZM' })

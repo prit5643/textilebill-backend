@@ -37,7 +37,16 @@ describe('AccountService', () => {
         id: true,
         group: true,
         deletedAt: true,
-        party: { select: { id: true, name: true } },
+        party: {
+          select: {
+            id: true,
+            name: true,
+            city: true,
+            bankName: true,
+            bankAccountNo: true,
+            bankIfsc: true,
+          },
+        },
       }),
     );
     expect(queryArg.include).toBeUndefined();
@@ -60,6 +69,7 @@ describe('AccountService', () => {
         companyId: true,
         group: true,
         openingBalance: true,
+        openingBalanceType: true,
         deletedAt: true,
         party: {
           select: {
@@ -68,6 +78,14 @@ describe('AccountService', () => {
             gstin: true,
             phone: true,
             email: true,
+            address: true,
+            city: true,
+            state: true,
+            pincode: true,
+            contactPerson: true,
+            bankName: true,
+            bankAccountNo: true,
+            bankIfsc: true,
           },
         },
       }),

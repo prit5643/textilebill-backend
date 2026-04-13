@@ -18,6 +18,7 @@ import {
   parsePagination,
   createPaginatedResult,
 } from '../../common/utils/pagination.util';
+import { NAME_REGEX } from '../../common/utils/validation.util';
 
 type ProductListView = 'default' | 'selector';
 
@@ -135,6 +136,33 @@ export class ProductService {
       : normalized;
   }
 
+  private getOptionLabel(kind: ProductOptionKind): string {
+    switch (kind) {
+      case ProductOptionKind.CLASSIFICATION:
+        return 'Classification';
+      case ProductOptionKind.CARD_TYPE:
+        return 'Card type';
+      case ProductOptionKind.CATEGORY:
+        return 'Category';
+      case ProductOptionKind.SERVICE_CATEGORY:
+        return 'Service category';
+      case ProductOptionKind.BRAND:
+        return 'Brand';
+      case ProductOptionKind.UOM:
+        return 'Unit';
+      default:
+        return 'Option';
+    }
+  }
+
+  private ensureValidOptionName(kind: ProductOptionKind, name: string) {
+    if (!NAME_REGEX.test(name)) {
+      const label = this.getOptionLabel(kind);
+      throw new BadRequestException(
+        `${label} name can contain only letters, numbers, spaces, and & . ' / -`,
+      );
+    }
+  }
   private normalizeProductType(value?: string | null): ProductType | undefined {
     if (!value) return undefined;
     return Object.values(ProductType).includes(value as ProductType)
@@ -262,6 +290,7 @@ export class ProductService {
     if (!normalizedName) {
       throw new BadRequestException(`${kind.toLowerCase()} name is required`);
     }
+    this.ensureValidOptionName(kind, normalizedName);
 
     if (kind === ProductOptionKind.UOM) {
       await this.ensureDefaultUoms(scopedCompanyId);
@@ -681,6 +710,7 @@ export class ProductService {
     if (!normalizedName) {
       throw new BadRequestException(requiredMessage);
     }
+    this.ensureValidOptionName(kind, normalizedName);
 
     const duplicate = await this.prisma.productOption.findFirst({
       where: {

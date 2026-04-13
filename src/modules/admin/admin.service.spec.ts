@@ -154,7 +154,7 @@ describe('AdminService', () => {
       status: 'ACTIVE',
     });
 
-    const result = await service.assignSubscription({
+    await service.assignSubscription({
       gstin: '24abcde1234f1z5',
       planId: 'plan-1',
     });
@@ -225,7 +225,7 @@ describe('AdminService', () => {
       return callback(tx);
     });
 
-    const result = await service.createTenant({
+    await service.createTenant({
       name: 'Alpha',
       email: 'admin@alpha.test',
       adminFirstName: 'Admin',
@@ -359,7 +359,7 @@ describe('AdminService', () => {
       { tenantId: 'tenant-2', _count: { _all: 2 } },
     ]);
 
-    const result = await service.listTenants({ page: 1, limit: 10 });
+    await service.listTenants({ page: 1, limit: 10 });
 
     expect(prisma.user.groupBy).toHaveBeenCalledWith({
       by: ['tenantId'],
@@ -409,7 +409,7 @@ describe('AdminService', () => {
       { tenantId: 'tenant-1', _count: { _all: 1 } },
     ]);
 
-    const result = await service.listTenants({ page: 1, limit: 10 });
+    await service.listTenants({ page: 1, limit: 10 });
 
     expect(result.data[0]).toEqual(
       expect.objectContaining({
@@ -449,7 +449,7 @@ describe('AdminService', () => {
       { tenantId: 'tenant-1', _count: { _all: 1 } },
     ]);
 
-    const result = await service.listTenants({ page: 1, limit: 10 });
+    await service.listTenants({ page: 1, limit: 10 });
 
     expect(prisma.tenant.findMany).toHaveBeenCalledTimes(2);
     expect(result.data[0]).toEqual(
@@ -520,7 +520,7 @@ describe('AdminService', () => {
         ],
       });
 
-    const result = await service.getTenant('tenant-1');
+    await service.getTenant('tenant-1');
 
     expect(prisma.tenant.findUnique).toHaveBeenCalledTimes(2);
     expect(result).toEqual(
@@ -614,7 +614,7 @@ describe('AdminService', () => {
     ]);
     prisma.subscription.count.mockResolvedValueOnce(1);
 
-    const result = await service.listSubscriptions({ page: 1, limit: 10 });
+    await service.listSubscriptions({ page: 1, limit: 10 });
 
     expect(prisma.subscription.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -660,7 +660,7 @@ describe('AdminService', () => {
     ]);
     prisma.user.count.mockResolvedValueOnce(1);
 
-    const result = await service.listAllUsers({ page: 1, limit: 10 });
+    await service.listAllUsers({ page: 1, limit: 10 });
 
     expect(prisma.user.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -721,7 +721,7 @@ describe('AdminService', () => {
     ]);
     prisma.auditLog.count.mockResolvedValueOnce(1);
 
-    const result = await service.getAuditLogs({
+    await service.getAuditLogs({
       page: 1,
       limit: 50,
       companyId: 'company-1',

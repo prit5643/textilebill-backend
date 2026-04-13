@@ -1365,23 +1365,11 @@ export class AdminService {
     return createPaginatedResult(rows, total, page, limit);
   }
 
-  async getModulePermissions(companyId: string) {
-    void companyId;
+  async getModulePermissions() {
     return [];
   }
 
-  async upsertModulePermission(data: {
-    companyId: string;
-    role: string;
-    module: string;
-    canEntry?: boolean;
-    canEdit?: boolean;
-    canDelete?: boolean;
-    canList?: boolean;
-    canPayment?: boolean;
-    canReminder?: boolean;
-  }) {
-    void data;
+  async upsertModulePermission() {
     throw new BadRequestException(
       'Module permissions are deprecated because ModulePermission model was removed from schema v2.',
     );

@@ -1,4 +1,3 @@
-import type { LoggerService } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Request, Response, CookieOptions } from 'express';
 
@@ -190,13 +189,6 @@ export function parseAllowedOrigins(configService: ConfigService) {
     .filter(Boolean);
 }
 
-export function assertAllowedOrigin(
-  request: Request,
-  configService: ConfigService,
-  logger?: LoggerService,
-) {
-  void request;
-  void configService;
-  void logger;
+export function assertAllowedOrigin() {
   return;
 }
