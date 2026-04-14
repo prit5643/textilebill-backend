@@ -28,7 +28,7 @@ export class UomController {
   }
 
   @Post()
-  @Roles('SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER', 'STAFF', 'ACCOUNTANT')
+  @Roles('SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER', 'ACCOUNTANT')
   @ApiOperation({ summary: 'Create a UOM' })
   create(
     @CurrentCompanyId() companyId: string,

@@ -659,7 +659,6 @@ export class UsersService {
         return 'VIEWER';
       case 'MANAGER':
         return 'MANAGER';
-      case 'STAFF':
       default:
         return 'MANAGER';
     }

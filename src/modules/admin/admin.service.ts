@@ -1252,7 +1252,7 @@ export class AdminService {
       firstName?: string;
       lastName?: string;
       email?: string;
-      role?: 'TENANT_ADMIN' | 'MANAGER' | 'STAFF' | 'ACCOUNTANT' | 'VIEWER';
+      role?: 'TENANT_ADMIN' | 'MANAGER' | 'ACCOUNTANT' | 'VIEWER';
     },
   ) {
     const existing = await this.prisma.user.findUnique({
@@ -1469,7 +1469,7 @@ export class AdminService {
   }
 
   private fromLegacyRole(
-    role: 'TENANT_ADMIN' | 'MANAGER' | 'STAFF' | 'ACCOUNTANT' | 'VIEWER',
+    role: 'TENANT_ADMIN' | 'MANAGER' | 'ACCOUNTANT' | 'VIEWER',
   ): UserRole {
     switch (role) {
       case 'TENANT_ADMIN':
@@ -1478,7 +1478,6 @@ export class AdminService {
         return UserRole.MANAGER;
       case 'ACCOUNTANT':
         return UserRole.ACCOUNTANT;
-      case 'STAFF':
       case 'VIEWER':
       default:
         return UserRole.VIEWER;
@@ -1503,7 +1502,7 @@ export class AdminService {
   private toLegacyRole(role: UserRole): string {
     switch (role) {
       case UserRole.OWNER:
-        return 'TENANT_ADMIN';
+        return 'SUPER_ADMIN';
       case UserRole.ADMIN:
         return 'TENANT_ADMIN';
       case UserRole.MANAGER:

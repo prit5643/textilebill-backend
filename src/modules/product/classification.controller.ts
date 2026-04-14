@@ -31,7 +31,7 @@ export class ClassificationController {
   constructor(private readonly productService: ProductService) {}
 
   @Post()
-  @Roles('SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER', 'STAFF', 'ACCOUNTANT')
+  @Roles('SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER', 'ACCOUNTANT')
   @ApiOperation({ summary: 'Create a product classification' })
   create(
     @CurrentCompanyId() companyId: string,

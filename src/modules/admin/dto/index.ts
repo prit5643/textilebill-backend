@@ -225,9 +225,9 @@ export class UpdateAdminUserDto {
   email?: string;
 
   @ApiPropertyOptional({
-    enum: ['TENANT_ADMIN', 'MANAGER', 'STAFF', 'ACCOUNTANT', 'VIEWER'],
+    enum: ['TENANT_ADMIN', 'MANAGER', 'ACCOUNTANT', 'VIEWER'],
   })
   @IsOptional()
-  @IsIn(['TENANT_ADMIN', 'MANAGER', 'STAFF', 'ACCOUNTANT', 'VIEWER'])
-  role?: 'TENANT_ADMIN' | 'MANAGER' | 'STAFF' | 'ACCOUNTANT' | 'VIEWER';
+  @IsIn(['TENANT_ADMIN', 'MANAGER', 'ACCOUNTANT', 'VIEWER'])
+  role?: 'TENANT_ADMIN' | 'MANAGER' | 'ACCOUNTANT' | 'VIEWER';
 }

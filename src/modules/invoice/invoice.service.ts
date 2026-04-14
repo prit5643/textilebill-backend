@@ -378,6 +378,14 @@ export class InvoiceService {
 
     const outstanding = Number(rawOutstanding[0]?.outstanding ?? 0);
 
+    const totalSales = Number(countByType.find(t => t.type === 'SALE')?._sum?.totalAmount ?? 0);
+    const totalSaleReturns = Number(countByType.find(t => t.type === 'SALE_RETURN')?._sum?.totalAmount ?? 0);
+    const netSales = totalSales - totalSaleReturns;
+
+    const totalPurchases = Number(countByType.find(t => t.type === 'PURCHASE')?._sum?.totalAmount ?? 0);
+    const totalPurchaseReturns = Number(countByType.find(t => t.type === 'PURCHASE_RETURN')?._sum?.totalAmount ?? 0);
+    const netPurchases = totalPurchases - totalPurchaseReturns;
+
     return {
       byType: countByType,
       totals: {
@@ -386,6 +394,8 @@ export class InvoiceService {
         discountAmount: Number(totals._sum.discountAmount ?? 0),
         totalAmount: Number(totals._sum.totalAmount ?? 0),
         outstanding: this.round2(outstanding),
+        netSales: this.round2(netSales),
+        netPurchases: this.round2(netPurchases),
       },
     };
   }
@@ -438,8 +448,19 @@ export class InvoiceService {
       throw new NotFoundException('Invoice not found');
     }
 
+    const payments = await db.ledgerEntry.aggregate({
+      where: {
+        companyId,
+        invoiceId: id,
+        narration: { contains: '[INVOICE_PAYMENT]' },
+      },
+      _sum: { credit: true },
+    });
+    const paidAmount = Number(payments._sum.credit ?? 0);
+
     return {
       ...invoice,
+      paidAmount,
       items: (invoice.items ?? []).map((item) => ({
         ...item,
         product: item.product

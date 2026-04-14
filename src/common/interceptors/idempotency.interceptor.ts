@@ -54,8 +54,8 @@ export class IdempotencyInterceptor implements NestInterceptor {
       try {
         cachedResponse = await this.redisService.get(cacheKey);
       } catch (redisErr) {
-        this.logger.error(
-          `Redis connection failed while fetching idempotency key.Failing open.`,
+        this.logger.warn(
+          `Redis connection failed while fetching idempotency key. Failing open.`,
           redisErr,
         );
         // Proceed without idempotency protection
@@ -78,7 +78,7 @@ export class IdempotencyInterceptor implements NestInterceptor {
           this.redisService
             .set(cacheKey, JSON.stringify(response), 60 * 60 * 24)
             .catch((err: any) => {
-              this.logger.error('Failed to cache idempotent response', err);
+              this.logger.warn('Failed to cache idempotent response', err);
             });
         }),
       );
@@ -95,8 +95,8 @@ export class IdempotencyInterceptor implements NestInterceptor {
     try {
       isLocked = await this.redisService.get(lockKey);
     } catch {
-      this.logger.error(
-        `Redis connection failed while checking barrier lock.Failing open.`,
+      this.logger.warn(
+        `Redis connection failed while checking barrier lock. Failing open.`,
       );
     }
 
