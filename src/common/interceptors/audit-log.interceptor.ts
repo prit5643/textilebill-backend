@@ -56,8 +56,17 @@ export class AuditLogInterceptor implements NestInterceptor {
           (typeof request.headers['x-company-id'] === 'string'
             ? request.headers['x-company-id']
             : null);
+        const actorIdentifier = this.extractActorIdentifier(
+          request.body as Record<string, unknown>,
+        );
+        const actorMetadata: Prisma.InputJsonObject = {
+          userId: actor?.id ?? null,
+          tenantId: actor?.tenantId ?? null,
+          identifier: actorIdentifier,
+        };
 
         const payload: Prisma.InputJsonObject = {
+          actor: actorMetadata,
           params: this.redactSensitive(
             request.params as Record<string, unknown>,
           ) as Prisma.InputJsonValue,
@@ -93,6 +102,31 @@ export class AuditLogInterceptor implements NestInterceptor {
           });
       }),
     );
+  }
+
+  private extractActorIdentifier(
+    body: Record<string, unknown> | undefined,
+  ): string | null {
+    if (!body || typeof body !== 'object') {
+      return null;
+    }
+
+    const candidateKeys = [
+      'email',
+      'loginId',
+      'identifier',
+      'username',
+      'phone',
+      'mobile',
+    ];
+    for (const key of candidateKeys) {
+      const value = body[key];
+      if (typeof value === 'string' && value.trim().length > 0) {
+        return value.trim();
+      }
+    }
+
+    return null;
   }
 
   private extractEntity(routeTemplate: string, requestPath: string): string {

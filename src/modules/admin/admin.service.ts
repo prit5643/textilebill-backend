@@ -85,6 +85,27 @@ export class AdminService {
       orderBy: { createdAt: 'desc' },
       include: {
         _count: { select: { users: true, companies: true } },
+        subscriptions: {
+          where: {
+            deletedAt: null,
+            status: SubscriptionStatus.ACTIVE,
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: {
+            id: true,
+            status: true,
+            startDate: true,
+            endDate: true,
+            plan: {
+              select: {
+                id: true,
+                name: true,
+                description: true,
+              },
+            },
+          },
+        },
         companies: {
           where: { deletedAt: null },
           orderBy: { createdAt: 'asc' },
@@ -98,6 +119,27 @@ export class AdminService {
     return this.prisma.tenant.findUnique({
       where: { id },
       include: {
+        subscriptions: {
+          where: {
+            deletedAt: null,
+            status: SubscriptionStatus.ACTIVE,
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: {
+            id: true,
+            status: true,
+            startDate: true,
+            endDate: true,
+            plan: {
+              select: {
+                id: true,
+                name: true,
+                description: true,
+              },
+            },
+          },
+        },
         users: {
           where: {
             deletedAt: null,
@@ -461,7 +503,13 @@ export class AdminService {
       });
 
       const selectedPlan = dto.planId
-        ? await tx.plan.findUnique({ where: { id: dto.planId } })
+        ? await tx.plan.findFirst({
+            where: {
+              id: dto.planId,
+              deletedAt: null,
+              status: EntityStatus.ACTIVE,
+            },
+          })
         : await tx.plan.findFirst({
             where: {
               deletedAt: null,
@@ -707,7 +755,7 @@ export class AdminService {
       where: { id },
       data: {
         status: status ? 'ACTIVE' : 'INACTIVE',
-        deletedAt: status ? null : new Date(),
+        deletedAt: null,
       },
     });
   }
@@ -768,32 +816,19 @@ export class AdminService {
     const plan = await this.prisma.plan.findUnique({
       where: { id: dto.planId },
     });
-    if (!plan) throw new NotFoundException('Plan not found');
+    if (!plan || plan.deletedAt || plan.status !== EntityStatus.ACTIVE) {
+      throw new NotFoundException('Active plan not found');
+    }
     this.assertSupportedPlanDuration(plan.durationDays);
 
     const created = await this.prisma.$transaction(
       async (tx) => {
         const now = new Date();
-        const activeSubscription = await tx.subscription.findFirst({
-          where: {
-            tenantId: company.tenantId,
-            deletedAt: null,
-            status: 'ACTIVE',
-            endDate: { gte: now },
-          },
-          orderBy: { endDate: 'desc' },
-          select: { endDate: true },
-        });
-
-        const anchorDate =
-          activeSubscription?.endDate && activeSubscription.endDate > now
-            ? new Date(activeSubscription.endDate.getTime() + 1000)
-            : now;
-
         const { startDate, endDate } = this.buildIstSubscriptionWindow(
           plan.durationDays,
-          anchorDate,
+          now,
         );
+        const expiryDate = this.toIstEndOfDayUtc(now);
 
         await tx.subscription.updateMany({
           where: {
@@ -801,7 +836,10 @@ export class AdminService {
             deletedAt: null,
             status: 'ACTIVE',
           },
-          data: { status: 'EXPIRED' },
+          data: {
+            status: 'EXPIRED',
+            endDate: expiryDate,
+          },
         });
 
         return tx.subscription.create({
@@ -810,7 +848,8 @@ export class AdminService {
             planId: plan.id,
             startDate,
             endDate,
-            amountPaid: dto.amount ?? plan.price,
+            amountPaid:
+              dto.amount !== undefined ? dto.amount : Number(plan.price ?? 0),
             status: 'ACTIVE',
             paymentStatus: 'PAID',
           },
@@ -820,6 +859,20 @@ export class AdminService {
         isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
       },
     );
+
+    // Keep at most one active subscription row per tenant even under retries/races.
+    await this.prisma.subscription.updateMany({
+      where: {
+        tenantId: company.tenantId,
+        deletedAt: null,
+        status: 'ACTIVE',
+        id: { not: created.id },
+      },
+      data: {
+        status: 'EXPIRED',
+        endDate: this.toIstEndOfDayUtc(new Date()),
+      },
+    });
 
     await this.redisService.del(
       getTenantSubscriptionCacheKey(company.tenantId),
@@ -887,6 +940,7 @@ export class AdminService {
         where,
         skip,
         take,
+        orderBy: { createdAt: 'desc' },
         include: {
           plan: true,
           tenant: {
@@ -908,6 +962,7 @@ export class AdminService {
 
     const data = rows.map((row) => ({
       ...row,
+      amount: Number(row.amountPaid ?? 0),
       tenant: row.tenant
         ? {
             id: row.tenant.id,
@@ -1063,6 +1118,23 @@ export class AdminService {
               },
               {
                 name: { contains: query.search, mode: 'insensitive' as const },
+              },
+              {
+                tenant: {
+                  name: { contains: query.search, mode: 'insensitive' as const },
+                },
+              },
+              {
+                userCompanies: {
+                  some: {
+                    company: {
+                      name: {
+                        contains: query.search,
+                        mode: 'insensitive' as const,
+                      },
+                    },
+                  },
+                },
               },
             ],
           }
@@ -1365,11 +1437,11 @@ export class AdminService {
     return createPaginatedResult(rows, total, page, limit);
   }
 
-  async getModulePermissions() {
+  async getModulePermissions(_companyId: string) {
     return [];
   }
 
-  async upsertModulePermission() {
+  async upsertModulePermission(_data: Record<string, unknown>) {
     throw new BadRequestException(
       'Module permissions are deprecated because ModulePermission model was removed from schema v2.',
     );
@@ -1500,7 +1572,7 @@ export class AdminService {
     anchor = new Date(),
   ) {
     const safeDuration = Math.max(1, Math.floor(durationDays || 1));
-    const startDate = new Date(anchor);
+    const startDate = this.toIstStartOfDayUtc(anchor);
     const endDate = this.toIstEndOfDayUtc(
       this.addIstCalendarDays(startDate, safeDuration - 1),
     );

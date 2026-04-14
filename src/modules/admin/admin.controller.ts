@@ -141,10 +141,13 @@ export class AdminController {
     if (!dto.gstin?.trim()) {
       throw new BadRequestException('gstin is required');
     }
+    if (!dto.planId?.trim()) {
+      throw new BadRequestException('planId is required');
+    }
 
     return this.adminService.assignSubscription({
       gstin: dto.gstin.trim(),
-      planId: dto.planId,
+      planId: dto.planId.trim(),
       amount: dto.amount,
     });
   }

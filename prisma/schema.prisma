@@ -339,9 +339,10 @@ model Company {
 model User {
   id           String       @id @default(uuid())
   tenantId     String
-  email        String       @unique
-  passwordHash String
-  name         String
+  email              String       @unique
+  passwordHash       String
+  mustChangePassword Boolean      @default(false)
+  name               String
   phone        String?
   status       EntityStatus @default(ACTIVE)
   createdAt    DateTime     @default(now())

@@ -45,11 +45,15 @@ export class CompanyAccessGuard implements CanActivate {
       return true;
     }
 
-    const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
+    const request = context.switchToHttp().getRequest<AuthenticatedRequest & { method: string }>();
     const user = request.user;
 
     if (!user) {
       return true;
+    }
+
+    if (user.role === 'VIEWER' && request.method !== 'GET') {
+      throw new ForbiddenException('Viewers cannot perform write operations.');
     }
 
     const companyId = this.extractCompanyId(request, options);

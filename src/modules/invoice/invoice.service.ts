@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { InvoiceStatus, InvoiceType, Prisma } from '@prisma/client';
+import { InvoiceStatus, InvoiceType, Prisma, MovementType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateInvoiceDto, InvoiceTypeEnum } from './dto/create-invoice.dto';
 import { UpdateInvoiceDto } from './dto/update-invoice.dto';
@@ -33,6 +33,22 @@ export class InvoiceService {
     private readonly prisma: PrismaService,
     private readonly invoiceNumberService: InvoiceNumberService,
   ) {}
+
+  private getMovementType(invoiceType: InvoiceType): MovementType | null {
+    switch (invoiceType) {
+      case InvoiceType.SALE:
+      case InvoiceType.PURCHASE_RETURN:
+      case InvoiceType.JOB_OUT:
+      case InvoiceType.CHALLAN:
+        return MovementType.OUT;
+      case InvoiceType.PURCHASE:
+      case InvoiceType.SALE_RETURN:
+      case InvoiceType.JOB_IN:
+        return MovementType.IN;
+      default:
+        return null;
+    }
+  }
 
   async create(
     companyId: string,
@@ -170,6 +186,22 @@ export class InvoiceService {
             amount: item.amount,
           })),
         });
+
+        const movementType = this.getMovementType(invoiceType);
+        if (movementType) {
+          await tx.stockMovement.createMany({
+            data: items.map((item) => ({
+              tenantId: company.tenantId,
+              companyId,
+              productId: item.productId,
+              invoiceId: invoice.id,
+              type: movementType,
+              quantity: item.quantity,
+              date: invoiceDate,
+              notes: `[AUTO_INVOICE] ${invoiceType} ${invoiceNumber}`,
+            })),
+          });
+        }
       }
 
       return invoice.id;
@@ -264,7 +296,30 @@ export class InvoiceService {
       this.prisma.invoice.count({ where }),
     ]);
 
-    return createPaginatedResult(data, total, page, limit);
+    const invoiceIds = data.map((i) => i.id);
+    let paymentsByInvoice = new Map<string, number>();
+
+    if (invoiceIds.length > 0) {
+      const groupedPayments = await this.prisma.ledgerEntry.groupBy({
+        by: ['invoiceId'],
+        where: {
+          companyId,
+          invoiceId: { in: invoiceIds },
+          narration: { contains: '[INVOICE_PAYMENT]' },
+        },
+        _sum: { credit: true },
+      });
+      paymentsByInvoice = new Map(
+        groupedPayments.map((p) => [p.invoiceId as string, Number(p._sum.credit ?? 0)]),
+      );
+    }
+
+    const enhancedData = data.map((invoice) => ({
+      ...invoice,
+      paidAmount: paymentsByInvoice.get(invoice.id) ?? 0,
+    }));
+
+    return createPaginatedResult(enhancedData, total, page, limit);
   }
 
   async getSummary(companyId: string, financialYearId?: string) {
@@ -307,15 +362,21 @@ export class InvoiceService {
       ]),
     );
 
-    const invoices = await this.prisma.invoice.findMany({
-      where,
-      select: { id: true, totalAmount: true },
-    });
+    const rawOutstanding = await this.prisma.$queryRaw<Array<{ outstanding: number }>>`
+      SELECT COALESCE(SUM(GREATEST(0, i."totalAmount" - COALESCE(p.paid, 0))), 0) AS outstanding
+      FROM "Invoice" i
+      LEFT JOIN (
+        SELECT "invoiceId", SUM(credit) AS paid
+        FROM "LedgerEntry"
+        WHERE "companyId" = ${companyId} AND "invoiceId" IS NOT NULL
+        GROUP BY "invoiceId"
+      ) p ON i.id = p."invoiceId"
+      WHERE i."companyId" = ${companyId}
+        AND i."deletedAt" IS NULL
+        ${financialYearId ? Prisma.sql`AND i."financialYearId" = ${financialYearId}` : Prisma.empty}
+    `;
 
-    const outstanding = invoices.reduce((sum, invoice) => {
-      const paid = paidByInvoice.get(invoice.id) ?? 0;
-      return sum + Math.max(0, Number(invoice.totalAmount) - paid);
-    }, 0);
+    const outstanding = Number(rawOutstanding[0]?.outstanding ?? 0);
 
     return {
       byType: countByType,
@@ -418,6 +479,8 @@ export class InvoiceService {
         totals = this.computeTotals(prepared);
 
         await tx.invoiceItem.deleteMany({ where: { invoiceId: id } });
+        await tx.stockMovement.deleteMany({ where: { invoiceId: id } });
+
         await tx.invoiceItem.createMany({
           data: prepared.map((item) => ({
             tenantId: company.tenantId,
@@ -433,6 +496,27 @@ export class InvoiceService {
             taxAmount: item.taxAmount,
             amount: item.amount,
           })),
+        });
+
+        const movementType = this.getMovementType(existing.type);
+        if (movementType) {
+          await tx.stockMovement.createMany({
+            data: prepared.map((item) => ({
+              tenantId: company.tenantId,
+              companyId,
+              productId: item.productId,
+              invoiceId: id,
+              type: movementType,
+              quantity: item.quantity,
+              date: dto.invoiceDate ? new Date(dto.invoiceDate) : existing.invoiceDate,
+              notes: `[AUTO_UPDATED] ${existing.type} ${existing.invoiceNumber || dto.invoiceNumber || ''}`.trim(),
+            })),
+          });
+        }
+      } else if (dto.invoiceDate) {
+        await tx.stockMovement.updateMany({
+          where: { invoiceId: id },
+          data: { date: new Date(dto.invoiceDate) },
         });
       }
 
@@ -473,18 +557,39 @@ export class InvoiceService {
 
   async remove(companyId: string, id: string) {
     await this.findById(companyId, id);
-    return this.prisma.invoice.update({
-      where: { id },
-      data: {
-        status: InvoiceStatus.CANCELLED,
-        deletedAt: new Date(),
-      },
+    return this.prisma.$transaction(async (tx) => {
+      await tx.stockMovement.deleteMany({ where: { invoiceId: id } });
+      return tx.invoice.update({
+        where: { id },
+        data: {
+          status: InvoiceStatus.CANCELLED,
+          deletedAt: new Date(),
+        },
+      });
     });
   }
 
   async recordPayment(companyId: string, id: string, dto: RecordPaymentDto) {
     const invoice = await this.findById(companyId, id);
     const company = await this.getCompanyContext(companyId);
+
+    // Guard: prevent recording a payment that exceeds the outstanding balance
+    const existingPayments = await this.prisma.ledgerEntry.aggregate({
+      where: {
+        companyId,
+        invoiceId: id,
+        narration: { contains: '[INVOICE_PAYMENT]' },
+      },
+      _sum: { credit: true },
+    });
+    const alreadyPaid = Number(existingPayments._sum.credit ?? 0);
+    const outstanding = Math.max(0, Number(invoice.totalAmount) - alreadyPaid);
+
+    if (dto.amount > outstanding + 0.009) {
+      throw new BadRequestException(
+        `Payment (₹${dto.amount.toFixed(2)}) exceeds the outstanding balance (₹${outstanding.toFixed(2)}).`,
+      );
+    }
 
     return this.prisma.ledgerEntry.create({
       data: {
@@ -817,7 +922,7 @@ export class InvoiceService {
     const taxAmount = items.reduce((sum, item) => sum + item.taxAmount, 0);
     const taxableAmount = items.reduce((sum, item) => sum + item.amount, 0);
     const discountAmount = Math.max(0, subTotal - taxableAmount);
-    const totalAmount = subTotal + taxAmount - discountAmount;
+    const totalAmount = taxableAmount + taxAmount;
 
     return {
       subTotal: this.round2(subTotal),

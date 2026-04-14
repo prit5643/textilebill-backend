@@ -5,6 +5,8 @@ import {
   IsNumber,
   IsIn,
   Matches,
+  IsNotEmpty,
+  Min,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
@@ -123,6 +125,8 @@ export class UpdateTenantDto {
 export class CreatePlanDto {
   @ApiProperty()
   @IsString()
+  @IsNotEmpty({ message: 'displayName is required' })
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   displayName: string;
 
   @ApiProperty()
@@ -134,6 +138,7 @@ export class CreatePlanDto {
 
   @ApiProperty()
   @IsNumber()
+  @Min(0, { message: 'price must be greater than or equal to 0' })
   price: number;
 
   @ApiPropertyOptional({ default: 'INR' })
@@ -144,17 +149,20 @@ export class CreatePlanDto {
   @ApiPropertyOptional({ default: 5 })
   @IsOptional()
   @IsNumber()
+  @Min(0, { message: 'maxUsers must be greater than or equal to 0' })
   maxUsers?: number;
 
   @ApiPropertyOptional({ default: 3 })
   @IsOptional()
   @IsNumber()
+  @Min(0, { message: 'maxCompanies must be greater than or equal to 0' })
   maxCompanies?: number;
 }
 
 export class AssignSubscriptionDto {
   @ApiProperty({ description: 'GST number used as unique tenant identifier' })
   @IsString()
+  @IsNotEmpty({ message: 'gstin is required' })
   @Transform(({ value }) =>
     typeof value === 'string' ? value.trim().toUpperCase() : value,
   )
@@ -163,11 +171,13 @@ export class AssignSubscriptionDto {
 
   @ApiProperty()
   @IsString()
+  @IsNotEmpty({ message: 'planId is required' })
   planId: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsNumber()
+  @Min(0, { message: 'amount must be greater than or equal to 0' })
   amount?: number;
 }
 

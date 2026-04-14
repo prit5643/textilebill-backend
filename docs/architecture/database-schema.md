@@ -6,7 +6,8 @@ Last updated: `2026-04-12`
 
 ## Active Enums
 
-- `UserRole`: `OWNER`, `ADMIN`, `MANAGER`, `ACCOUNTANT`, `VIEWER`
+- `UserRole`: `OWNER`, `ADMIN`, `MANAGER`, `ACCOUNTANT`, `VIEWER`. 
+  - *Context:* Used extensively in the backend to limit route access via `@Roles()` decorators and `RequireCompanyAccess()` interceptors.
 - `InvoiceStatus`: `DRAFT`, `ACTIVE`, `CANCELLED`
 - `InvoiceType`: `SALE`, `PURCHASE`, `SALE_RETURN`, `PURCHASE_RETURN`
 - `EntityStatus`: `ACTIVE`, `INACTIVE`
@@ -68,10 +69,10 @@ Last updated: `2026-04-12`
 
 ## Core Relationship Shape
 
-- `Tenant` is the top isolation boundary.
-- `Company` belongs to one `Tenant`.
-- `User` belongs to one `Tenant`.
-- `UserCompany` holds per-company role assignments.
+- `Tenant` is the top billing isolation boundary (Plans, Subscriptions).
+- `Company` are operational branches that belong to one `Tenant`.
+- `User` belongs directly to one `Tenant` via `tenantId`.
+- `UserCompany` dictates what `Companies` a given `User` can view/modify, and holds the granular per-company *role assignments* (`UserRole`).
 - `Account` is company-scoped and backed by `Party`.
 - `Product` is company-scoped.
 - `Invoice` belongs to `Company`, `Account`, and `FinancialYear`.

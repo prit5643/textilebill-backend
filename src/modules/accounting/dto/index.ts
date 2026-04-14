@@ -6,6 +6,7 @@ import {
   IsArray,
   ValidateNested,
   IsEnum,
+  Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
@@ -15,7 +16,7 @@ export class CreateCashBookEntryDto {
   @ApiPropertyOptional() @IsOptional() @IsString() bookName?: string;
   @ApiProperty() @IsString() accountId: string;
   @ApiProperty({ enum: ['CR', 'DR'] }) @IsEnum(['CR', 'DR']) type: string;
-  @ApiProperty() @IsNumber() amount: number;
+  @ApiProperty() @IsNumber() @Min(0) amount: number;
   @ApiPropertyOptional() @IsOptional() @IsString() invoiceId?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() narration?: string;
 }
@@ -25,7 +26,7 @@ export class CreateBankBookEntryDto {
   @ApiPropertyOptional() @IsOptional() @IsString() bookName?: string;
   @ApiProperty() @IsString() accountId: string;
   @ApiProperty({ enum: ['CR', 'DR'] }) @IsEnum(['CR', 'DR']) type: string;
-  @ApiProperty() @IsNumber() amount: number;
+  @ApiProperty() @IsNumber() @Min(0) amount: number;
   @ApiPropertyOptional() @IsOptional() @IsString() chequeNumber?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() invoiceId?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() narration?: string;
@@ -34,7 +35,7 @@ export class CreateBankBookEntryDto {
 export class JournalEntryLineDto {
   @ApiProperty() @IsString() accountId: string;
   @ApiProperty({ enum: ['DR', 'CR'] }) @IsEnum(['DR', 'CR']) type: string;
-  @ApiProperty() @IsNumber() amount: number;
+  @ApiProperty() @IsNumber() @Min(0) amount: number;
   @ApiPropertyOptional() @IsOptional() @IsString() narration?: string;
 }
 
@@ -50,8 +51,8 @@ export class CreateJournalEntryDto {
 
 export class CreateOpeningStockDto {
   @ApiProperty() @IsString() productId: string;
-  @ApiProperty() @IsNumber() quantity: number;
-  @ApiProperty() @IsNumber() rate: number;
+  @ApiProperty() @IsNumber() @Min(0) quantity: number;
+  @ApiProperty() @IsNumber() @Min(0) rate: number;
   @ApiProperty() @IsDateString() date: string;
 }
 

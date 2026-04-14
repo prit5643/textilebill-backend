@@ -34,12 +34,13 @@ Effects:
 - invoice DTOs: `src/modules/invoice/dto/*`
 - accounting DTOs: `src/modules/accounting/dto/*`
 
-## Service-Level Business Validation
+## Service-Level Guard Validation
 
-Examples:
+Key business validation constraints:
 
-- auth state, tenant state, and session checks
-- company access and subscription checks
+- auth state, tenant status (e.g. `Suspended`, `Archived`), and JWT session validity checks
+- **Company Access Guard (`UserCompany`)**: Validates that an incoming `X-Company-Id` header (or URL path parameter) is permitted by checking if the user-to-company association exists and what role they hold.
+- **RBAC Validation (`@Roles()`)**: Controller endpoints explicitly whitelist or block user roles (e.g., stopping MANAGERS from modifying financial years or global settings). Only `SUPER_ADMIN` / `OWNER` can ignore these bounds implicitly. Includes subscription check guards.
 - invoice arithmetic and versioning rules
 - account/product existence and scoping checks
 - voucher sequence and ledger/stock invariants

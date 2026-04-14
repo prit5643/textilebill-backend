@@ -8,7 +8,7 @@ import { AccountGroupType, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAccountDto } from './dto/create-account.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
-import {} from './dto/broker.dto';
+import { CreateBrokerDto, UpdateBrokerDto } from './dto/broker.dto';
 import {
   parsePagination,
   createPaginatedResult,
@@ -401,27 +401,27 @@ export class AccountService {
   }
 
   // Broker model was removed in schema v2; keep endpoints explicit and safe.
-  async createBroker() {
+  async createBroker(_companyId: string, _dto: CreateBrokerDto) {
     throw new ConflictException(
       'Broker APIs are deprecated. Use parties/accounts with account groups instead.',
     );
   }
 
-  async findAllBrokers() {
+  async findAllBrokers(_companyId: string) {
     return [];
   }
 
-  async findBrokerById() {
+  async findBrokerById(_id: string, _companyId: string) {
     throw new NotFoundException('Broker not found');
   }
 
-  async updateBroker() {
+  async updateBroker(_id: string, _companyId: string, _dto: UpdateBrokerDto) {
     throw new ConflictException(
       'Broker APIs are deprecated. Use parties/accounts with account groups instead.',
     );
   }
 
-  async removeBroker() {
+  async removeBroker(_id: string, _companyId: string) {
     throw new ConflictException(
       'Broker APIs are deprecated. Use parties/accounts with account groups instead.',
     );

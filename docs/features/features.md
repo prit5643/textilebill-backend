@@ -1,17 +1,18 @@
 # Application Features
 
-Last updated: `2026-04-12`
+Last updated: `2026-04-13`
 
 This file lists currently implemented features only.
 
-## Authentication and Access
+## Authentication, Multi-Tenancy & Roles (RBAC)
 
-- password login
-- OTP request, resend, and verification
+- password login, OTP request, resend, and verification
 - cookie-based session, refresh, and logout
 - password change and password reset flows
 - invite and password-setup flows
-- role guards, company access checks, subscription enforcement
+- **Multi-Tenant System:** `Tenant` (subscription owner) handles billing/limits, while `Company` handles business entities (branches).
+- **Role-Based Access Control:** Users are assigned roles (`OWNER`, `ADMIN`, `MANAGER`, `ACCOUNTANT`, `VIEWER`) on a *per-company basis* (via `UserCompany` mapping).
+- Application securely enforces `@Roles(...)` and `RequireCompanyAccess()` depending on the user's specific context. Note: `MANAGER` and below are restricted from globally impacting elements like billing and Financial Year syncing.
 - auth endpoint rate limiting
 
 ## Tenant and Admin

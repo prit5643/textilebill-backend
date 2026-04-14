@@ -30,8 +30,6 @@ export enum InvoiceTypeEnum {
 
 export enum InvoiceStatusEnum {
   ACTIVE = 'ACTIVE',
-  PARTIALLY_PAID = 'PARTIALLY_PAID',
-  PAID = 'PAID',
   CANCELLED = 'CANCELLED',
   DRAFT = 'DRAFT',
 }

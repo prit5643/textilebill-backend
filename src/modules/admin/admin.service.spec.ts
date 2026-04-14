@@ -143,6 +143,8 @@ describe('AdminService', () => {
       id: 'plan-1',
       durationDays: 30,
       price: 999,
+      status: EntityStatus.ACTIVE,
+      deletedAt: null,
     });
     prisma.subscription.findFirst.mockResolvedValueOnce({
       endDate: new Date('2026-03-31T06:00:00.000Z'),
@@ -159,13 +161,28 @@ describe('AdminService', () => {
       planId: 'plan-1',
     });
 
-    expect(prisma.subscription.updateMany).toHaveBeenCalledWith({
+    expect(prisma.subscription.updateMany).toHaveBeenNthCalledWith(1, {
       where: {
         tenantId: 'tenant-1',
         deletedAt: null,
         status: 'ACTIVE',
       },
-      data: { status: 'EXPIRED' },
+      data: {
+        status: 'EXPIRED',
+        endDate: expect.any(Date),
+      },
+    });
+    expect(prisma.subscription.updateMany).toHaveBeenNthCalledWith(2, {
+      where: {
+        tenantId: 'tenant-1',
+        deletedAt: null,
+        status: 'ACTIVE',
+        id: { not: 'sub-2' },
+      },
+      data: {
+        status: 'EXPIRED',
+        endDate: expect.any(Date),
+      },
     });
     expect(prisma.subscription.create).toHaveBeenCalledWith({
       data: expect.objectContaining({

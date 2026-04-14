@@ -440,6 +440,9 @@ export class AccountingService {
         where,
         skip,
         take,
+        include: {
+          product: { select: { id: true, name: true, hsnCode: true } },
+        },
         orderBy: { date: 'desc' },
       }),
       this.prisma.stockMovement.count({ where }),

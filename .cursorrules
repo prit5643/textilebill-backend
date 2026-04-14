@@ -1,0 +1,323 @@
+# TextileBill Backend — Agent Rules
+# Applies to: Antigravity, GitHub Copilot, Cursor, Codex, and all AI agents
+# Last updated: 2026-04-15
+
+---
+
+## ⛔ MANDATORY AGENT BEHAVIOR — READ FIRST
+
+### No Assumptions. No Hallucinations.
+- **NEVER** assume what a service method does, what a Prisma model contains, or what fields exist.
+- **ALWAYS** read the relevant file(s) before making changes — check `schema.prisma` for model fields, DTOs for validation, and service methods for business logic.
+- **NEVER** invent field names, relation names, enum values, or module names not present in the codebase.
+- If any detail is unclear, **STOP and ask** — do not guess.
+- **NEVER** produce stub/placeholder code and call it done. Every implemented method must be complete.
+
+### Read Before Write
+Before editing any file:
+1. Read the current file content — know what already exists.
+2. Check `prisma/schema.prisma` for the exact model fields and relations.
+3. Check the DTO file for current validation decorators.
+4. Check existing service methods to avoid duplicating logic.
+
+### No Silent Failures
+- Every error must throw or return a meaningful NestJS exception: `NotFoundException`, `BadRequestException`, `ConflictException`, `ForbiddenException`.
+- **Never** catch an error and swallow it silently.
+- Log the internal error context before re-throwing when appropriate.
+
+---
+
+## 1. Project Structure
+
+```
+src/
+  modules/          # One directory per domain module
+    <module>/
+      <module>.controller.ts    # Route handlers only — no business logic
+      <module>.service.ts       # All business logic — single responsibility
+      <module>.module.ts        # NestJS module declaration
+      dto/                      # Request/response DTOs with validation
+  common/
+    utils/           # Shared utilities (pagination, etc.)
+    guards/          # Auth guards
+    decorators/      # Custom decorators
+  config/            # Configuration service and types
+  types/             # Shared TypeScript types
+  main.ts            # App bootstrap — CORS, pipes, prefix
+```
+
+### Rules
+- Controllers must contain **no business logic** — only: call service method, return result.
+- Services must contain all business logic. They must be independently testable.
+- DTOs belong in `dto/` inside the module, not inline in controllers.
+- Shared utilities belong in `common/utils/` — never duplicate them across modules.
+
+---
+
+## 2. CORS
+
+```ts
+// ✅ CORRECT — explicit allowlist from config
+const allowedOrigins = configService.get<string[]>('app.allowedOrigins', []);
+app.enableCors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) callback(null, true);
+    else callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true,
+});
+
+// ❌ NEVER do this
+app.enableCors({ origin: true });
+app.enableCors({ origin: '*' });
+```
+
+- Allowed origins are configured via `ALLOWED_ORIGINS` environment variable (comma-separated).
+- Localhost is auto-allowed in development (`NODE_ENV !== 'production'`).
+
+---
+
+## 3. DTO Validation — Complete Rules
+
+### Required for every DTO
+```ts
+import { IsString, IsNumber, IsDateString, IsOptional, IsEnum, Min, Max, IsNotEmpty } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+```
+
+### Numeric Fields
+- **Every** numeric field must have `@IsNumber()` + `@Min(lowerBound)` + `@Max(upperBound)`.
+- Amount fields: `@Min(0.01)` and `@Max(10_000_000)`.
+- Quantity fields: `@Min(0)` and a reasonable max.
+- Rate/price fields: `@Min(0)`.
+
+### String Fields
+- Required strings: `@IsString()` + `@IsNotEmpty()` + `@MaxLength(N)`.
+- Optional strings: `@IsOptional()` + `@IsString()` + `@MaxLength(N)`.
+
+### Enum Fields
+- Only use enum values that **exist in `schema.prisma`**. Verify before adding.
+- Valid `InvoiceStatus`: `ACTIVE`, `CANCELLED`, `DRAFT`. Do not add `PAID` or `PARTIALLY_PAID`.
+
+### Date Fields
+- Use `@IsDateString()`. Validate that the date is within a business-reasonable range in the service layer.
+
+### Global Validation Pipe
+- `ValidationPipe` with `whitelist: true` and `forbidNonWhitelisted: true` is configured globally in `main.ts`.
+- Every DTO field that should be accepted must have at least one validator decorator.
+- Fields without decorators will be silently stripped.
+
+---
+
+## 4. Prisma — Data Access Rules
+
+### Always Include companyId
+Every query that reads or modifies tenant data must include `companyId` in `where`:
+```ts
+// ✅ CORRECT
+await this.prisma.invoice.findMany({ where: { companyId, deletedAt: null } });
+
+// ❌ WRONG — data leak across tenants
+await this.prisma.invoice.findMany({ where: { id } });
+```
+
+### Soft Delete
+- All main entities use `deletedAt` for soft delete. **Always** include `deletedAt: null` in `where` for queries that should not return deleted records.
+
+### Aggregations — Never Load into Memory
+```ts
+// ✅ CORRECT — SQL aggregation
+const result = await this.prisma.invoice.aggregate({
+  where: { companyId, deletedAt: null },
+  _sum: { totalAmount: true },
+});
+
+// ✅ CORRECT for complex joins — use $queryRaw
+const outstanding = await this.prisma.$queryRaw<Array<{ outstanding: number }>>`
+  SELECT COALESCE(SUM(GREATEST(0, i."totalAmount" - COALESCE(p.paid, 0))), 0) AS outstanding
+  FROM "Invoice" i
+  LEFT JOIN (
+    SELECT "invoiceId", SUM(credit) AS paid
+    FROM "LedgerEntry"
+    WHERE "companyId" = ${companyId} AND "invoiceId" IS NOT NULL
+    GROUP BY "invoiceId"
+  ) p ON i.id = p."invoiceId"
+  WHERE i."companyId" = ${companyId} AND i."deletedAt" IS NULL
+`;
+
+// ❌ NEVER load all rows for arithmetic
+const all = await this.prisma.invoice.findMany({ where });
+const total = all.reduce((sum, i) => sum + Number(i.totalAmount), 0); // ← can crash on large datasets
+```
+
+### Transactions
+- Use `this.prisma.$transaction()` whenever a business operation writes to multiple tables atomically.
+- Example: recording a payment writes to `LedgerEntry` and possibly updates invoice status — both must succeed or both fail.
+
+### Selecting Only Needed Fields
+- For list endpoints, use `select` or `include` to avoid over-fetching. Never `include` all relations by default.
+- For detail endpoints (single record), include relations needed by the UI.
+
+---
+
+## 5. Currency Rounding
+
+```ts
+// ✅ CORRECT
+private round2(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+const totalAmount = this.round2(taxableAmount + taxAmount);
+
+// ❌ WRONG — accumulates float-point error
+const totalAmount = subTotal - discountAmount + taxAmount;
+```
+
+- Always use `round2()` for 2-decimal currency values before storing or returning.
+- `computeTotals()` formula: `totalAmount = taxableAmount + taxAmount`. Never derive from sequence of additions/subtractions.
+- Use `round3()` for per-item tax rate calculations (3 decimal intermediate precision).
+
+---
+
+## 6. Business Logic Guards
+
+### Payment Guard
+Before recording a payment:
+```ts
+const outstanding = invoice.totalAmount - currentPaidTotal;
+if (dto.amount > outstanding + 0.01) {
+  throw new BadRequestException(
+    `Payment amount ₹${dto.amount} exceeds outstanding balance ₹${outstanding.toFixed(2)}.`
+  );
+}
+```
+
+### Stock Guard
+Before creating an invoice with stock reduction:
+- Validate that available stock >= requested quantity.
+- Throw `BadRequestException` with clear stock deficit message.
+
+### Financial Year Guard
+- Every invoice, accounting entry, and journal entry must belong to a valid, non-locked financial year.
+- Throw `BadRequestException('Financial year is closed or does not exist.')` if violated.
+
+---
+
+## 7. Error Handling
+
+```ts
+// ✅ CORRECT — specific, informative exceptions
+throw new NotFoundException(`Invoice with ID "${id}" not found.`);
+throw new BadRequestException('Payment amount exceeds outstanding balance.');
+throw new ForbiddenException('Only company admins can perform this action.');
+throw new ConflictException('A product with this SKU already exists.');
+
+// ❌ WRONG — generic, unusable errors
+throw new Error('failed');
+throw new BadRequestException('Bad request');
+return null; // silent failure
+```
+
+- Always include the entity ID or unique identifier in `NotFoundException` messages.
+- Always include the specific constraint violated in `BadRequestException` messages.
+- **Never** expose Prisma internal error codes or stack traces to API consumers.
+- Map `PrismaClientKnownRequestError` with code `P2002` (unique constraint) to `ConflictException`.
+
+---
+
+## 8. Service Layer — Business Rules
+
+### Ledger Narration Markers
+- Invoice payment ledger entries: narration must contain `[INVOICE_PAYMENT]`.
+  - This marker is used by `ledgerEntry.groupBy` to aggregate `paidAmount` per invoice in `findAll()`.
+  - **Do not change or remove this marker** without updating every query that filters on it.
+
+### paidAmount in findAll()
+- `InvoiceService.findAll()` appends `paidAmount` to each record using `ledgerEntry.groupBy` on returned invoice IDs.
+- Any new invoice list endpoint must replicate this pattern.
+- **Never remove** this aggregation step.
+
+### getSummary()
+- Must use `$queryRaw` with a LEFT JOIN for outstanding balance — never `findMany().reduce()`.
+
+### Inventory Movement
+- Every invoice that affects stock must create a `StockMovement` record with correct `MovementType`.
+- `SALE` / `JOB_OUT` → reduce stock.
+- `PURCHASE` / `JOB_IN` → increase stock.
+- `SALE_RETURN` / `PURCHASE_RETURN` → reverse the original movement.
+- Deleting an invoice must reverse its stock movements.
+
+---
+
+## 9. Authentication and Authorization
+
+### Guards
+- Protected routes must use `JwtAuthGuard` + `CompanyAccessGuard` (or `TenantGuard` as applicable).
+- Role-based checks must use `@Roles(...)` decorator with `RolesGuard`, not inline `if (user.role !== ...)`.
+
+### JWT
+- Never put sensitive business data in the JWT payload. Only include: `userId`, `companyId`, `role`, `exp`.
+- JWT secret must come from config, never hardcoded.
+
+### Password Handling
+- Always hash passwords with bcrypt (cost factor >= 12) before storing.
+- Never return password hash in any API response.
+- OTP/temporary codes must be stored hashed (not plaintext) and must expire.
+
+---
+
+## 10. API Design
+
+### Pagination
+- All list endpoints must support `page` and `limit` query params.
+- Use `parsePagination()` from `common/utils/pagination.util` — do not parse manually.
+- Use `createPaginatedResult()` for the response shape — all list responses must be uniform.
+- Default `limit: 20`, max `limit: 100`. Reject `limit > 100` with `BadRequestException`.
+
+### Response Shape
+- Success responses: data returned from service directly.
+- List responses: `{ data: T[], meta: { page, limit, total, totalPages } }`.
+- **Never** change this shape — the frontend depends on it.
+
+### Versioning and Breaking Changes
+- This API has no versioning. Every breaking change to a response shape must be communicated and coordinated.
+- Additive changes (new optional fields) are safe. Removing or renaming fields is breaking.
+
+---
+
+## 11. Security
+
+- **Never** log passwords, tokens, OTPs, or PII (names, phone numbers, IDs) in application logs.
+- **Always** validate that the resource being accessed belongs to the requesting `companyId`.
+- File uploads: validate MIME type and size in the controller before calling the service.
+- SQL injections: use Prisma parameterized queries only. When using `$queryRaw`, use `Prisma.sql` template literals — never string concatenation.
+
+---
+
+## 12. Scalability and Performance
+
+- **Index coverage**: Any field used in a `where` clause of a frequent query should have a DB index in `schema.prisma` (`@@index([field])`).
+- **N+1 queries**: Never loop and query inside a loop. Use `include`, `select`, or batch queries.
+- **Background jobs**: Long-running operations (e.g. bulk import, report generation) should be offloaded to a queue (BullMQ), not run in request handlers.
+- **Caching**: Slow-changing data (financial summaries, stock reports) should be cached in Redis with an appropriate TTL. Use the `RedisService` module.
+- **Paginate always**: Never return unbounded lists. All `findMany()` calls must include `take` and `skip`.
+
+---
+
+## 13. Testing Standards
+
+- Every service method that contains business logic must have a unit test.
+- Tests go in `<module>.service.spec.ts` alongside the service file.
+- Use `jest` + `@nestjs/testing` + Prisma mock (`jest.mock` or a dedicated test client).
+- No test should hit the real database.
+- CI must pass all tests before merge.
+
+---
+
+## 14. Environment and Configuration
+
+- **Never** hardcode environment-specific values. Use `configService.get<T>('key')` from `@nestjs/config`.
+- All required env vars must be documented in `.env.example`.
+- `NODE_ENV` must be used to differentiate dev, test, and production behavior (e.g. CORS, logging level).
+- Check `src/config/app.config.ts` for the config schema before adding new env vars.

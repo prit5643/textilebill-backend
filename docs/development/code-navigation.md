@@ -6,12 +6,12 @@
 - Root module wiring: `src/app.module.ts`
 - Prisma service: `src/modules/prisma/prisma.service.ts`
 
-## Security & Request Lifecycle
+## Security & RBAC (Role-Based Access Control)
 
-- JWT auth guard: `src/common/guards/jwt-auth.guard.ts`
-- Subscription guard: `src/common/guards/subscription.guard.ts`
-- Roles guard: `src/common/guards/roles.guard.ts`
-- Global exception filter: `src/common/filters/global-exception.filter.ts`
+- JWT authentication guard: `src/common/guards/jwt-auth.guard.ts`
+- **Role resolution (`UserRole` -> Legacy roles):** `src/modules/auth/auth.service.ts` -> `toLegacyRole()` mapper.
+- **Backend endpoint protection:** Use `@Roles('SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER')` on your Controller classes.
+- Multi-Company Access Guard: `src/common/guards/company-access.guard.ts` checks the `UserCompany` mapping for the specific `X-Company-Id` context.
 - Request ID middleware: `src/common/middleware/request-id.middleware.ts`
 - Auth limiter utilities: `src/modules/auth/auth-rate-limit.util.ts`
 - Request logging interceptor: `src/common/interceptors/logging.interceptor.ts`

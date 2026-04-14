@@ -1,8 +1,30 @@
-# Authentication Flows
+# Authentication Flows & RBAC (Role-Based Access Control)
 
-Last updated: `2026-03-30`
+Last updated: `2026-04-13`
 
-This document describes the current auth model after the Prisma schema migration.
+This document describes the current auth model and the active Multi-Role/Multi-Tenant permission system.
+
+## 🔐 Multi-Tenant & Multi-Role Architecture
+
+The application implements a robust multi-role authentication system that differentiates between "Global" permissions and "Per-Company" permissions.
+
+### The Identity Hierarchy
+1. **Tenant**: The overarching subscription entity (billing, plan limits).
+2. **Company**: Sub-branches/entities that belong to a single Tenant.
+3. **User**: A person who logs into the platform (belongs to a Tenant).
+4. **UserCompany**: The mapping matrix. A single User can belong to multiple Companies, and they can have *distinct roles in each company*.
+
+### Active Roles (`UserRole` Enum)
+The database enforces these 5 levels of access:
+* `OWNER` (Global `SUPER_ADMIN`): Full access. Can manage tenant billing, create new companies, reset users, and see everything.
+* `ADMIN` (Global `TENANT_ADMIN`): Can manage company settings and users, but cannot change billing plans.
+* `MANAGER` (Global `MANAGER`): Can create/edit invoices, accounts, and products. **Cannot** change Financial Years, create new Companies, or view sensitive global configs.
+* `ACCOUNTANT` (Global `ACCOUNTANT`): Read access + Ledger/Journal entries.
+* `VIEWER` (Global `VIEWER`): Read-only mode across the board.
+
+*(Note: In the JWT and Guards, we utilize a `toLegacyRole()` mapper that translates `OWNER` → `SUPER_ADMIN` to remain compatible with NestJS `@Roles()` decorators).*
+
+---
 
 ## Current Auth Storage
 
@@ -60,6 +82,8 @@ Behavior:
 
 - protected by `JwtAuthGuard` and `SubscriptionGuard`
 - returns current user plus company access/session payload
+- Calculates the user's "highest" role across all their active `UserCompany` assignments to attach a global `role` field.
+- If the user tries to access a specific company, `RequireCompanyAccess()` enforces the exact role mapped for that company.
 
 ### 3. Token refresh
 
