@@ -140,6 +140,7 @@ export class InvoiceService {
             financialYearId: fyId,
             invoiceNumber,
             invoiceDate,
+            dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
             type: invoiceType,
             status: this.normalizeInvoiceStatus(
               dto.status as string | undefined,
@@ -549,6 +550,9 @@ export class InvoiceService {
             : {}),
           ...(dto.invoiceDate
             ? { invoiceDate: new Date(dto.invoiceDate) }
+            : {}),
+          ...(dto.dueDate
+            ? { dueDate: new Date(dto.dueDate) }
             : {}),
           ...(dto.accountId ? { accountId: dto.accountId } : {}),
           ...(dto.costCenterId !== undefined

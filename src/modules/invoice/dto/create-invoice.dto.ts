@@ -89,6 +89,10 @@ export class CreateInvoiceDto {
   @IsNotEmpty()
   invoiceDate: string;
 
+  @IsOptional()
+  @IsDateString()
+  dueDate?: string;
+
   @IsUUID()
   @IsNotEmpty()
   accountId: string;

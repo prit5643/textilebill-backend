@@ -333,6 +333,28 @@ export class ReimbursementsService {
         });
       }
 
+      if (settlementMode === ReimbursementSettlementMode.CARRY_FORWARD) {
+        // Flag the claim for inclusion in the next payroll salary settlement run.
+        // The payroll service reads SUBMITTED claims with settlementMode = CARRY_FORWARD
+        // and includes them in the next salary settlement.
+        return tx.reimbursementClaim.update({
+          where: { id: claim.id },
+          data: {
+            settlementMode,
+            // Keep status as SUBMITTED so payroll runner picks it up,
+            // but store the mode so it knows to include it via salary
+            status: ReimbursementStatus.SUBMITTED,
+            settledAt: null,
+            settledInSalarySettlementId: null,
+          },
+          include: {
+            person: { select: PERSON_SELECT },
+            attachments: { select: ATTACHMENT_SELECT },
+          },
+        });
+      }
+
+      // Fallback: reset to SUBMITTED with no settlement
       return tx.reimbursementClaim.update({
         where: { id: claim.id },
         data: {

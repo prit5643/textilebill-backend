@@ -960,4 +960,84 @@ export class WorkOrderService {
     const map = await this.buildProfitabilityMap(companyId, [id]);
     return map.get(id) ?? this.buildProfitabilitySummary(0, 0, 0, 0, 0);
   }
+
+  /**
+   * List all PENDING adjustments for this company.
+   * These are adjustments that were never promoted to POSTED (legacy data or failed creates).
+   */
+  async listPendingAdjustments(companyId: string) {
+    const adjustments = await this.prisma.workOrderAutoAdjustment.findMany({
+      where: {
+        companyId,
+        status: WorkOrderAdjustmentStatus.PENDING,
+        deletedAt: null,
+      },
+      include: {
+        lossIncident: {
+          select: {
+            id: true,
+            workOrderId: true,
+            reasonCode: true,
+            reasonNote: true,
+            amount: true,
+            chargeTo: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return {
+      count: adjustments.length,
+      adjustments,
+    };
+  }
+
+  /**
+   * Process all PENDING adjustments for this company by promoting them to POSTED.
+   * Adjustments are created as POSTED normally; this method handles any legacy records
+   * that got stuck in PENDING state due to previous bugs or interrupted transactions.
+   */
+  async processPendingAdjustments(companyId: string) {
+    const pending = await this.prisma.workOrderAutoAdjustment.findMany({
+      where: {
+        companyId,
+        status: WorkOrderAdjustmentStatus.PENDING,
+        deletedAt: null,
+      },
+      select: { id: true, lossIncidentId: true },
+    });
+
+    if (pending.length === 0) {
+      return { processed: 0, message: 'No pending adjustments found.' };
+    }
+
+    const ids = pending.map((a) => a.id);
+    const incidentIds = pending
+      .map((a) => a.lossIncidentId)
+      .filter((id): id is string => id !== null);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.workOrderAutoAdjustment.updateMany({
+        where: { id: { in: ids } },
+        data: {
+          status: WorkOrderAdjustmentStatus.POSTED,
+          postedAt: new Date(),
+          failureReason: null,
+        },
+      });
+
+      if (incidentIds.length > 0) {
+        await tx.workOrderLossIncident.updateMany({
+          where: { id: { in: incidentIds }, companyId },
+          data: { status: WorkOrderLossIncidentStatus.POSTED },
+        });
+      }
+    });
+
+    return {
+      processed: pending.length,
+      message: `Successfully processed ${pending.length} pending adjustment(s).`,
+    };
+  }
 }

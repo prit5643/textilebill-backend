@@ -39,6 +39,9 @@ function buildTx(invoiceId = 'invoice-1') {
     invoiceItem: {
       createMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
+    stockMovement: {
+      createMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
   };
 }
 
@@ -80,6 +83,7 @@ describe('InvoiceService', () => {
         findFirst: jest.fn(),
         delete: jest.fn(),
         groupBy: jest.fn(),
+        aggregate: jest.fn().mockResolvedValue({ _sum: { credit: 0, debit: 0 } }),
       } as any,
     };
 
@@ -282,6 +286,10 @@ describe('InvoiceService', () => {
       items: [],
       account: { party: { id: 'party-1', name: 'Party' } },
     });
+    // Ensure aggregate is mocked correctly and returns a defined _sum.
+    (prisma.ledgerEntry!.aggregate as jest.Mock).mockResolvedValue({
+      _sum: { credit: 0, debit: 0 },
+    });
     (prisma.ledgerEntry!.create as jest.Mock).mockResolvedValueOnce({
       id: 'payment-1',
     });
@@ -312,6 +320,9 @@ describe('InvoiceService', () => {
       deletedAt: null,
       items: [],
       account: { party: { id: 'party-1', name: 'Party' } },
+    });
+    (prisma.ledgerEntry!.aggregate as jest.Mock).mockResolvedValue({
+      _sum: { credit: 0, debit: 0 },
     });
     (prisma.ledgerEntry!.findMany as jest.Mock).mockResolvedValueOnce([
       { id: 'p-1', credit: 100, narration: '[INVOICE_PAYMENT]' },
@@ -364,6 +375,9 @@ describe('InvoiceService', () => {
         },
       ],
       account: { party: { id: 'party-1', name: 'Party' } },
+    });
+    (prisma.ledgerEntry!.aggregate as jest.Mock).mockResolvedValue({
+      _sum: { credit: 0, debit: 0 },
     });
 
     const result = await service.findById('company-1', 'invoice-1');

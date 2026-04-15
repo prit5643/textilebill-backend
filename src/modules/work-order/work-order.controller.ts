@@ -165,4 +165,15 @@ export class WorkOrderController {
   ) {
     return this.workOrderService.getWorkOrderProfitability(companyId, id);
   }
+
+  @Get('adjustments/pending')
+  listPendingAdjustments(@CurrentCompanyId() companyId: string) {
+    return this.workOrderService.listPendingAdjustments(companyId);
+  }
+
+  @Post('adjustments/process-pending')
+  @HttpCode(HttpStatus.OK)
+  processPendingAdjustments(@CurrentCompanyId() companyId: string) {
+    return this.workOrderService.processPendingAdjustments(companyId);
+  }
 }

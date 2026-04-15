@@ -195,13 +195,34 @@ export class ExpensesController {
   }
 
   @Post(':id/submit')
-  @ApiOperation({ summary: 'Submit expense entry' })
+  @ApiOperation({ summary: 'Submit expense entry for approval' })
   submitExpense(
     @CurrentCompanyId() companyId: string,
     @CurrentUser('id') userId: string,
     @Param('id') id: string,
   ) {
     return this.expensesService.submitExpense(companyId, id, userId);
+  }
+
+  @Post(':id/approve')
+  @ApiOperation({ summary: 'Approve a submitted expense entry (ADMIN/OWNER only)' })
+  approveExpense(
+    @CurrentCompanyId() companyId: string,
+    @CurrentUser('id') userId: string,
+    @Param('id') id: string,
+  ) {
+    return this.expensesService.approveExpense(companyId, id, userId);
+  }
+
+  @Post(':id/reject')
+  @ApiOperation({ summary: 'Reject a submitted expense entry (ADMIN/OWNER only)' })
+  rejectExpense(
+    @CurrentCompanyId() companyId: string,
+    @CurrentUser('id') userId: string,
+    @Param('id') id: string,
+    @Body() body: { reason?: string },
+  ) {
+    return this.expensesService.rejectExpense(companyId, id, userId, body?.reason);
   }
 
   // ── Attachments ────────────────────────────────

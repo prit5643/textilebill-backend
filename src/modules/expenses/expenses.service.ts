@@ -608,6 +608,67 @@ export class ExpensesService {
     });
   }
 
+  async approveExpense(companyId: string, id: string, userId: string) {
+    const existing = await this.prisma.expenseEntry.findFirst({
+      where: { id, companyId, deletedAt: null },
+      select: { id: true, status: true },
+    });
+    if (!existing) {
+      throw new NotFoundException('Expense not found');
+    }
+    if (existing.status !== ExpenseStatus.SUBMITTED) {
+      throw new BadRequestException(
+        `Only SUBMITTED expenses can be approved. Current status: ${existing.status}`,
+      );
+    }
+
+    return this.prisma.expenseEntry.update({
+      where: { id },
+      data: { status: ExpenseStatus.APPROVED, updatedById: userId },
+      include: {
+        category: { select: EXPENSE_CATEGORY_SELECT },
+        person: { select: EXPENSE_PERSON_SELECT },
+        costCenter: { select: COST_CENTER_SELECT },
+        attachments: { select: ATTACHMENT_SELECT },
+      },
+    });
+  }
+
+  async rejectExpense(
+    companyId: string,
+    id: string,
+    userId: string,
+    reason?: string,
+  ) {
+    const existing = await this.prisma.expenseEntry.findFirst({
+      where: { id, companyId, deletedAt: null },
+      select: { id: true, status: true },
+    });
+    if (!existing) {
+      throw new NotFoundException('Expense not found');
+    }
+    if (existing.status !== ExpenseStatus.SUBMITTED) {
+      throw new BadRequestException(
+        `Only SUBMITTED expenses can be rejected. Current status: ${existing.status}`,
+      );
+    }
+
+    return this.prisma.expenseEntry.update({
+      where: { id },
+      data: {
+        status: ExpenseStatus.REJECTED,
+        updatedById: userId,
+        ...(reason ? { notes: reason } : {}),
+      },
+      include: {
+        category: { select: EXPENSE_CATEGORY_SELECT },
+        person: { select: EXPENSE_PERSON_SELECT },
+        costCenter: { select: COST_CENTER_SELECT },
+        attachments: { select: ATTACHMENT_SELECT },
+      },
+    });
+  }
+
   async listExpenseAttachments(companyId: string, expenseId: string) {
     await this.findExpenseById(companyId, expenseId);
     return this.prisma.expenseAttachment.findMany({

@@ -79,7 +79,7 @@ export class ReportService {
     const end = new Date(start);
     end.setDate(end.getDate() + 1);
 
-    const [todaySales, todayPurchases, totalProducts] = await Promise.all([
+    const [todaySales, todayPurchases, totalProducts, overdueInvoices, openWorkOrders] = await Promise.all([
       this.prisma.invoice.aggregate({
         where: {
           companyId,
@@ -103,6 +103,18 @@ export class ReportService {
       this.prisma.product.count({
         where: { companyId, deletedAt: null },
       }),
+      this.prisma.invoice.count({
+        where: {
+          companyId,
+          type: InvoiceType.SALE,
+          status: InvoiceStatus.ACTIVE,
+          deletedAt: null,
+          dueDate: { lt: now },
+        },
+      }),
+      this.prisma.workOrder.count({
+        where: { companyId, status: 'OPEN', deletedAt: null },
+      }),
     ]);
 
     const outstanding = await this.computeOutstanding(companyId);
@@ -113,6 +125,8 @@ export class ReportService {
       outstandingReceivable: outstanding.receivable,
       outstandingPayable: outstanding.payable,
       totalProducts,
+      overdueInvoices,
+      openWorkOrders,
     };
   }
 

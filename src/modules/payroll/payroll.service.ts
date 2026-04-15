@@ -318,7 +318,13 @@ export class PayrollService {
           where: {
             companyId,
             deletedAt: null,
-            settlementMode: ReimbursementSettlementMode.SALARY_ADDITION,
+            // Pick up both SALARY_ADDITION and CARRY_FORWARD claims for this payroll run
+            settlementMode: {
+              in: [
+                ReimbursementSettlementMode.SALARY_ADDITION,
+                ReimbursementSettlementMode.CARRY_FORWARD,
+              ],
+            },
             settledInSalarySettlementId: null,
             claimDate: { lt: endExclusive },
           },

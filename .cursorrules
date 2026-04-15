@@ -307,6 +307,7 @@ return null; // silent failure
 
 ## 13. Testing Standards
 
+- **Strict Coupling Mocks**: All tests must strictly specify and match the Prisma ORM dependencies. Mock *exact* payloads for `findFirst`, `update`, `aggregate`, and avoid fallback loosely-coupled broad mocks that skip schema structure validation (e.g. always include `credit`/`debit` sums on ledger aggregates).
 - Every service method that contains business logic must have a unit test.
 - Tests go in `<module>.service.spec.ts` alongside the service file.
 - Use `jest` + `@nestjs/testing` + Prisma mock (`jest.mock` or a dedicated test client).
