@@ -1345,11 +1345,11 @@ export class AdminService {
     return createPaginatedResult(rows, total, page, limit);
   }
 
-  async getModulePermissions() {
+  async getModulePermissions(_companyId: string) {
     return [];
   }
 
-  async upsertModulePermission() {
+  async upsertModulePermission(_data: Record<string, unknown>) {
     throw new BadRequestException(
       'Module permissions are deprecated because ModulePermission model was removed from schema v2.',
     );

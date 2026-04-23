@@ -60,6 +60,31 @@ describe('ReportService', () => {
       outstandingPayable: 600,
       totalProducts: 14,
     });
+
+    expect(prisma.invoice!.aggregate).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        where: expect.objectContaining({
+          invoiceDate: expect.any(Date),
+          type: 'SALE',
+        }),
+      }),
+    );
+    expect(prisma.invoice!.aggregate).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        where: expect.objectContaining({
+          invoiceDate: expect.any(Date),
+          type: 'PURCHASE',
+        }),
+      }),
+    );
+
+    const firstCallArg = (prisma.invoice!.aggregate as jest.Mock).mock.calls[0][0];
+    expect(firstCallArg.where.invoiceDate).toBeInstanceOf(Date);
+    expect(firstCallArg.where.invoiceDate).not.toEqual(
+      expect.objectContaining({ gte: expect.any(Date), lt: expect.any(Date) }),
+    );
   });
 
   it('ignores non-sale and non-purchase invoices in outstanding KPI totals', async () => {

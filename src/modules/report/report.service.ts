@@ -12,16 +12,14 @@ type DateRangeInput = {
   dateTo?: string;
 };
 
+const IST_TIME_ZONE = 'Asia/Kolkata';
+
 @Injectable()
 export class ReportService {
   constructor(private readonly prisma: PrismaService) {}
 
   async getDashboardKpis(companyId: string) {
-    const now = new Date();
-    const start = new Date(now);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(start);
-    end.setDate(end.getDate() + 1);
+    const todayIstDate = this.toIstDateOnlyUtc(new Date());
 
     const [todaySales, todayPurchases, totalProducts] = await Promise.all([
       this.prisma.invoice.aggregate({
@@ -30,7 +28,7 @@ export class ReportService {
           type: InvoiceType.SALE,
           status: { not: InvoiceStatus.CANCELLED },
           deletedAt: null,
-          invoiceDate: { gte: start, lt: end },
+          invoiceDate: todayIstDate,
         },
         _sum: { totalAmount: true },
       }),
@@ -40,7 +38,7 @@ export class ReportService {
           type: InvoiceType.PURCHASE,
           status: { not: InvoiceStatus.CANCELLED },
           deletedAt: null,
-          invoiceDate: { gte: start, lt: end },
+          invoiceDate: todayIstDate,
         },
         _sum: { totalAmount: true },
       }),
@@ -799,6 +797,17 @@ export class ReportService {
       from: input.dateFrom ? new Date(input.dateFrom) : undefined,
       to: input.dateTo ? new Date(input.dateTo) : undefined,
     };
+  }
+
+  private toIstDateOnlyUtc(date: Date) {
+    const formatted = new Intl.DateTimeFormat('en-CA', {
+      timeZone: IST_TIME_ZONE,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(date);
+
+    return new Date(`${formatted}T00:00:00.000Z`);
   }
 
   private stockSignedQty(type: MovementType, quantity: number) {
