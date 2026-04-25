@@ -304,6 +304,9 @@ describe('AdminService', () => {
   });
 
   it('auto-assigns an active configured plan when tenant signs up without planId', async () => {
+    prisma.tenant.findUnique.mockResolvedValue(null);
+    prisma.tenant.findFirst.mockResolvedValue(null);
+    
     (prisma.plan as any).findFirst.mockResolvedValueOnce({
       id: 'plan-starter-1',
       name: 'Starter Plan',

@@ -284,14 +284,17 @@ export class ReportController {
   @ApiOperation({ summary: 'Profit & Loss statement' })
   @ApiQuery({ name: 'dateFrom', required: false })
   @ApiQuery({ name: 'dateTo', required: false })
+  @ApiQuery({ name: 'excludeSalaries', required: false, type: Boolean })
   async getProfitAndLoss(
     @CurrentCompanyId() companyId: string,
     @Query('dateFrom') dateFrom?: string,
     @Query('dateTo') dateTo?: string,
+    @Query('excludeSalaries') excludeSalaries?: string,
   ) {
     return this.reportService.getProfitAndLoss(companyId, {
       dateFrom,
       dateTo,
+      excludeSalaries: excludeSalaries === 'true',
     });
   }
 

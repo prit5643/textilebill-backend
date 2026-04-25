@@ -83,7 +83,9 @@ describe('InvoiceService', () => {
         findFirst: jest.fn(),
         delete: jest.fn(),
         groupBy: jest.fn(),
-        aggregate: jest.fn().mockResolvedValue({ _sum: { credit: 0, debit: 0 } }),
+        aggregate: jest
+          .fn()
+          .mockResolvedValue({ _sum: { credit: 0, debit: 0 } }),
       } as any,
     };
 

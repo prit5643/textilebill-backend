@@ -15,6 +15,7 @@ import {
 type DateRangeInput = {
   dateFrom?: string;
   dateTo?: string;
+  excludeSalaries?: boolean;
 };
 
 @Injectable()
@@ -79,7 +80,13 @@ export class ReportService {
     const end = new Date(start);
     end.setDate(end.getDate() + 1);
 
-    const [todaySales, todayPurchases, totalProducts, overdueInvoices, openWorkOrders] = await Promise.all([
+    const [
+      todaySales,
+      todayPurchases,
+      totalProducts,
+      overdueInvoices,
+      openWorkOrders,
+    ] = await Promise.all([
       this.prisma.invoice.aggregate({
         where: {
           companyId,
@@ -1034,6 +1041,8 @@ export class ReportService {
 
   async getProfitAndLoss(companyId: string, range: DateRangeInput) {
     const { from, to } = this.parseRange(range);
+
+    // 1. Invoices (Sales & Purchases)
     const [sales, saleReturns, purchases, purchaseReturns] = await Promise.all([
       this.sumByType(companyId, InvoiceType.SALE, from, to),
       this.sumByType(companyId, InvoiceType.SALE_RETURN, from, to),
@@ -1041,12 +1050,105 @@ export class ReportService {
       this.sumByType(companyId, InvoiceType.PURCHASE_RETURN, from, to),
     ]);
 
-    const revenue = sales - saleReturns;
-    const expenses = purchases - purchaseReturns;
+    const income: any[] = [];
+    const expense: any[] = [];
+
+    const netSales = sales - saleReturns;
+    if (netSales !== 0) {
+      income.push({
+        accountId: 'sales',
+        accountName: 'Sales Revenue',
+        amount: this.round2(netSales),
+      });
+    }
+
+    const netPurchases = purchases - purchaseReturns;
+    if (netPurchases !== 0) {
+      expense.push({
+        accountId: 'purchases',
+        accountName: 'Cost of Goods Sold (Purchases)',
+        amount: this.round2(netPurchases),
+      });
+    }
+
+    // 2. Expenses by Category
+    const expenseDateFilter =
+      from || to
+        ? {
+            expenseDate: {
+              ...(from ? { gte: from } : {}),
+              ...(to ? { lte: to } : {}),
+            },
+          }
+        : {};
+
+    const expensesByCategory = await this.prisma.expenseEntry.groupBy({
+      by: ['categoryId'],
+      where: {
+        companyId,
+        deletedAt: null,
+        ...expenseDateFilter,
+      },
+      _sum: { amount: true },
+    });
+
+    if (expensesByCategory.length > 0) {
+      const categories = await this.prisma.expenseCategory.findMany({
+        where: { id: { in: expensesByCategory.map((e) => e.categoryId) } },
+      });
+      const categoryMap = new Map(categories.map((c) => [c.id, c.name]));
+
+      for (const group of expensesByCategory) {
+        const amt = Number(group._sum.amount ?? 0);
+        if (amt !== 0) {
+          expense.push({
+            accountId: group.categoryId,
+            accountName: categoryMap.get(group.categoryId) || 'Unknown Expense',
+            amount: this.round2(amt),
+          });
+        }
+      }
+    }
+
+    // 3. Salaries (if not excluded)
+    if (!range.excludeSalaries) {
+      const salaryDateFilter =
+        from || to
+          ? {
+              createdAt: {
+                ...(from ? { gte: from } : {}),
+                ...(to ? { lte: to } : {}),
+              },
+            }
+          : {};
+
+      const salarySettlements = await this.prisma.salarySettlement.aggregate({
+        where: {
+          companyId,
+          ...salaryDateFilter,
+        },
+        _sum: { grossSalary: true },
+      });
+
+      const totalSalaries = Number(salarySettlements._sum.grossSalary ?? 0);
+      if (totalSalaries > 0) {
+        expense.push({
+          accountId: 'salaries',
+          accountName: 'Salaries & Wages',
+          amount: this.round2(totalSalaries),
+        });
+      }
+    }
+
+    const totalIncome = income.reduce((sum, item) => sum + item.amount, 0);
+    const totalExpense = expense.reduce((sum, item) => sum + item.amount, 0);
+
     return {
-      revenue: this.round2(revenue),
-      expenses: this.round2(expenses),
-      netProfit: this.round2(revenue - expenses),
+      income,
+      expense,
+      totalIncome: this.round2(totalIncome),
+      totalExpense: this.round2(totalExpense),
+      netProfit: this.round2(totalIncome - totalExpense),
     };
   }
 

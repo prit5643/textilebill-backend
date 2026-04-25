@@ -205,7 +205,9 @@ export class ExpensesController {
   }
 
   @Post(':id/approve')
-  @ApiOperation({ summary: 'Approve a submitted expense entry (ADMIN/OWNER only)' })
+  @ApiOperation({
+    summary: 'Approve a submitted expense entry (ADMIN/OWNER only)',
+  })
   approveExpense(
     @CurrentCompanyId() companyId: string,
     @CurrentUser('id') userId: string,
@@ -215,14 +217,21 @@ export class ExpensesController {
   }
 
   @Post(':id/reject')
-  @ApiOperation({ summary: 'Reject a submitted expense entry (ADMIN/OWNER only)' })
+  @ApiOperation({
+    summary: 'Reject a submitted expense entry (ADMIN/OWNER only)',
+  })
   rejectExpense(
     @CurrentCompanyId() companyId: string,
     @CurrentUser('id') userId: string,
     @Param('id') id: string,
     @Body() body: { reason?: string },
   ) {
-    return this.expensesService.rejectExpense(companyId, id, userId, body?.reason);
+    return this.expensesService.rejectExpense(
+      companyId,
+      id,
+      userId,
+      body?.reason,
+    );
   }
 
   // ── Attachments ────────────────────────────────

@@ -10,7 +10,7 @@ describe('Pagination & Filters Tests (e2e)', () => {
   let app: INestApplication;
   let jwtService: JwtService;
   let adminToken: string;
-  let MOCK_COMPANY_ID = '00000000-0000-0000-0000-000000000001';
+  const MOCK_COMPANY_ID = '00000000-0000-0000-0000-000000000001';
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -19,9 +19,11 @@ describe('Pagination & Filters Tests (e2e)', () => {
 
     app = moduleFixture.createNestApplication();
     jwtService = moduleFixture.get<JwtService>(JwtService);
-    
-    app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
-    
+
+    app.useGlobalPipes(
+      new ValidationPipe({ whitelist: true, transform: true }),
+    );
+
     const configService = moduleFixture.get<ConfigService>(ConfigService);
     app.setGlobalPrefix(configService.get<string>('app.apiPrefix', 'api'));
     await app.init();
@@ -31,7 +33,7 @@ describe('Pagination & Filters Tests (e2e)', () => {
       sub: 'admin1',
       role: 'ADMIN',
       email: 'admin@example.com',
-      companies: [{ id: MOCK_COMPANY_ID }]
+      companies: [{ id: MOCK_COMPANY_ID }],
     });
   });
 

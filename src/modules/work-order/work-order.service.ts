@@ -970,7 +970,6 @@ export class WorkOrderService {
       where: {
         companyId,
         status: WorkOrderAdjustmentStatus.PENDING,
-        deletedAt: null,
       },
       include: {
         lossIncident: {
@@ -1003,7 +1002,6 @@ export class WorkOrderService {
       where: {
         companyId,
         status: WorkOrderAdjustmentStatus.PENDING,
-        deletedAt: null,
       },
       select: { id: true, lossIncidentId: true },
     });

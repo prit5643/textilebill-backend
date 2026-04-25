@@ -203,7 +203,9 @@ describe('AccountingService', () => {
     expect(prisma.ledgerEntry!.update).toHaveBeenCalledWith({
       where: { id: 'entry-1' },
       data: {
-        narration: expect.stringMatching(/\[RECONCILED:\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\]/),
+        narration: expect.stringMatching(
+          /\[RECONCILED:\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\]/,
+        ),
       },
     });
   });

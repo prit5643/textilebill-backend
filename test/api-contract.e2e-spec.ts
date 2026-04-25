@@ -12,7 +12,7 @@ describe('API Contract Tests - Global (e2e)', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
-    
+
     app.useGlobalPipes(
       new ValidationPipe({
         whitelist: true,
@@ -23,7 +23,7 @@ describe('API Contract Tests - Global (e2e)', () => {
         },
       }),
     );
-    
+
     await app.init();
   });
 
@@ -36,12 +36,10 @@ describe('API Contract Tests - Global (e2e)', () => {
   describe('Validation & Types Bypass Testing', () => {
     it('should reject request with completely missing required fields', async () => {
       // Trying to create a product without required fields
-      const res = await request(app.getHttpServer())
-        .post('/products')
-        .send({});
+      const res = await request(app.getHttpServer()).post('/products').send({});
 
       // It must return 400 Bad Request, not 500 or 201
-      // Note: We might be unauthenticated, so 401 is also acceptable here if auth runs first. 
+      // Note: We might be unauthenticated, so 401 is also acceptable here if auth runs first.
       // But we are mainly testing that it's NOT a 500 when it skips frontend validation.
       expect([400, 401]).toContain(res.status);
     });
@@ -51,7 +49,7 @@ describe('API Contract Tests - Global (e2e)', () => {
       const invalidPayload = {
         name: 12345, // should be string
         price: 'this is not a number', // should be number
-        sku: ['array', 'not', 'string']
+        sku: ['array', 'not', 'string'],
       };
 
       const res = await request(app.getHttpServer())
@@ -60,7 +58,7 @@ describe('API Contract Tests - Global (e2e)', () => {
 
       expect([400, 401]).toContain(res.status);
     });
-    
+
     it('should reject empty or null values on required fields', async () => {
       const invalidPayload = {
         name: '',
@@ -74,7 +72,7 @@ describe('API Contract Tests - Global (e2e)', () => {
       expect([400, 401]).toContain(res.status);
     });
   });
-  
+
   describe('Header Validation (X-Company-Id)', () => {
     // Tests that lack of X-Company-Id when required fails correctly
     it('should reject protected routes without X-Company-Id', async () => {

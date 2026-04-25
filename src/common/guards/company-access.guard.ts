@@ -45,7 +45,9 @@ export class CompanyAccessGuard implements CanActivate {
       return true;
     }
 
-    const request = context.switchToHttp().getRequest<AuthenticatedRequest & { method: string }>();
+    const request = context
+      .switchToHttp()
+      .getRequest<AuthenticatedRequest & { method: string }>();
     const user = request.user;
 
     if (!user) {

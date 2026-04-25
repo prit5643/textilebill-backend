@@ -13,7 +13,9 @@ export class RecordPaymentDto {
 
   @IsNumber()
   @Min(0.01)
-  @Max(10_000_000, { message: 'Payment amount cannot exceed ₹1 crore per transaction.' })
+  @Max(10_000_000, {
+    message: 'Payment amount cannot exceed ₹1 crore per transaction.',
+  })
   amount: number;
 
   @IsString()

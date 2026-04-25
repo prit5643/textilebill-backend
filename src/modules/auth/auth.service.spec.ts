@@ -277,7 +277,10 @@ describe('AuthService', () => {
 
   it('updates password and revokes sessions on resetPassword', async () => {
     const crypto = require('crypto');
-    const hashedOtp = crypto.createHash('sha256').update('123456').digest('hex');
+    const hashedOtp = crypto
+      .createHash('sha256')
+      .update('123456')
+      .digest('hex');
     (redis.get as jest.Mock).mockResolvedValueOnce(hashedOtp);
     (prisma.user!.findFirst as jest.Mock).mockResolvedValueOnce({
       id: 'user-1',

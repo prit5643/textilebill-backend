@@ -1121,7 +1121,10 @@ export class AdminService {
               },
               {
                 tenant: {
-                  name: { contains: query.search, mode: 'insensitive' as const },
+                  name: {
+                    contains: query.search,
+                    mode: 'insensitive' as const,
+                  },
                 },
               },
               {

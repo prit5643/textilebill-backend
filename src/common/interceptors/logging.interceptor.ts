@@ -43,7 +43,11 @@ export class LoggingInterceptor implements NestInterceptor {
 
         const hasHttpError = hasError || statusCode >= 400;
         const errorCategory =
-          statusCode >= 500 ? 'SERVER_ERROR' : statusCode >= 400 ? 'CLIENT_ERROR' : null;
+          statusCode >= 500
+            ? 'SERVER_ERROR'
+            : statusCode >= 400
+              ? 'CLIENT_ERROR'
+              : null;
 
         const logEvent = {
           event: 'http_request',

@@ -4,7 +4,12 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { InvoiceStatus, InvoiceType, Prisma, MovementType } from '@prisma/client';
+import {
+  InvoiceStatus,
+  InvoiceType,
+  Prisma,
+  MovementType,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateInvoiceDto, InvoiceTypeEnum } from './dto/create-invoice.dto';
 import { UpdateInvoiceDto } from './dto/update-invoice.dto';
@@ -311,7 +316,10 @@ export class InvoiceService {
         _sum: { credit: true },
       });
       paymentsByInvoice = new Map(
-        groupedPayments.map((p) => [p.invoiceId as string, Number(p._sum.credit ?? 0)]),
+        groupedPayments.map((p) => [
+          p.invoiceId as string,
+          Number(p._sum.credit ?? 0),
+        ]),
       );
     }
 
@@ -363,7 +371,9 @@ export class InvoiceService {
       ]),
     );
 
-    const rawOutstanding = await this.prisma.$queryRaw<Array<{ outstanding: number }>>`
+    const rawOutstanding = await this.prisma.$queryRaw<
+      Array<{ outstanding: number }>
+    >`
       SELECT COALESCE(SUM(GREATEST(0, i."totalAmount" - COALESCE(p.paid, 0))), 0) AS outstanding
       FROM "Invoice" i
       LEFT JOIN (
@@ -379,12 +389,21 @@ export class InvoiceService {
 
     const outstanding = Number(rawOutstanding[0]?.outstanding ?? 0);
 
-    const totalSales = Number(countByType.find(t => t.type === 'SALE')?._sum?.totalAmount ?? 0);
-    const totalSaleReturns = Number(countByType.find(t => t.type === 'SALE_RETURN')?._sum?.totalAmount ?? 0);
+    const totalSales = Number(
+      countByType.find((t) => t.type === 'SALE')?._sum?.totalAmount ?? 0,
+    );
+    const totalSaleReturns = Number(
+      countByType.find((t) => t.type === 'SALE_RETURN')?._sum?.totalAmount ?? 0,
+    );
     const netSales = totalSales - totalSaleReturns;
 
-    const totalPurchases = Number(countByType.find(t => t.type === 'PURCHASE')?._sum?.totalAmount ?? 0);
-    const totalPurchaseReturns = Number(countByType.find(t => t.type === 'PURCHASE_RETURN')?._sum?.totalAmount ?? 0);
+    const totalPurchases = Number(
+      countByType.find((t) => t.type === 'PURCHASE')?._sum?.totalAmount ?? 0,
+    );
+    const totalPurchaseReturns = Number(
+      countByType.find((t) => t.type === 'PURCHASE_RETURN')?._sum
+        ?.totalAmount ?? 0,
+    );
     const netPurchases = totalPurchases - totalPurchaseReturns;
 
     return {
@@ -530,8 +549,11 @@ export class InvoiceService {
               invoiceId: id,
               type: movementType,
               quantity: item.quantity,
-              date: dto.invoiceDate ? new Date(dto.invoiceDate) : existing.invoiceDate,
-              notes: `[AUTO_UPDATED] ${existing.type} ${existing.invoiceNumber || dto.invoiceNumber || ''}`.trim(),
+              date: dto.invoiceDate
+                ? new Date(dto.invoiceDate)
+                : existing.invoiceDate,
+              notes:
+                `[AUTO_UPDATED] ${existing.type} ${existing.invoiceNumber || dto.invoiceNumber || ''}`.trim(),
             })),
           });
         }
@@ -551,9 +573,7 @@ export class InvoiceService {
           ...(dto.invoiceDate
             ? { invoiceDate: new Date(dto.invoiceDate) }
             : {}),
-          ...(dto.dueDate
-            ? { dueDate: new Date(dto.dueDate) }
-            : {}),
+          ...(dto.dueDate ? { dueDate: new Date(dto.dueDate) } : {}),
           ...(dto.accountId ? { accountId: dto.accountId } : {}),
           ...(dto.costCenterId !== undefined
             ? { costCenterId: dto.costCenterId ?? null }
