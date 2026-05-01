@@ -30,7 +30,7 @@ class PublicController {
 
 describe('CompanyAccessGuard', () => {
   let guard: CompanyAccessGuard;
-  let prisma: jest.Mocked<Pick<PrismaService, 'company'>>;
+  let prisma: jest.Mocked<Pick<PrismaService, 'company' | 'userCompany'>>;
   let redisService: jest.Mocked<Pick<RedisService, 'get' | 'set'>>;
 
   beforeEach(() => {
@@ -38,7 +38,10 @@ describe('CompanyAccessGuard', () => {
       company: {
         findFirst: jest.fn(),
       },
-    } as unknown as jest.Mocked<Pick<PrismaService, 'company'>>;
+      userCompany: {
+        findFirst: jest.fn().mockResolvedValue({ role: 'MANAGER' }),
+      },
+    } as unknown as jest.Mocked<Pick<PrismaService, 'company' | 'userCompany'>>;
 
     redisService = {
       get: jest.fn().mockResolvedValue(null),

@@ -88,6 +88,9 @@ export class UsersService {
       normalizedEmail,
     );
     const mappedRole = this.mapRole(dto.role);
+    if (mappedRole === UserRole.ADMIN) {
+      await this.assertNoOtherTenantAdmin(tenantId);
+    }
 
     const createdUser = await this.prisma
       .$transaction(async (tx) => {
@@ -429,14 +432,19 @@ export class UsersService {
       });
 
       if (shouldUpdateRole) {
+        const nextRole = this.mapRole(dto.role);
+        if (nextRole === UserRole.ADMIN) {
+          await this.assertNoOtherTenantAdmin(tenantId, id);
+        }
+
         await tx.userCompany.updateMany({
           where: { userId: id, tenantId },
-          data: { role: this.mapRole(dto.role) },
+          data: { role: nextRole },
         });
 
         user.userCompanies = user.userCompanies.map((assignment) => ({
           ...assignment,
-          role: this.mapRole(dto.role),
+          role: nextRole,
         }));
       }
 
@@ -648,8 +656,6 @@ export class UsersService {
 
   private mapRole(rawRole?: string): UserRole {
     switch (rawRole) {
-      case 'OWNER':
-        return 'OWNER';
       case 'ADMIN':
       case 'TENANT_ADMIN':
         return 'ADMIN';
@@ -661,6 +667,30 @@ export class UsersService {
         return 'MANAGER';
       default:
         return 'MANAGER';
+    }
+  }
+
+  private async assertNoOtherTenantAdmin(
+    tenantId: string,
+    excludingUserId?: string,
+  ) {
+    const existingAdmin = await this.prisma.userCompany.findFirst({
+      where: {
+        tenantId,
+        role: UserRole.ADMIN,
+        user: {
+          deletedAt: null,
+          status: 'ACTIVE',
+          ...(excludingUserId ? { id: { not: excludingUserId } } : {}),
+        },
+      },
+      select: { id: true },
+    });
+
+    if (existingAdmin) {
+      throw new ConflictException(
+        'This tenant already has a tenant admin. Only one tenant admin is allowed.',
+      );
     }
   }
 

@@ -39,6 +39,7 @@ describe('UsersService', () => {
         findFirst: jest.fn(),
       } as any,
       userCompany: {
+        findFirst: jest.fn(),
         findMany: jest.fn(),
         upsert: jest.fn(),
         deleteMany: jest.fn(),
@@ -138,7 +139,7 @@ describe('UsersService', () => {
         firstName: 'Test',
         lastName: 'User',
         password: 'TempPass123!',
-        role: 'ADMIN' as any,
+        role: 'MANAGER' as any,
         companyIds: ['c1', 'c2'],
       });
 
@@ -148,13 +149,13 @@ describe('UsersService', () => {
             tenantId: 't1',
             userId: 'u1',
             companyId: 'c1',
-            role: 'ADMIN',
+            role: 'MANAGER',
           },
           {
             tenantId: 't1',
             userId: 'u1',
             companyId: 'c2',
-            role: 'ADMIN',
+            role: 'MANAGER',
           },
         ],
         skipDuplicates: true,

@@ -77,6 +77,21 @@ Active routes include:
 - user admin and resend setup/reset link
 - plan CRUD
 - subscription create/update/list
+- subscription expiry reminder dispatch
+- subscription invoice generation (INR, GST extra)
+
+New billing-oriented admin routes:
+
+- `POST /admin/subscriptions/reminders/send-due`
+  - body: `{ "daysBefore": 7, "dryRun": false }`
+  - sends reminder emails for active subscriptions expiring in exactly N days
+  - deduplicated per subscription/day via Redis key
+
+- `POST /admin/subscriptions/:id/invoice`
+  - body: `{ "gstPercent": 5, "sendEmail": true }`
+  - generates a subscription invoice payload in INR
+  - GST is calculated as **extra** (base + GST)
+  - optionally emails invoice summary to tenant's primary company email
 
 Compatibility routes remain exposed for legacy UI paths:
 

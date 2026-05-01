@@ -28,6 +28,8 @@ import {
   AssignSubscriptionDto,
   UpdateSubscriptionDto,
   UpdateAdminUserDto,
+  SendDueExpiryReminderDto,
+  GenerateSubscriptionInvoiceDto,
 } from './dto';
 
 @ApiTags('Admin')
@@ -164,6 +166,25 @@ export class AdminController {
   @HttpCode(HttpStatus.NO_CONTENT)
   deleteSubscription(@Param('id') id: string) {
     return this.adminService.deleteSubscription(id);
+  }
+
+  @Post('subscriptions/reminders/send-due')
+  sendDueExpiryReminders(@Body() dto: SendDueExpiryReminderDto) {
+    return this.adminService.sendDueExpiryReminders({
+      daysBefore: dto.daysBefore ?? 7,
+      dryRun: dto.dryRun ?? false,
+    });
+  }
+
+  @Post('subscriptions/:id/invoice')
+  generateSubscriptionInvoice(
+    @Param('id') id: string,
+    @Body() dto: GenerateSubscriptionInvoiceDto,
+  ) {
+    return this.adminService.generateSubscriptionInvoice(id, {
+      gstPercent: dto.gstPercent ?? 5,
+      sendEmail: dto.sendEmail ?? false,
+    });
   }
 
   // ─── Cross-tenant Users ───

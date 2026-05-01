@@ -11,6 +11,7 @@ describe('AdminService', () => {
   let service: AdminService;
   let prisma: any;
   let redisService: any;
+  let otpDeliveryService: any;
 
   beforeEach(async () => {
     prisma = {
@@ -56,6 +57,7 @@ describe('AdminService', () => {
     };
 
     redisService = {
+      get: jest.fn().mockResolvedValue(null),
       del: jest.fn().mockResolvedValue(undefined),
       keys: jest.fn().mockResolvedValue([]),
       set: jest.fn().mockResolvedValue('OK'),
@@ -70,9 +72,11 @@ describe('AdminService', () => {
       }),
     };
 
-    const mockOtpDeliveryService = {
+    otpDeliveryService = {
       sendInviteEmail: jest.fn().mockResolvedValue(true),
       sendPasswordResetLinkEmail: jest.fn().mockResolvedValue(true),
+      sendSubscriptionExpiryReminderEmail: jest.fn().mockResolvedValue(true),
+      sendPlanInvoiceEmail: jest.fn().mockResolvedValue(true),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -81,7 +85,7 @@ describe('AdminService', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: RedisService, useValue: redisService },
         { provide: ConfigService, useValue: configService },
-        { provide: OtpDeliveryService, useValue: mockOtpDeliveryService },
+        { provide: OtpDeliveryService, useValue: otpDeliveryService },
       ],
     }).compile();
 
@@ -761,5 +765,94 @@ describe('AdminService', () => {
     );
     expect(result.data).toHaveLength(1);
     expect(result.meta.total).toBe(1);
+  });
+
+  it('sendDueExpiryReminders sends reminders for subscriptions ending in 7 days', async () => {
+    prisma.subscription.findMany.mockResolvedValueOnce([
+      {
+        id: 'sub-1',
+        tenantId: 'tenant-1',
+        endDate: new Date('2026-05-10T18:29:59.999Z'),
+        plan: { id: 'plan-1', name: 'starter', description: 'Starter' },
+        tenant: {
+          id: 'tenant-1',
+          name: 'Tenant One',
+          companies: [{ id: 'company-1', name: 'Main', email: 'tenant@demo.test' }],
+        },
+      },
+    ]);
+    redisService.get = jest.fn().mockResolvedValueOnce(null);
+
+    const result = await service.sendDueExpiryReminders({
+      daysBefore: 7,
+      dryRun: false,
+    });
+
+    expect(otpDeliveryService.sendSubscriptionExpiryReminderEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: 'tenant@demo.test',
+        tenantName: 'Tenant One',
+        daysLeft: 7,
+      }),
+    );
+    expect(result.totals.sent).toBe(1);
+  });
+
+  it('generateSubscriptionInvoice computes GST extra in INR and can send email', async () => {
+    prisma.subscription.findUnique.mockResolvedValueOnce({
+      id: 'sub-1',
+      tenantId: 'tenant-1',
+      planId: 'plan-1',
+      amountPaid: 1000,
+      startDate: new Date('2026-05-01T00:00:00.000Z'),
+      endDate: new Date('2026-05-31T18:29:59.999Z'),
+      deletedAt: null,
+      plan: {
+        id: 'plan-1',
+        name: 'starter',
+        description: 'Starter Plan',
+        durationDays: 30,
+      },
+      tenant: {
+        id: 'tenant-1',
+        name: 'Tenant One',
+        companies: [
+          {
+            id: 'company-1',
+            name: 'Tenant One Co',
+            gstin: '24ABCDE1234F1Z5',
+            address: 'Ring Road',
+            city: 'Surat',
+            state: 'Gujarat',
+            pincode: '395001',
+            email: 'tenant@demo.test',
+            phone: '+919876543210',
+          },
+        ],
+      },
+    });
+
+    const result = await service.generateSubscriptionInvoice('sub-1', {
+      gstPercent: 5,
+      sendEmail: true,
+    });
+
+    expect(result.invoice.summary).toEqual({
+      subTotal: 1000,
+      gstPercent: 5,
+      gstAmount: 50,
+      totalAmount: 1050,
+    });
+    expect(result.invoice.currency).toBe('INR');
+    expect(otpDeliveryService.sendPlanInvoiceEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: 'tenant@demo.test',
+        currency: 'INR',
+        baseAmount: 1000,
+        gstAmount: 50,
+        totalAmount: 1050,
+      }),
+    );
+    expect(result.emailDeliveryStatus).toBe('SENT');
   });
 });

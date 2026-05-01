@@ -3,10 +3,12 @@ import {
   IsOptional,
   IsEmail,
   IsNumber,
+  IsBoolean,
   IsIn,
   Matches,
   IsNotEmpty,
   Min,
+  Max,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
@@ -230,4 +232,32 @@ export class UpdateAdminUserDto {
   @IsOptional()
   @IsIn(['TENANT_ADMIN', 'MANAGER', 'ACCOUNTANT', 'VIEWER'])
   role?: 'TENANT_ADMIN' | 'MANAGER' | 'ACCOUNTANT' | 'VIEWER';
+}
+
+export class SendDueExpiryReminderDto {
+  @ApiPropertyOptional({ default: 7 })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(30)
+  daysBefore?: number;
+
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @IsBoolean()
+  dryRun?: boolean;
+}
+
+export class GenerateSubscriptionInvoiceDto {
+  @ApiPropertyOptional({ default: 5 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  gstPercent?: number;
+
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @IsBoolean()
+  sendEmail?: boolean;
 }

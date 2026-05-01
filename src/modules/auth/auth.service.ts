@@ -1019,6 +1019,7 @@ export class AuthService {
 
     const effectiveRole = this.toLegacyRole(
       this.getHighestRole(activeAssignments),
+      user.email,
     );
     const [firstName, ...restNameParts] = (user?.name ?? '')
       .trim()
@@ -1065,14 +1066,16 @@ export class AuthService {
       .sort((a, b) => rank[b] - rank[a])[0];
   }
 
-  private toLegacyRole(role: UserRole | null): string {
+  private toLegacyRole(role: UserRole | null, userEmail?: string): string {
     if (!role) {
       return 'VIEWER';
     }
 
     switch (role) {
       case 'OWNER':
-        return 'SUPER_ADMIN';
+        return this.isConfiguredSuperAdminEmail(userEmail)
+          ? 'SUPER_ADMIN'
+          : 'TENANT_ADMIN';
       case 'ADMIN':
         return 'TENANT_ADMIN';
       case 'MANAGER':
@@ -1083,6 +1086,23 @@ export class AuthService {
       default:
         return 'VIEWER';
     }
+  }
+
+  private isConfiguredSuperAdminEmail(email?: string | null): boolean {
+    if (!email) {
+      return false;
+    }
+
+    const configured = this.configService
+      .get<string>('SUPER_ADMIN_EMAIL')
+      ?.trim()
+      .toLowerCase();
+
+    if (!configured) {
+      return true;
+    }
+
+    return email.trim().toLowerCase() === configured;
   }
 
   private hashOpaqueToken(token: string): string {

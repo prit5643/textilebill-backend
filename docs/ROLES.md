@@ -88,7 +88,7 @@ The ADMIN is the **primary account holder** for a tenant (a business subscribing
 ### Capacity Notes
 - Subject to their tenant's `Plan.maxUsers` and `Plan.maxCompanies` limits.
 - Automatically assigned as the `ADMIN` in every company they create.
-- One tenant can have **multiple ADMIN users** if manually added.
+- Exactly **one ADMIN (Tenant Admin)** is allowed per tenant in the current model.
 
 ---
 
@@ -221,8 +221,8 @@ A VIEWER is a stakeholder who needs visibility into the business data but should
 
 ### Backend (API layer)
 - **`@Roles()`** decorator on controller methods (via `RolesGuard` + `JwtAuthGuard`).
-- The JWT token carries `role` and `companyId` claims.
-- The `CompanyContextGuard` additionally validates that the `X-Company-Id` header belongs to the authenticated user's allowed companies.
+- The JWT token carries tenant-level role (`SUPER_ADMIN` / `TENANT_ADMIN` / staff) and company assignments.
+- `CompanyAccessGuard` validates the `X-Company-Id` belongs to the authenticated user and resolves per-company role for authorization decisions.
 
 ### Frontend (UI/Route layer)
 - **Next.js middleware** (`src/middleware.ts`) validates the JWT at the edge before any React code runs.
@@ -237,13 +237,13 @@ A VIEWER is a stakeholder who needs visibility into the business data but should
 
 | Who can assign | To whom | What roles |
 |---|---|---|
-| OWNER | New tenant's first user | ADMIN |
-| ADMIN | Any user within their tenant | MANAGER, ACCOUNTANT, VIEWER |
+| OWNER (Super Admin) | New tenant primary user | ADMIN (Tenant Admin) only |
+| ADMIN (Tenant Admin) | Users within their tenant | MANAGER, ACCOUNTANT, VIEWER |
 | MANAGER | Nobody | — |
 | ACCOUNTANT | Nobody | — |
 | VIEWER | Nobody | — |
 
-> An ADMIN **cannot** grant ADMIN or OWNER level to another user unless they are themselves an OWNER acting through the superadmin panel.
+> Super Admin does not assign tenant staff roles (MANAGER/ACCOUNTANT/VIEWER). Those are managed by the tenant admin.
 
 ---
 
@@ -274,13 +274,11 @@ model UserCompany {
 
 ---
 
-## Known Gaps (As-of April 2025)
+## Known Gaps (As-of May 2026)
 
 > [!WARNING]
 > The following inconsistencies exist in the current codebase and should be addressed.
 
-1. **Backend `@Roles` decorators still use old string names** (`'SUPER_ADMIN'`, `'TENANT_ADMIN'`) instead of the canonical Prisma enum values (`'OWNER'`, `'ADMIN'`). This means the `RolesGuard` comparison must map these strings to the actual `UserRole` enum at runtime. **All `@Roles()` arguments in backend controllers should be migrated to the canonical enum names** for clarity and to eliminate silent mismatches.
+1. **Per-company RBAC standardization still ongoing.** Some controllers still rely on endpoint role checks only; remaining modules should consistently use company-scoped authorization where applicable.
 
-2. **VIEWER has no explicit API-level block.** A determined user who submits a `POST /api/invoices` request directly (bypassing the UI) with a VIEWER JWT may succeed on endpoints that lack a `@Roles()` guard. A global guard that denies write methods (`POST`, `PUT`, `PATCH`, `DELETE`) for VIEWER should be added.
-
-3. **ACCOUNTANT write permissions on accounts** — the `account.controller.ts` includes ACCOUNTANT in some write paths. This should be reviewed against business requirements; typically accountants should not be creating new parties.
+2. **ACCOUNTANT write permissions on accounts** need a final business sign-off (whether account creation/edit should remain allowed or become read-only).

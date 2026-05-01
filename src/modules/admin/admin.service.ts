@@ -1090,6 +1090,267 @@ export class AdminService {
     return;
   }
 
+  async sendDueExpiryReminders(input: { daysBefore: number; dryRun: boolean }) {
+    const daysBefore = Math.max(1, Math.min(30, Math.trunc(input.daysBefore)));
+    const now = new Date();
+    const target = this.addIstCalendarDays(now, daysBefore);
+    const windowStart = this.toIstStartOfDayUtc(target);
+    const windowEnd = this.toIstEndOfDayUtc(target);
+
+    const expiring = await this.prisma.subscription.findMany({
+      where: {
+        deletedAt: null,
+        status: 'ACTIVE',
+        endDate: {
+          gte: windowStart,
+          lte: windowEnd,
+        },
+      },
+      include: {
+        plan: {
+          select: { id: true, name: true, description: true },
+        },
+        tenant: {
+          select: {
+            id: true,
+            name: true,
+            companies: {
+              where: { deletedAt: null, status: EntityStatus.ACTIVE },
+              orderBy: { createdAt: 'asc' },
+              take: 1,
+              select: { id: true, name: true, email: true },
+            },
+          },
+        },
+      },
+      orderBy: { endDate: 'asc' },
+    });
+
+    let sent = 0;
+    let skipped = 0;
+    const preview: Array<{
+      subscriptionId: string;
+      tenantId: string;
+      tenantName: string;
+      recipientEmail: string | null;
+      endDate: Date;
+      status: 'SKIPPED_NO_EMAIL' | 'SKIPPED_DUPLICATE' | 'SENT' | 'DRY_RUN';
+    }> = [];
+
+    const dateKey = this.formatDateKey(target);
+
+    for (const row of expiring) {
+      const recipient = row.tenant.companies?.[0]?.email?.trim().toLowerCase();
+      if (!recipient) {
+        skipped += 1;
+        preview.push({
+          subscriptionId: row.id,
+          tenantId: row.tenantId,
+          tenantName: row.tenant.name,
+          recipientEmail: null,
+          endDate: row.endDate,
+          status: 'SKIPPED_NO_EMAIL',
+        });
+        continue;
+      }
+
+      const dedupeKey = `billing:expiry-reminder:${row.id}:d${daysBefore}:${dateKey}`;
+      const alreadySent = await this.redisService.get(dedupeKey);
+      if (alreadySent === '1') {
+        skipped += 1;
+        preview.push({
+          subscriptionId: row.id,
+          tenantId: row.tenantId,
+          tenantName: row.tenant.name,
+          recipientEmail: recipient,
+          endDate: row.endDate,
+          status: 'SKIPPED_DUPLICATE',
+        });
+        continue;
+      }
+
+      if (input.dryRun) {
+        preview.push({
+          subscriptionId: row.id,
+          tenantId: row.tenantId,
+          tenantName: row.tenant.name,
+          recipientEmail: recipient,
+          endDate: row.endDate,
+          status: 'DRY_RUN',
+        });
+        continue;
+      }
+
+      const delivered =
+        await this.otpDeliveryService.sendSubscriptionExpiryReminderEmail({
+          to: recipient,
+          tenantName: row.tenant.name,
+          planName: row.plan.description || row.plan.name,
+          endDate: row.endDate,
+          daysLeft: daysBefore,
+        });
+
+      if (delivered) {
+        await this.redisService.set(dedupeKey, '1', 3 * 24 * 60 * 60);
+        sent += 1;
+        preview.push({
+          subscriptionId: row.id,
+          tenantId: row.tenantId,
+          tenantName: row.tenant.name,
+          recipientEmail: recipient,
+          endDate: row.endDate,
+          status: 'SENT',
+        });
+      } else {
+        skipped += 1;
+      }
+    }
+
+    return {
+      daysBefore,
+      dryRun: input.dryRun,
+      targetDateWindow: {
+        start: windowStart,
+        end: windowEnd,
+      },
+      totals: {
+        candidates: expiring.length,
+        sent,
+        skipped,
+      },
+      preview,
+    };
+  }
+
+  async generateSubscriptionInvoice(
+    subscriptionId: string,
+    input: { gstPercent: number; sendEmail: boolean },
+  ) {
+    const gstPercent = this.round2(Math.max(0, Math.min(100, input.gstPercent)));
+    const subscription = await this.prisma.subscription.findUnique({
+      where: { id: subscriptionId },
+      include: {
+        plan: {
+          select: {
+            id: true,
+            name: true,
+            description: true,
+            durationDays: true,
+          },
+        },
+        tenant: {
+          select: {
+            id: true,
+            name: true,
+            companies: {
+              where: { deletedAt: null },
+              orderBy: { createdAt: 'asc' },
+              take: 1,
+              select: {
+                id: true,
+                name: true,
+                gstin: true,
+                address: true,
+                city: true,
+                state: true,
+                pincode: true,
+                email: true,
+                phone: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!subscription || subscription.deletedAt) {
+      throw new NotFoundException('Subscription not found');
+    }
+
+    const tenantCompany = subscription.tenant.companies?.[0];
+    const baseAmount = this.round2(Number(subscription.amountPaid ?? 0));
+    const gstAmount = this.round2((baseAmount * gstPercent) / 100);
+    const totalAmount = this.round2(baseAmount + gstAmount);
+
+    const issuedAt = new Date();
+    const invoiceNumber = this.buildSubscriptionInvoiceNumber(
+      subscription.id,
+      issuedAt,
+    );
+
+    const invoice = {
+      invoiceNumber,
+      issuedAt,
+      currency: 'INR' as const,
+      billingType: 'SUBSCRIPTION' as const,
+      gstMode: 'EXTRA' as const,
+      customer: {
+        tenantId: subscription.tenant.id,
+        tenantName: subscription.tenant.name,
+        companyName: tenantCompany?.name ?? subscription.tenant.name,
+        gstin: tenantCompany?.gstin ?? null,
+        email: tenantCompany?.email ?? null,
+        phone: tenantCompany?.phone ?? null,
+        address: tenantCompany?.address ?? null,
+        city: tenantCompany?.city ?? null,
+        state: tenantCompany?.state ?? null,
+        pincode: tenantCompany?.pincode ?? null,
+      },
+      plan: {
+        planId: subscription.planId,
+        planName: subscription.plan.description || subscription.plan.name,
+        durationDays: subscription.plan.durationDays,
+        startDate: subscription.startDate,
+        endDate: subscription.endDate,
+      },
+      lineItems: [
+        {
+          description: `TextileBill subscription - ${subscription.plan.description || subscription.plan.name}`,
+          quantity: 1,
+          unitPrice: baseAmount,
+          amount: baseAmount,
+        },
+      ],
+      summary: {
+        subTotal: baseAmount,
+        gstPercent,
+        gstAmount,
+        totalAmount,
+      },
+    };
+
+    let emailDeliveryStatus: 'NOT_REQUESTED' | 'SENT' | 'FAILED' =
+      'NOT_REQUESTED';
+    if (input.sendEmail) {
+      const recipient = tenantCompany?.email?.trim().toLowerCase();
+      if (!recipient) {
+        throw new BadRequestException(
+          'Tenant company email is missing. Cannot send invoice email.',
+        );
+      }
+
+      const delivered = await this.otpDeliveryService.sendPlanInvoiceEmail({
+        to: recipient,
+        invoiceNumber,
+        tenantName: subscription.tenant.name,
+        planName: subscription.plan.description || subscription.plan.name,
+        currency: 'INR',
+        baseAmount,
+        gstPercent,
+        gstAmount,
+        totalAmount,
+        periodStart: subscription.startDate,
+        periodEnd: subscription.endDate,
+      });
+      emailDeliveryStatus = delivered ? 'SENT' : 'FAILED';
+    }
+
+    return {
+      invoice,
+      emailDeliveryStatus,
+    };
+  }
+
   async listAllUsers(query: {
     page?: number;
     limit?: number;
@@ -1212,7 +1473,10 @@ export class AdminService {
           firstName: firstName || null,
           lastName: rest.length ? rest.join(' ') : null,
           isActive: user.status === EntityStatus.ACTIVE,
-          role: this.toLegacyRole(this.getHighestRole(user.userCompanies)),
+          role: this.toLegacyRole(
+            this.getHighestRole(user.userCompanies),
+            user.email,
+          ),
           passwordSetupStatus,
           lastLoginAt: user.refreshTokens?.[0]?.createdAt ?? null,
         };
@@ -1260,7 +1524,7 @@ export class AdminService {
   ) {
     const existing = await this.prisma.user.findUnique({
       where: { id },
-      select: { id: true, name: true },
+      select: { id: true, name: true, tenantId: true },
     });
 
     if (!existing) {
@@ -1287,6 +1551,31 @@ export class AdminService {
     }
 
     if (dto.role) {
+      if (dto.role !== 'TENANT_ADMIN') {
+        throw new BadRequestException(
+          'Super admin can only manage tenant admin role assignments.',
+        );
+      }
+
+      const existingTenantAdmin = await this.prisma.userCompany.findFirst({
+        where: {
+          tenantId: existing.tenantId,
+          role: UserRole.ADMIN,
+          user: {
+            deletedAt: null,
+            status: EntityStatus.ACTIVE,
+            id: { not: id },
+          },
+        },
+        select: { id: true },
+      });
+
+      if (existingTenantAdmin) {
+        throw new BadRequestException(
+          'This tenant already has a tenant admin. Only one tenant admin is allowed.',
+        );
+      }
+
       await this.prisma.userCompany.updateMany({
         where: { userId: id },
         data: { role: this.fromLegacyRole(dto.role) },
@@ -1502,10 +1791,12 @@ export class AdminService {
     );
   }
 
-  private toLegacyRole(role: UserRole): string {
+  private toLegacyRole(role: UserRole, userEmail?: string): string {
     switch (role) {
       case UserRole.OWNER:
-        return 'SUPER_ADMIN';
+        return this.isConfiguredSuperAdminEmail(userEmail)
+          ? 'SUPER_ADMIN'
+          : 'TENANT_ADMIN';
       case UserRole.ADMIN:
         return 'TENANT_ADMIN';
       case UserRole.MANAGER:
@@ -1516,6 +1807,44 @@ export class AdminService {
       default:
         return 'VIEWER';
     }
+  }
+
+  private isConfiguredSuperAdminEmail(email?: string | null): boolean {
+    if (!email) {
+      return false;
+    }
+
+    const configured = this.configService
+      .get<string>('SUPER_ADMIN_EMAIL')
+      ?.trim()
+      .toLowerCase();
+
+    if (!configured) {
+      return true;
+    }
+
+    return email.trim().toLowerCase() === configured;
+  }
+
+  private buildSubscriptionInvoiceNumber(
+    subscriptionId: string,
+    issuedAt: Date,
+  ): string {
+    const dateStamp = this.formatDateKey(issuedAt).replace(/-/g, '');
+    return `SB-${dateStamp}-${subscriptionId.slice(0, 8).toUpperCase()}`;
+  }
+
+  private round2(value: number): number {
+    return Math.round(value * 100) / 100;
+  }
+
+  private formatDateKey(date: Date): string {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: IST_TIME_ZONE,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(date);
   }
 
   private getPasswordResetLinkKey(token: string) {
