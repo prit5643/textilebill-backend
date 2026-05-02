@@ -85,6 +85,27 @@ export class AdminService {
       orderBy: { createdAt: 'desc' },
       include: {
         _count: { select: { users: true, companies: true } },
+        subscriptions: {
+          where: {
+            deletedAt: null,
+            status: SubscriptionStatus.ACTIVE,
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: {
+            id: true,
+            status: true,
+            startDate: true,
+            endDate: true,
+            plan: {
+              select: {
+                id: true,
+                name: true,
+                description: true,
+              },
+            },
+          },
+        },
         companies: {
           where: { deletedAt: null },
           orderBy: { createdAt: 'asc' },
@@ -98,6 +119,27 @@ export class AdminService {
     return this.prisma.tenant.findUnique({
       where: { id },
       include: {
+        subscriptions: {
+          where: {
+            deletedAt: null,
+            status: SubscriptionStatus.ACTIVE,
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: {
+            id: true,
+            status: true,
+            startDate: true,
+            endDate: true,
+            plan: {
+              select: {
+                id: true,
+                name: true,
+                description: true,
+              },
+            },
+          },
+        },
         users: {
           where: {
             deletedAt: null,
@@ -251,6 +293,26 @@ export class AdminService {
               companies: {
                 some: {
                   gstin: {
+                    contains: query.search,
+                    mode: 'insensitive' as const,
+                  },
+                },
+              },
+            },
+            {
+              companies: {
+                some: {
+                  email: {
+                    contains: query.search,
+                    mode: 'insensitive' as const,
+                  },
+                },
+              },
+            },
+            {
+              companies: {
+                some: {
+                  phone: {
                     contains: query.search,
                     mode: 'insensitive' as const,
                   },
@@ -441,7 +503,13 @@ export class AdminService {
       });
 
       const selectedPlan = dto.planId
-        ? await tx.plan.findUnique({ where: { id: dto.planId } })
+        ? await tx.plan.findFirst({
+            where: {
+              id: dto.planId,
+              deletedAt: null,
+              status: EntityStatus.ACTIVE,
+            },
+          })
         : await tx.plan.findFirst({
             where: {
               deletedAt: null,
@@ -687,7 +755,7 @@ export class AdminService {
       where: { id },
       data: {
         status: status ? 'ACTIVE' : 'INACTIVE',
-        deletedAt: status ? null : new Date(),
+        deletedAt: null,
       },
     });
   }
@@ -748,32 +816,19 @@ export class AdminService {
     const plan = await this.prisma.plan.findUnique({
       where: { id: dto.planId },
     });
-    if (!plan) throw new NotFoundException('Plan not found');
+    if (!plan || plan.deletedAt || plan.status !== EntityStatus.ACTIVE) {
+      throw new NotFoundException('Active plan not found');
+    }
     this.assertSupportedPlanDuration(plan.durationDays);
 
     const created = await this.prisma.$transaction(
       async (tx) => {
         const now = new Date();
-        const activeSubscription = await tx.subscription.findFirst({
-          where: {
-            tenantId: company.tenantId,
-            deletedAt: null,
-            status: 'ACTIVE',
-            endDate: { gte: now },
-          },
-          orderBy: { endDate: 'desc' },
-          select: { endDate: true },
-        });
-
-        const anchorDate =
-          activeSubscription?.endDate && activeSubscription.endDate > now
-            ? new Date(activeSubscription.endDate.getTime() + 1000)
-            : now;
-
         const { startDate, endDate } = this.buildIstSubscriptionWindow(
           plan.durationDays,
-          anchorDate,
+          now,
         );
+        const expiryDate = this.toIstEndOfDayUtc(now);
 
         await tx.subscription.updateMany({
           where: {
@@ -781,7 +836,10 @@ export class AdminService {
             deletedAt: null,
             status: 'ACTIVE',
           },
-          data: { status: 'EXPIRED' },
+          data: {
+            status: 'EXPIRED',
+            endDate: expiryDate,
+          },
         });
 
         return tx.subscription.create({
@@ -790,7 +848,8 @@ export class AdminService {
             planId: plan.id,
             startDate,
             endDate,
-            amountPaid: dto.amount ?? plan.price,
+            amountPaid:
+              dto.amount !== undefined ? dto.amount : Number(plan.price ?? 0),
             status: 'ACTIVE',
             paymentStatus: 'PAID',
           },
@@ -800,6 +859,20 @@ export class AdminService {
         isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
       },
     );
+
+    // Keep at most one active subscription row per tenant even under retries/races.
+    await this.prisma.subscription.updateMany({
+      where: {
+        tenantId: company.tenantId,
+        deletedAt: null,
+        status: 'ACTIVE',
+        id: { not: created.id },
+      },
+      data: {
+        status: 'EXPIRED',
+        endDate: this.toIstEndOfDayUtc(new Date()),
+      },
+    });
 
     await this.redisService.del(
       getTenantSubscriptionCacheKey(company.tenantId),
@@ -867,6 +940,7 @@ export class AdminService {
         where,
         skip,
         take,
+        orderBy: { createdAt: 'desc' },
         include: {
           plan: true,
           tenant: {
@@ -888,6 +962,7 @@ export class AdminService {
 
     const data = rows.map((row) => ({
       ...row,
+      amount: Number(row.amountPaid ?? 0),
       tenant: row.tenant
         ? {
             id: row.tenant.id,
@@ -1015,6 +1090,267 @@ export class AdminService {
     return;
   }
 
+  async sendDueExpiryReminders(input: { daysBefore: number; dryRun: boolean }) {
+    const daysBefore = Math.max(1, Math.min(30, Math.trunc(input.daysBefore)));
+    const now = new Date();
+    const target = this.addIstCalendarDays(now, daysBefore);
+    const windowStart = this.toIstStartOfDayUtc(target);
+    const windowEnd = this.toIstEndOfDayUtc(target);
+
+    const expiring = await this.prisma.subscription.findMany({
+      where: {
+        deletedAt: null,
+        status: 'ACTIVE',
+        endDate: {
+          gte: windowStart,
+          lte: windowEnd,
+        },
+      },
+      include: {
+        plan: {
+          select: { id: true, name: true, description: true },
+        },
+        tenant: {
+          select: {
+            id: true,
+            name: true,
+            companies: {
+              where: { deletedAt: null, status: EntityStatus.ACTIVE },
+              orderBy: { createdAt: 'asc' },
+              take: 1,
+              select: { id: true, name: true, email: true },
+            },
+          },
+        },
+      },
+      orderBy: { endDate: 'asc' },
+    });
+
+    let sent = 0;
+    let skipped = 0;
+    const preview: Array<{
+      subscriptionId: string;
+      tenantId: string;
+      tenantName: string;
+      recipientEmail: string | null;
+      endDate: Date;
+      status: 'SKIPPED_NO_EMAIL' | 'SKIPPED_DUPLICATE' | 'SENT' | 'DRY_RUN';
+    }> = [];
+
+    const dateKey = this.formatDateKey(target);
+
+    for (const row of expiring) {
+      const recipient = row.tenant.companies?.[0]?.email?.trim().toLowerCase();
+      if (!recipient) {
+        skipped += 1;
+        preview.push({
+          subscriptionId: row.id,
+          tenantId: row.tenantId,
+          tenantName: row.tenant.name,
+          recipientEmail: null,
+          endDate: row.endDate,
+          status: 'SKIPPED_NO_EMAIL',
+        });
+        continue;
+      }
+
+      const dedupeKey = `billing:expiry-reminder:${row.id}:d${daysBefore}:${dateKey}`;
+      const alreadySent = await this.redisService.get(dedupeKey);
+      if (alreadySent === '1') {
+        skipped += 1;
+        preview.push({
+          subscriptionId: row.id,
+          tenantId: row.tenantId,
+          tenantName: row.tenant.name,
+          recipientEmail: recipient,
+          endDate: row.endDate,
+          status: 'SKIPPED_DUPLICATE',
+        });
+        continue;
+      }
+
+      if (input.dryRun) {
+        preview.push({
+          subscriptionId: row.id,
+          tenantId: row.tenantId,
+          tenantName: row.tenant.name,
+          recipientEmail: recipient,
+          endDate: row.endDate,
+          status: 'DRY_RUN',
+        });
+        continue;
+      }
+
+      const delivered =
+        await this.otpDeliveryService.sendSubscriptionExpiryReminderEmail({
+          to: recipient,
+          tenantName: row.tenant.name,
+          planName: row.plan.description || row.plan.name,
+          endDate: row.endDate,
+          daysLeft: daysBefore,
+        });
+
+      if (delivered) {
+        await this.redisService.set(dedupeKey, '1', 3 * 24 * 60 * 60);
+        sent += 1;
+        preview.push({
+          subscriptionId: row.id,
+          tenantId: row.tenantId,
+          tenantName: row.tenant.name,
+          recipientEmail: recipient,
+          endDate: row.endDate,
+          status: 'SENT',
+        });
+      } else {
+        skipped += 1;
+      }
+    }
+
+    return {
+      daysBefore,
+      dryRun: input.dryRun,
+      targetDateWindow: {
+        start: windowStart,
+        end: windowEnd,
+      },
+      totals: {
+        candidates: expiring.length,
+        sent,
+        skipped,
+      },
+      preview,
+    };
+  }
+
+  async generateSubscriptionInvoice(
+    subscriptionId: string,
+    input: { gstPercent: number; sendEmail: boolean },
+  ) {
+    const gstPercent = this.round2(Math.max(0, Math.min(100, input.gstPercent)));
+    const subscription = await this.prisma.subscription.findUnique({
+      where: { id: subscriptionId },
+      include: {
+        plan: {
+          select: {
+            id: true,
+            name: true,
+            description: true,
+            durationDays: true,
+          },
+        },
+        tenant: {
+          select: {
+            id: true,
+            name: true,
+            companies: {
+              where: { deletedAt: null },
+              orderBy: { createdAt: 'asc' },
+              take: 1,
+              select: {
+                id: true,
+                name: true,
+                gstin: true,
+                address: true,
+                city: true,
+                state: true,
+                pincode: true,
+                email: true,
+                phone: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!subscription || subscription.deletedAt) {
+      throw new NotFoundException('Subscription not found');
+    }
+
+    const tenantCompany = subscription.tenant.companies?.[0];
+    const baseAmount = this.round2(Number(subscription.amountPaid ?? 0));
+    const gstAmount = this.round2((baseAmount * gstPercent) / 100);
+    const totalAmount = this.round2(baseAmount + gstAmount);
+
+    const issuedAt = new Date();
+    const invoiceNumber = this.buildSubscriptionInvoiceNumber(
+      subscription.id,
+      issuedAt,
+    );
+
+    const invoice = {
+      invoiceNumber,
+      issuedAt,
+      currency: 'INR' as const,
+      billingType: 'SUBSCRIPTION' as const,
+      gstMode: 'EXTRA' as const,
+      customer: {
+        tenantId: subscription.tenant.id,
+        tenantName: subscription.tenant.name,
+        companyName: tenantCompany?.name ?? subscription.tenant.name,
+        gstin: tenantCompany?.gstin ?? null,
+        email: tenantCompany?.email ?? null,
+        phone: tenantCompany?.phone ?? null,
+        address: tenantCompany?.address ?? null,
+        city: tenantCompany?.city ?? null,
+        state: tenantCompany?.state ?? null,
+        pincode: tenantCompany?.pincode ?? null,
+      },
+      plan: {
+        planId: subscription.planId,
+        planName: subscription.plan.description || subscription.plan.name,
+        durationDays: subscription.plan.durationDays,
+        startDate: subscription.startDate,
+        endDate: subscription.endDate,
+      },
+      lineItems: [
+        {
+          description: `TextileBill subscription - ${subscription.plan.description || subscription.plan.name}`,
+          quantity: 1,
+          unitPrice: baseAmount,
+          amount: baseAmount,
+        },
+      ],
+      summary: {
+        subTotal: baseAmount,
+        gstPercent,
+        gstAmount,
+        totalAmount,
+      },
+    };
+
+    let emailDeliveryStatus: 'NOT_REQUESTED' | 'SENT' | 'FAILED' =
+      'NOT_REQUESTED';
+    if (input.sendEmail) {
+      const recipient = tenantCompany?.email?.trim().toLowerCase();
+      if (!recipient) {
+        throw new BadRequestException(
+          'Tenant company email is missing. Cannot send invoice email.',
+        );
+      }
+
+      const delivered = await this.otpDeliveryService.sendPlanInvoiceEmail({
+        to: recipient,
+        invoiceNumber,
+        tenantName: subscription.tenant.name,
+        planName: subscription.plan.description || subscription.plan.name,
+        currency: 'INR',
+        baseAmount,
+        gstPercent,
+        gstAmount,
+        totalAmount,
+        periodStart: subscription.startDate,
+        periodEnd: subscription.endDate,
+      });
+      emailDeliveryStatus = delivered ? 'SENT' : 'FAILED';
+    }
+
+    return {
+      invoice,
+      emailDeliveryStatus,
+    };
+  }
+
   async listAllUsers(query: {
     page?: number;
     limit?: number;
@@ -1043,6 +1379,26 @@ export class AdminService {
               },
               {
                 name: { contains: query.search, mode: 'insensitive' as const },
+              },
+              {
+                tenant: {
+                  name: {
+                    contains: query.search,
+                    mode: 'insensitive' as const,
+                  },
+                },
+              },
+              {
+                userCompanies: {
+                  some: {
+                    company: {
+                      name: {
+                        contains: query.search,
+                        mode: 'insensitive' as const,
+                      },
+                    },
+                  },
+                },
               },
             ],
           }
@@ -1117,7 +1473,10 @@ export class AdminService {
           firstName: firstName || null,
           lastName: rest.length ? rest.join(' ') : null,
           isActive: user.status === EntityStatus.ACTIVE,
-          role: this.toLegacyRole(this.getHighestRole(user.userCompanies)),
+          role: this.toLegacyRole(
+            this.getHighestRole(user.userCompanies),
+            user.email,
+          ),
           passwordSetupStatus,
           lastLoginAt: user.refreshTokens?.[0]?.createdAt ?? null,
         };
@@ -1160,12 +1519,12 @@ export class AdminService {
       firstName?: string;
       lastName?: string;
       email?: string;
-      role?: 'TENANT_ADMIN' | 'MANAGER' | 'STAFF' | 'ACCOUNTANT' | 'VIEWER';
+      role?: 'TENANT_ADMIN' | 'MANAGER' | 'ACCOUNTANT' | 'VIEWER';
     },
   ) {
     const existing = await this.prisma.user.findUnique({
       where: { id },
-      select: { id: true, name: true },
+      select: { id: true, name: true, tenantId: true },
     });
 
     if (!existing) {
@@ -1192,6 +1551,31 @@ export class AdminService {
     }
 
     if (dto.role) {
+      if (dto.role !== 'TENANT_ADMIN') {
+        throw new BadRequestException(
+          'Super admin can only manage tenant admin role assignments.',
+        );
+      }
+
+      const existingTenantAdmin = await this.prisma.userCompany.findFirst({
+        where: {
+          tenantId: existing.tenantId,
+          role: UserRole.ADMIN,
+          user: {
+            deletedAt: null,
+            status: EntityStatus.ACTIVE,
+            id: { not: id },
+          },
+        },
+        select: { id: true },
+      });
+
+      if (existingTenantAdmin) {
+        throw new BadRequestException(
+          'This tenant already has a tenant admin. Only one tenant admin is allowed.',
+        );
+      }
+
       await this.prisma.userCompany.updateMany({
         where: { userId: id },
         data: { role: this.fromLegacyRole(dto.role) },
@@ -1377,7 +1761,7 @@ export class AdminService {
   }
 
   private fromLegacyRole(
-    role: 'TENANT_ADMIN' | 'MANAGER' | 'STAFF' | 'ACCOUNTANT' | 'VIEWER',
+    role: 'TENANT_ADMIN' | 'MANAGER' | 'ACCOUNTANT' | 'VIEWER',
   ): UserRole {
     switch (role) {
       case 'TENANT_ADMIN':
@@ -1386,7 +1770,6 @@ export class AdminService {
         return UserRole.MANAGER;
       case 'ACCOUNTANT':
         return UserRole.ACCOUNTANT;
-      case 'STAFF':
       case 'VIEWER':
       default:
         return UserRole.VIEWER;
@@ -1408,10 +1791,12 @@ export class AdminService {
     );
   }
 
-  private toLegacyRole(role: UserRole): string {
+  private toLegacyRole(role: UserRole, userEmail?: string): string {
     switch (role) {
       case UserRole.OWNER:
-        return 'TENANT_ADMIN';
+        return this.isConfiguredSuperAdminEmail(userEmail)
+          ? 'SUPER_ADMIN'
+          : 'TENANT_ADMIN';
       case UserRole.ADMIN:
         return 'TENANT_ADMIN';
       case UserRole.MANAGER:
@@ -1422,6 +1807,44 @@ export class AdminService {
       default:
         return 'VIEWER';
     }
+  }
+
+  private isConfiguredSuperAdminEmail(email?: string | null): boolean {
+    if (!email) {
+      return false;
+    }
+
+    const configured = this.configService
+      .get<string>('SUPER_ADMIN_EMAIL')
+      ?.trim()
+      .toLowerCase();
+
+    if (!configured) {
+      return true;
+    }
+
+    return email.trim().toLowerCase() === configured;
+  }
+
+  private buildSubscriptionInvoiceNumber(
+    subscriptionId: string,
+    issuedAt: Date,
+  ): string {
+    const dateStamp = this.formatDateKey(issuedAt).replace(/-/g, '');
+    return `SB-${dateStamp}-${subscriptionId.slice(0, 8).toUpperCase()}`;
+  }
+
+  private round2(value: number): number {
+    return Math.round(value * 100) / 100;
+  }
+
+  private formatDateKey(date: Date): string {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: IST_TIME_ZONE,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(date);
   }
 
   private getPasswordResetLinkKey(token: string) {
@@ -1480,7 +1903,7 @@ export class AdminService {
     anchor = new Date(),
   ) {
     const safeDuration = Math.max(1, Math.floor(durationDays || 1));
-    const startDate = new Date(anchor);
+    const startDate = this.toIstStartOfDayUtc(anchor);
     const endDate = this.toIstEndOfDayUtc(
       this.addIstCalendarDays(startDate, safeDuration - 1),
     );

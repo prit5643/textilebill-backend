@@ -61,6 +61,9 @@ export class SubscriptionGuard implements CanActivate {
     }
 
     if (cached === '0') {
+      if (request.method === 'GET') {
+        return true;
+      }
       throw new ForbiddenException(this.inactiveSubscriptionMessage);
     }
 
@@ -111,6 +114,9 @@ export class SubscriptionGuard implements CanActivate {
         throw new ForbiddenException(this.deactivatedMessage);
       }
 
+      if (request.method === 'GET') {
+        return true;
+      }
       throw new ForbiddenException(this.inactiveSubscriptionMessage);
     }
 

@@ -312,7 +312,7 @@ export class AuthService {
       target: user.email,
       purpose: 'LOGIN',
       channel,
-      otp,
+      otp: this.hashOpaqueToken(otp),
       attempts: 0,
       resendCount: 0,
       expiresAt,
@@ -362,7 +362,7 @@ export class AuthService {
       throw new BadRequestException('OTP request has expired');
     }
 
-    if (challenge.otp !== otp.trim()) {
+    if (challenge.otp !== this.hashOpaqueToken(otp.trim())) {
       challenge.attempts += 1;
 
       if (challenge.dbChallengeId) {
@@ -426,7 +426,8 @@ export class AuthService {
       );
     }
 
-    challenge.otp = this.generateOtpCode();
+    const newOtp = this.generateOtpCode();
+    challenge.otp = this.hashOpaqueToken(newOtp);
     challenge.resendCount += 1;
 
     const ttlSeconds = this.getRemainingTtlSeconds(challenge);
@@ -437,7 +438,7 @@ export class AuthService {
       await this.prisma.otpChallenge.update({
         where: { id: challenge.dbChallengeId },
         data: {
-          otpHash: this.hashOpaqueToken(challenge.otp),
+          otpHash: challenge.otp,
           expiresAt: new Date(Date.now() + ttlSeconds * 1000),
         },
       });
@@ -447,7 +448,7 @@ export class AuthService {
       channel: challenge.channel,
       target: challenge.target,
       maskedTarget: this.maskContact(challenge.target),
-      otp: challenge.otp,
+      otp: newOtp,
       purpose: challenge.purpose === 'VERIFY_EMAIL' ? 'VERIFY_EMAIL' : 'LOGIN',
     });
 
@@ -492,7 +493,7 @@ export class AuthService {
     const otp = this.generateOtpCode();
     await this.redisService.set(
       this.getForgotPasswordOtpKey(normalized),
-      otp,
+      this.hashOpaqueToken(otp),
       OTP_TTL_SECONDS,
     );
     await this.redisService.set(cooldownKey, '1', OTP_RESEND_COOLDOWN_SECONDS);
@@ -527,11 +528,11 @@ export class AuthService {
     newPassword: string,
   ): Promise<void> {
     const normalized = identifier.trim().toLowerCase();
-    const storedOtp = await this.redisService.get(
+    const storedOtpHash = await this.redisService.get(
       this.getForgotPasswordOtpKey(normalized),
     );
 
-    if (!storedOtp || storedOtp !== otp.trim()) {
+    if (!storedOtpHash || storedOtpHash !== this.hashOpaqueToken(otp.trim())) {
       throw new BadRequestException('Invalid OTP');
     }
 
@@ -709,7 +710,7 @@ export class AuthService {
       target: user.email,
       purpose: 'VERIFY_EMAIL',
       channel,
-      otp,
+      otp: this.hashOpaqueToken(otp),
       attempts: 0,
       resendCount: 0,
       expiresAt,
@@ -756,7 +757,7 @@ export class AuthService {
       throw new BadRequestException('OTP request has expired');
     }
 
-    if (challenge.otp !== otp.trim()) {
+    if (challenge.otp !== this.hashOpaqueToken(otp.trim())) {
       throw new BadRequestException('Invalid OTP');
     }
 
@@ -1018,6 +1019,7 @@ export class AuthService {
 
     const effectiveRole = this.toLegacyRole(
       this.getHighestRole(activeAssignments),
+      user.email,
     );
     const [firstName, ...restNameParts] = (user?.name ?? '')
       .trim()
@@ -1064,14 +1066,16 @@ export class AuthService {
       .sort((a, b) => rank[b] - rank[a])[0];
   }
 
-  private toLegacyRole(role: UserRole | null): string {
+  private toLegacyRole(role: UserRole | null, userEmail?: string): string {
     if (!role) {
       return 'VIEWER';
     }
 
     switch (role) {
       case 'OWNER':
-        return 'SUPER_ADMIN';
+        return this.isConfiguredSuperAdminEmail(userEmail)
+          ? 'SUPER_ADMIN'
+          : 'TENANT_ADMIN';
       case 'ADMIN':
         return 'TENANT_ADMIN';
       case 'MANAGER':
@@ -1082,6 +1086,23 @@ export class AuthService {
       default:
         return 'VIEWER';
     }
+  }
+
+  private isConfiguredSuperAdminEmail(email?: string | null): boolean {
+    if (!email) {
+      return false;
+    }
+
+    const configured = this.configService
+      .get<string>('SUPER_ADMIN_EMAIL')
+      ?.trim()
+      .toLowerCase();
+
+    if (!configured) {
+      return true;
+    }
+
+    return email.trim().toLowerCase() === configured;
   }
 
   private hashOpaqueToken(token: string): string {

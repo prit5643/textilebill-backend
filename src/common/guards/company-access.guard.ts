@@ -18,6 +18,7 @@ type AuthenticatedRequest = {
   user?: {
     id: string;
     role: string;
+    companyRole?: string;
     tenantId?: string;
   };
   companyId?: string;
@@ -45,11 +46,17 @@ export class CompanyAccessGuard implements CanActivate {
       return true;
     }
 
-    const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
+    const request = context
+      .switchToHttp()
+      .getRequest<AuthenticatedRequest & { method: string }>();
     const user = request.user;
 
     if (!user) {
       return true;
+    }
+
+    if (user.role === 'VIEWER' && request.method !== 'GET') {
+      throw new ForbiddenException('Viewers cannot perform write operations.');
     }
 
     const companyId = this.extractCompanyId(request, options);
@@ -60,6 +67,7 @@ export class CompanyAccessGuard implements CanActivate {
     const cacheKey = `company-access:${user.id}:${companyId}`;
     const cached = await this.redisService.get(cacheKey);
     if (cached === '1') {
+      user.companyRole = await this.resolveCompanyRole(user, companyId);
       request.companyId = companyId;
       return true;
     }
@@ -82,6 +90,7 @@ export class CompanyAccessGuard implements CanActivate {
       throw new ForbiddenException('You do not have access to this company.');
     }
 
+    user.companyRole = await this.resolveCompanyRole(user, companyId);
     request.companyId = companyId;
     return true;
   }
@@ -143,6 +152,42 @@ export class CompanyAccessGuard implements CanActivate {
     });
 
     return Boolean(company);
+  }
+
+  private async resolveCompanyRole(
+    user: NonNullable<AuthenticatedRequest['user']>,
+    companyId: string,
+  ): Promise<string> {
+    if (user.role === 'SUPER_ADMIN') {
+      return 'SUPER_ADMIN';
+    }
+
+    if (user.role === 'TENANT_ADMIN') {
+      return 'TENANT_ADMIN';
+    }
+
+    const assignment = await this.prisma.userCompany.findFirst({
+      where: {
+        userId: user.id,
+        companyId,
+        tenantId: user.tenantId,
+      },
+      select: { role: true },
+    });
+
+    if (!assignment) {
+      return user.role;
+    }
+
+    switch (assignment.role) {
+      case 'MANAGER':
+        return 'MANAGER';
+      case 'ACCOUNTANT':
+        return 'ACCOUNTANT';
+      case 'VIEWER':
+      default:
+        return 'VIEWER';
+    }
   }
 
   private getMissingCompanyMessage(

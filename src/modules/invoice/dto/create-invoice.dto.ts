@@ -30,8 +30,6 @@ export enum InvoiceTypeEnum {
 
 export enum InvoiceStatusEnum {
   ACTIVE = 'ACTIVE',
-  PARTIALLY_PAID = 'PARTIALLY_PAID',
-  PAID = 'PAID',
   CANCELLED = 'CANCELLED',
   DRAFT = 'DRAFT',
 }
@@ -91,9 +89,17 @@ export class CreateInvoiceDto {
   @IsNotEmpty()
   invoiceDate: string;
 
+  @IsOptional()
+  @IsDateString()
+  dueDate?: string;
+
   @IsUUID()
   @IsNotEmpty()
   accountId: string;
+
+  @IsOptional()
+  @IsUUID()
+  costCenterId?: string;
 
   @IsOptional()
   @IsUUID()

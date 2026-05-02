@@ -41,7 +41,13 @@ export class LoggingInterceptor implements NestInterceptor {
         const duration = Date.now() - now;
         response?.setHeader?.('x-response-time-ms', String(duration));
 
-        const hasHttpError = hasError && statusCode >= 400;
+        const hasHttpError = hasError || statusCode >= 400;
+        const errorCategory =
+          statusCode >= 500
+            ? 'SERVER_ERROR'
+            : statusCode >= 400
+              ? 'CLIENT_ERROR'
+              : null;
 
         const logEvent = {
           event: 'http_request',
@@ -54,13 +60,18 @@ export class LoggingInterceptor implements NestInterceptor {
           companyId,
           userId,
           hasError: hasHttpError,
+          errorCategory,
           slow: duration >= this.slowRequestMs,
           timestamp: new Date().toISOString(),
         };
         const line = JSON.stringify(logEvent);
 
-        if (hasHttpError || statusCode >= 500) {
+        if (statusCode >= 500) {
           this.logger.error(line);
+          return;
+        }
+        if (statusCode >= 400) {
+          this.logger.warn(line);
           return;
         }
         if (duration >= this.slowRequestMs) {

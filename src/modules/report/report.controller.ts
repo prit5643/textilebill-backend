@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
@@ -42,6 +42,28 @@ export class ReportController {
       companyId,
       year || new Date().getFullYear(),
     );
+  }
+
+  @Get('monthly-profit-summary')
+  @ApiOperation({ summary: 'Monthly profit summary including work orders' })
+  @ApiQuery({ name: 'year', required: true, type: Number })
+  @ApiQuery({ name: 'month', required: false, type: Number })
+  async getMonthlyProfitSummary(
+    @CurrentCompanyId() companyId: string,
+    @Query('year') year: number,
+    @Query('month') month?: number,
+  ) {
+    return this.reportService.getMonthlyProfitSummary(
+      companyId,
+      Number(year),
+      month ? Number(month) : undefined,
+    );
+  }
+
+  @Get('vendor-margin-risk')
+  @ApiOperation({ summary: 'Vendor margin risk and loss ratios' })
+  async getVendorMarginRisk(@CurrentCompanyId() companyId: string) {
+    return this.reportService.getVendorMarginRisk(companyId);
   }
 
   // ─── OUTSTANDING ────────────────────
@@ -204,6 +226,44 @@ export class ReportController {
     });
   }
 
+  // ─── PROFITABILITY ────────────────────
+  @Get('profitability/cost-centers')
+  @ApiOperation({ summary: 'Cost center profitability summary' })
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  @ApiQuery({ name: 'fromDate', required: false })
+  @ApiQuery({ name: 'toDate', required: false })
+  async getCostCenterProfitability(
+    @CurrentCompanyId() companyId: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
+  ) {
+    return this.reportService.getCostCenterProfitability(companyId, {
+      page: page ? +page : undefined,
+      limit: limit ? +limit : undefined,
+      fromDate,
+      toDate,
+    });
+  }
+
+  @Get('profitability/cost-centers/:id')
+  @ApiOperation({ summary: 'Cost center profitability detail' })
+  @ApiQuery({ name: 'fromDate', required: false })
+  @ApiQuery({ name: 'toDate', required: false })
+  async getCostCenterProfitabilityDetail(
+    @CurrentCompanyId() companyId: string,
+    @Param('id') id: string,
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
+  ) {
+    return this.reportService.getCostCenterProfitabilityDetail(companyId, id, {
+      fromDate,
+      toDate,
+    });
+  }
+
   // ─── FINANCIAL REPORTS ────────────────────
   @Get('trial-balance')
   @ApiOperation({ summary: 'Trial Balance' })
@@ -224,14 +284,17 @@ export class ReportController {
   @ApiOperation({ summary: 'Profit & Loss statement' })
   @ApiQuery({ name: 'dateFrom', required: false })
   @ApiQuery({ name: 'dateTo', required: false })
+  @ApiQuery({ name: 'excludeSalaries', required: false, type: Boolean })
   async getProfitAndLoss(
     @CurrentCompanyId() companyId: string,
     @Query('dateFrom') dateFrom?: string,
     @Query('dateTo') dateTo?: string,
+    @Query('excludeSalaries') excludeSalaries?: string,
   ) {
     return this.reportService.getProfitAndLoss(companyId, {
       dateFrom,
       dateTo,
+      excludeSalaries: excludeSalaries === 'true',
     });
   }
 

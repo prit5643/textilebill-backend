@@ -108,8 +108,28 @@ async function bootstrap() {
       referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
     }),
   );
+  const allowedOrigins: string[] = configService.get<string[]>(
+    'app.allowedOrigins',
+    [],
+  );
+  const isDev = nodeEnv !== 'production';
+
   app.enableCors({
-    origin: true,
+    origin: (origin, callback) => {
+      // Allow server-to-server calls (no Origin header) and same-origin requests
+      if (!origin) return callback(null, true);
+      // In development, allow localhost origins if no explicit list is set
+      if (
+        isDev &&
+        (!allowedOrigins.length || /^https?:\/\/localhost(:\d+)?$/.test(origin))
+      ) {
+        return callback(null, true);
+      }
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error(`CORS: Origin ${origin} is not allowed`));
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: [

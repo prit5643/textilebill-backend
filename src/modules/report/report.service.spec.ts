@@ -11,6 +11,10 @@ describe('ReportService', () => {
       invoice: {
         aggregate: jest.fn(),
         findMany: jest.fn(),
+        count: jest.fn(),
+      } as any,
+      workOrder: {
+        count: jest.fn(),
       } as any,
       ledgerEntry: {
         groupBy: jest.fn(),
@@ -42,6 +46,8 @@ describe('ReportService', () => {
       .mockResolvedValueOnce({ _sum: { totalAmount: 1500 } })
       .mockResolvedValueOnce({ _sum: { totalAmount: 650 } });
     (prisma.product!.count as jest.Mock).mockResolvedValueOnce(14);
+    (prisma.invoice!.count as jest.Mock).mockResolvedValueOnce(2);
+    (prisma.workOrder!.count as jest.Mock).mockResolvedValueOnce(3);
     (prisma.invoice!.findMany as jest.Mock).mockResolvedValueOnce([
       { id: 'inv-1', type: 'SALE', totalAmount: 1000 },
       { id: 'inv-2', type: 'PURCHASE', totalAmount: 700 },
@@ -59,6 +65,8 @@ describe('ReportService', () => {
       outstandingReceivable: 750,
       outstandingPayable: 600,
       totalProducts: 14,
+      overdueInvoices: 2,
+      openWorkOrders: 3,
     });
 
     expect(prisma.invoice!.aggregate).toHaveBeenNthCalledWith(
@@ -92,6 +100,8 @@ describe('ReportService', () => {
       .mockResolvedValueOnce({ _sum: { totalAmount: 0 } })
       .mockResolvedValueOnce({ _sum: { totalAmount: 0 } });
     (prisma.product!.count as jest.Mock).mockResolvedValueOnce(2);
+    (prisma.invoice!.count as jest.Mock).mockResolvedValueOnce(0);
+    (prisma.workOrder!.count as jest.Mock).mockResolvedValueOnce(0);
     (prisma.invoice!.findMany as jest.Mock).mockResolvedValueOnce([
       { id: 'sale-1', type: 'SALE', totalAmount: 1000 },
       { id: 'purchase-1', type: 'PURCHASE', totalAmount: 800 },
@@ -115,6 +125,8 @@ describe('ReportService', () => {
       outstandingReceivable: 900,
       outstandingPayable: 550,
       totalProducts: 2,
+      overdueInvoices: 0,
+      openWorkOrders: 0,
     });
   });
 

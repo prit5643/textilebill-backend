@@ -17,4 +17,8 @@ export default registerAs('app', () => ({
   trustProxy: parseTrustProxySetting(process.env.TRUST_PROXY, 1),
   enableSwagger: parseBooleanFlag(process.env.ENABLE_SWAGGER),
   slowRequestMs: parsePositiveInt(process.env.SLOW_REQUEST_MS, 1500),
+  allowedOrigins: (process.env.ALLOWED_ORIGINS ?? '')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean),
 }));

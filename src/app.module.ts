@@ -8,7 +8,6 @@ import {
   databaseConfig,
   redisConfig,
   jwtConfig,
-  s3Config,
   mailConfig,
   whatsappConfig,
 } from './config';
@@ -24,9 +23,15 @@ import { AccountModule } from './modules/account/account.module';
 import { InvoiceModule } from './modules/invoice/invoice.module';
 import { AccountingModule } from './modules/accounting/accounting.module';
 import { ReportModule } from './modules/report/report.module';
+import { ExpensesModule } from './modules/expenses/expenses.module';
+import { PayrollModule } from './modules/payroll/payroll.module';
+import { ReimbursementsModule } from './modules/reimbursements/reimbursements.module';
+import { CostCentersModule } from './modules/cost-centers/cost-centers.module';
+import { InsightsModule } from './modules/insights/insights.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { SystemModule } from './modules/system/system.module';
 import { SystemReadyGuard } from './modules/system/system-ready.guard';
+import { WorkOrderModule } from './modules/work-order/work-order.module';
 
 const envFileCandidates = [
   join(process.cwd(), '.env'),
@@ -47,7 +52,6 @@ const envFilePath = envFileCandidates.filter((filePath) =>
         databaseConfig,
         redisConfig,
         jwtConfig,
-        s3Config,
         mailConfig,
         whatsappConfig,
       ],
@@ -68,8 +72,14 @@ const envFilePath = envFileCandidates.filter((filePath) =>
     InvoiceModule,
     AccountingModule,
     ReportModule,
+    ExpensesModule,
+    PayrollModule,
+    ReimbursementsModule,
+    CostCentersModule,
+    InsightsModule,
     AdminModule,
     SystemModule,
+    WorkOrderModule,
   ],
   providers: [
     {

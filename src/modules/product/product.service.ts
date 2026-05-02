@@ -163,7 +163,6 @@ export class ProductService {
       );
     }
   }
-
   private normalizeProductType(value?: string | null): ProductType | undefined {
     if (!value) return undefined;
     return Object.values(ProductType).includes(value as ProductType)

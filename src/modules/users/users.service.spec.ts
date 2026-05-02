@@ -16,7 +16,7 @@ jest.mock('bcrypt');
 describe('UsersService', () => {
   let service: UsersService;
   let prisma: jest.Mocked<Partial<PrismaService>>;
-  let redisService: jest.Mocked<Pick<RedisService, 'del' | 'keys' | 'set'>>;
+  let redisService: jest.Mocked<Pick<RedisService, 'set' | 'del' | 'keys'>>;
   let otpDeliveryService: jest.Mocked<
     Pick<OtpDeliveryService, 'sendInviteEmail' | 'sendPasswordResetLinkEmail'>
   >;
@@ -39,6 +39,7 @@ describe('UsersService', () => {
         findFirst: jest.fn(),
       } as any,
       userCompany: {
+        findFirst: jest.fn(),
         findMany: jest.fn(),
         upsert: jest.fn(),
         deleteMany: jest.fn(),
@@ -54,9 +55,9 @@ describe('UsersService', () => {
     };
 
     redisService = {
+      set: jest.fn().mockResolvedValue(undefined),
       del: jest.fn().mockResolvedValue(undefined),
       keys: jest.fn().mockResolvedValue([]),
-      set: jest.fn().mockResolvedValue(undefined),
     };
 
     otpDeliveryService = {
@@ -138,7 +139,7 @@ describe('UsersService', () => {
         firstName: 'Test',
         lastName: 'User',
         password: 'TempPass123!',
-        role: 'ADMIN' as any,
+        role: 'MANAGER' as any,
         companyIds: ['c1', 'c2'],
       });
 
@@ -148,13 +149,13 @@ describe('UsersService', () => {
             tenantId: 't1',
             userId: 'u1',
             companyId: 'c1',
-            role: 'ADMIN',
+            role: 'MANAGER',
           },
           {
             tenantId: 't1',
             userId: 'u1',
             companyId: 'c2',
-            role: 'ADMIN',
+            role: 'MANAGER',
           },
         ],
         skipDuplicates: true,
@@ -176,6 +177,20 @@ describe('UsersService', () => {
         'test@test.com',
         expect.stringContaining('http://localhost:3000/accept-invite?token='),
         30,
+      );
+
+      expect(redisService.set).toHaveBeenCalledTimes(2);
+      expect(redisService.set).toHaveBeenNthCalledWith(
+        1,
+        expect.stringMatching(/^auth:setup-link:/),
+        'u1',
+        1800,
+      );
+      expect(redisService.set).toHaveBeenNthCalledWith(
+        2,
+        'auth:setup-link:user:u1',
+        expect.any(String),
+        1800,
       );
     });
 

@@ -4,7 +4,6 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma, MovementType } from '@prisma/client';
-import {} from '@prisma/client/runtime/library';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   CreateCashBookEntryDto,
@@ -441,6 +440,9 @@ export class AccountingService {
         where,
         skip,
         take,
+        include: {
+          product: { select: { id: true, name: true, hsnCode: true } },
+        },
         orderBy: { date: 'desc' },
       }),
       this.prisma.stockMovement.count({ where }),

@@ -38,7 +38,7 @@ export class AccountController {
   constructor(private readonly accountService: AccountService) {}
 
   @Post()
-  @Roles('SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER', 'STAFF')
+  @Roles('SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER')
   @ApiOperation({ summary: 'Create an account (customer / supplier)' })
   create(@CurrentCompanyId() companyId: string, @Body() dto: CreateAccountDto) {
     return this.accountService.createAccount(companyId, dto);
@@ -80,7 +80,7 @@ export class AccountController {
   }
 
   @Patch(':id')
-  @Roles('SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER', 'STAFF')
+  @Roles('SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER')
   @ApiOperation({ summary: 'Update an account' })
   update(
     @CurrentCompanyId() companyId: string,

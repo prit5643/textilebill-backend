@@ -25,6 +25,8 @@ describe('AccountingService', () => {
         aggregate: jest.fn(),
         count: jest.fn(),
         create: jest.fn(),
+        update: jest.fn(),
+        findFirst: jest.fn(),
       } as any,
       $transaction: jest.fn(),
     };
@@ -184,6 +186,27 @@ describe('AccountingService', () => {
     ).resolves.toMatchObject({
       id: 'ledger-1',
       voucherNumber: 'OB-0001',
+    });
+  });
+
+  it('appends [RECONCILED:date] to bank book entry narration', async () => {
+    (prisma.ledgerEntry!.findFirst as jest.Mock).mockResolvedValueOnce({
+      id: 'entry-1',
+      narration: '[BANK_BOOK] Check Deposit',
+    });
+    (prisma.ledgerEntry!.update as jest.Mock).mockResolvedValueOnce({
+      id: 'entry-1',
+    });
+
+    await service.reconcileBankEntry('company-1', 'entry-1');
+
+    expect(prisma.ledgerEntry!.update).toHaveBeenCalledWith({
+      where: { id: 'entry-1' },
+      data: {
+        narration: expect.stringMatching(
+          /\[RECONCILED:\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\]/,
+        ),
+      },
     });
   });
 });

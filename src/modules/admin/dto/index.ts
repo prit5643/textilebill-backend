@@ -3,8 +3,12 @@ import {
   IsOptional,
   IsEmail,
   IsNumber,
+  IsBoolean,
   IsIn,
   Matches,
+  IsNotEmpty,
+  Min,
+  Max,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
@@ -123,6 +127,8 @@ export class UpdateTenantDto {
 export class CreatePlanDto {
   @ApiProperty()
   @IsString()
+  @IsNotEmpty({ message: 'displayName is required' })
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   displayName: string;
 
   @ApiProperty()
@@ -134,6 +140,7 @@ export class CreatePlanDto {
 
   @ApiProperty()
   @IsNumber()
+  @Min(0, { message: 'price must be greater than or equal to 0' })
   price: number;
 
   @ApiPropertyOptional({ default: 'INR' })
@@ -144,17 +151,20 @@ export class CreatePlanDto {
   @ApiPropertyOptional({ default: 5 })
   @IsOptional()
   @IsNumber()
+  @Min(0, { message: 'maxUsers must be greater than or equal to 0' })
   maxUsers?: number;
 
   @ApiPropertyOptional({ default: 3 })
   @IsOptional()
   @IsNumber()
+  @Min(0, { message: 'maxCompanies must be greater than or equal to 0' })
   maxCompanies?: number;
 }
 
 export class AssignSubscriptionDto {
   @ApiProperty({ description: 'GST number used as unique tenant identifier' })
   @IsString()
+  @IsNotEmpty({ message: 'gstin is required' })
   @Transform(({ value }) =>
     typeof value === 'string' ? value.trim().toUpperCase() : value,
   )
@@ -163,11 +173,13 @@ export class AssignSubscriptionDto {
 
   @ApiProperty()
   @IsString()
+  @IsNotEmpty({ message: 'planId is required' })
   planId: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsNumber()
+  @Min(0, { message: 'amount must be greater than or equal to 0' })
   amount?: number;
 }
 
@@ -215,9 +227,37 @@ export class UpdateAdminUserDto {
   email?: string;
 
   @ApiPropertyOptional({
-    enum: ['TENANT_ADMIN', 'MANAGER', 'STAFF', 'ACCOUNTANT', 'VIEWER'],
+    enum: ['TENANT_ADMIN', 'MANAGER', 'ACCOUNTANT', 'VIEWER'],
   })
   @IsOptional()
-  @IsIn(['TENANT_ADMIN', 'MANAGER', 'STAFF', 'ACCOUNTANT', 'VIEWER'])
-  role?: 'TENANT_ADMIN' | 'MANAGER' | 'STAFF' | 'ACCOUNTANT' | 'VIEWER';
+  @IsIn(['TENANT_ADMIN', 'MANAGER', 'ACCOUNTANT', 'VIEWER'])
+  role?: 'TENANT_ADMIN' | 'MANAGER' | 'ACCOUNTANT' | 'VIEWER';
+}
+
+export class SendDueExpiryReminderDto {
+  @ApiPropertyOptional({ default: 7 })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(30)
+  daysBefore?: number;
+
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @IsBoolean()
+  dryRun?: boolean;
+}
+
+export class GenerateSubscriptionInvoiceDto {
+  @ApiPropertyOptional({ default: 5 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  gstPercent?: number;
+
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @IsBoolean()
+  sendEmail?: boolean;
 }

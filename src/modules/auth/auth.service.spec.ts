@@ -207,7 +207,7 @@ describe('AuthService', () => {
     );
     expect(redis.set).toHaveBeenCalledWith(
       'auth:forgot:otp:owner@test.com',
-      expect.stringMatching(/^\d{6}$/),
+      expect.stringMatching(/^[a-f0-9]{64}$/),
       600,
     );
     expect(otpDeliveryService.deliver).toHaveBeenCalledWith(
@@ -276,7 +276,12 @@ describe('AuthService', () => {
   });
 
   it('updates password and revokes sessions on resetPassword', async () => {
-    (redis.get as jest.Mock).mockResolvedValueOnce('123456');
+    const crypto = require('crypto');
+    const hashedOtp = crypto
+      .createHash('sha256')
+      .update('123456')
+      .digest('hex');
+    (redis.get as jest.Mock).mockResolvedValueOnce(hashedOtp);
     (prisma.user!.findFirst as jest.Mock).mockResolvedValueOnce({
       id: 'user-1',
       tenantId: 'tenant-1',

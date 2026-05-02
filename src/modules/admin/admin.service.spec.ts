@@ -11,6 +11,7 @@ describe('AdminService', () => {
   let service: AdminService;
   let prisma: any;
   let redisService: any;
+  let otpDeliveryService: any;
 
   beforeEach(async () => {
     prisma = {
@@ -56,6 +57,7 @@ describe('AdminService', () => {
     };
 
     redisService = {
+      get: jest.fn().mockResolvedValue(null),
       del: jest.fn().mockResolvedValue(undefined),
       keys: jest.fn().mockResolvedValue([]),
       set: jest.fn().mockResolvedValue('OK'),
@@ -70,9 +72,11 @@ describe('AdminService', () => {
       }),
     };
 
-    const mockOtpDeliveryService = {
+    otpDeliveryService = {
       sendInviteEmail: jest.fn().mockResolvedValue(true),
       sendPasswordResetLinkEmail: jest.fn().mockResolvedValue(true),
+      sendSubscriptionExpiryReminderEmail: jest.fn().mockResolvedValue(true),
+      sendPlanInvoiceEmail: jest.fn().mockResolvedValue(true),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -81,7 +85,7 @@ describe('AdminService', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: RedisService, useValue: redisService },
         { provide: ConfigService, useValue: configService },
-        { provide: OtpDeliveryService, useValue: mockOtpDeliveryService },
+        { provide: OtpDeliveryService, useValue: otpDeliveryService },
       ],
     }).compile();
 
@@ -143,6 +147,8 @@ describe('AdminService', () => {
       id: 'plan-1',
       durationDays: 30,
       price: 999,
+      status: EntityStatus.ACTIVE,
+      deletedAt: null,
     });
     prisma.subscription.findFirst.mockResolvedValueOnce({
       endDate: new Date('2026-03-31T06:00:00.000Z'),
@@ -154,18 +160,33 @@ describe('AdminService', () => {
       status: 'ACTIVE',
     });
 
-    await service.assignSubscription({
+    const result = await service.assignSubscription({
       gstin: '24abcde1234f1z5',
       planId: 'plan-1',
     });
 
-    expect(prisma.subscription.updateMany).toHaveBeenCalledWith({
+    expect(prisma.subscription.updateMany).toHaveBeenNthCalledWith(1, {
       where: {
         tenantId: 'tenant-1',
         deletedAt: null,
         status: 'ACTIVE',
       },
-      data: { status: 'EXPIRED' },
+      data: {
+        status: 'EXPIRED',
+        endDate: expect.any(Date),
+      },
+    });
+    expect(prisma.subscription.updateMany).toHaveBeenNthCalledWith(2, {
+      where: {
+        tenantId: 'tenant-1',
+        deletedAt: null,
+        status: 'ACTIVE',
+        id: { not: 'sub-2' },
+      },
+      data: {
+        status: 'EXPIRED',
+        endDate: expect.any(Date),
+      },
     });
     expect(prisma.subscription.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -225,7 +246,7 @@ describe('AdminService', () => {
       return callback(tx);
     });
 
-    await service.createTenant({
+    const result = await service.createTenant({
       name: 'Alpha',
       email: 'admin@alpha.test',
       adminFirstName: 'Admin',
@@ -287,6 +308,9 @@ describe('AdminService', () => {
   });
 
   it('auto-assigns an active configured plan when tenant signs up without planId', async () => {
+    prisma.tenant.findUnique.mockResolvedValue(null);
+    prisma.tenant.findFirst.mockResolvedValue(null);
+    
     (prisma.plan as any).findFirst.mockResolvedValueOnce({
       id: 'plan-starter-1',
       name: 'Starter Plan',
@@ -359,7 +383,7 @@ describe('AdminService', () => {
       { tenantId: 'tenant-2', _count: { _all: 2 } },
     ]);
 
-    await service.listTenants({ page: 1, limit: 10 });
+    const result = await service.listTenants({ page: 1, limit: 10 });
 
     expect(prisma.user.groupBy).toHaveBeenCalledWith({
       by: ['tenantId'],
@@ -409,7 +433,7 @@ describe('AdminService', () => {
       { tenantId: 'tenant-1', _count: { _all: 1 } },
     ]);
 
-    await service.listTenants({ page: 1, limit: 10 });
+    const result = await service.listTenants({ page: 1, limit: 10 });
 
     expect(result.data[0]).toEqual(
       expect.objectContaining({
@@ -449,7 +473,7 @@ describe('AdminService', () => {
       { tenantId: 'tenant-1', _count: { _all: 1 } },
     ]);
 
-    await service.listTenants({ page: 1, limit: 10 });
+    const result = await service.listTenants({ page: 1, limit: 10 });
 
     expect(prisma.tenant.findMany).toHaveBeenCalledTimes(2);
     expect(result.data[0]).toEqual(
@@ -520,7 +544,7 @@ describe('AdminService', () => {
         ],
       });
 
-    await service.getTenant('tenant-1');
+    const result = await service.getTenant('tenant-1');
 
     expect(prisma.tenant.findUnique).toHaveBeenCalledTimes(2);
     expect(result).toEqual(
@@ -614,7 +638,7 @@ describe('AdminService', () => {
     ]);
     prisma.subscription.count.mockResolvedValueOnce(1);
 
-    await service.listSubscriptions({ page: 1, limit: 10 });
+    const result = await service.listSubscriptions({ page: 1, limit: 10 });
 
     expect(prisma.subscription.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -660,7 +684,7 @@ describe('AdminService', () => {
     ]);
     prisma.user.count.mockResolvedValueOnce(1);
 
-    await service.listAllUsers({ page: 1, limit: 10 });
+    const result = await service.listAllUsers({ page: 1, limit: 10 });
 
     expect(prisma.user.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -721,7 +745,7 @@ describe('AdminService', () => {
     ]);
     prisma.auditLog.count.mockResolvedValueOnce(1);
 
-    await service.getAuditLogs({
+    const result = await service.getAuditLogs({
       page: 1,
       limit: 50,
       companyId: 'company-1',
@@ -741,5 +765,94 @@ describe('AdminService', () => {
     );
     expect(result.data).toHaveLength(1);
     expect(result.meta.total).toBe(1);
+  });
+
+  it('sendDueExpiryReminders sends reminders for subscriptions ending in 7 days', async () => {
+    prisma.subscription.findMany.mockResolvedValueOnce([
+      {
+        id: 'sub-1',
+        tenantId: 'tenant-1',
+        endDate: new Date('2026-05-10T18:29:59.999Z'),
+        plan: { id: 'plan-1', name: 'starter', description: 'Starter' },
+        tenant: {
+          id: 'tenant-1',
+          name: 'Tenant One',
+          companies: [{ id: 'company-1', name: 'Main', email: 'tenant@demo.test' }],
+        },
+      },
+    ]);
+    redisService.get = jest.fn().mockResolvedValueOnce(null);
+
+    const result = await service.sendDueExpiryReminders({
+      daysBefore: 7,
+      dryRun: false,
+    });
+
+    expect(otpDeliveryService.sendSubscriptionExpiryReminderEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: 'tenant@demo.test',
+        tenantName: 'Tenant One',
+        daysLeft: 7,
+      }),
+    );
+    expect(result.totals.sent).toBe(1);
+  });
+
+  it('generateSubscriptionInvoice computes GST extra in INR and can send email', async () => {
+    prisma.subscription.findUnique.mockResolvedValueOnce({
+      id: 'sub-1',
+      tenantId: 'tenant-1',
+      planId: 'plan-1',
+      amountPaid: 1000,
+      startDate: new Date('2026-05-01T00:00:00.000Z'),
+      endDate: new Date('2026-05-31T18:29:59.999Z'),
+      deletedAt: null,
+      plan: {
+        id: 'plan-1',
+        name: 'starter',
+        description: 'Starter Plan',
+        durationDays: 30,
+      },
+      tenant: {
+        id: 'tenant-1',
+        name: 'Tenant One',
+        companies: [
+          {
+            id: 'company-1',
+            name: 'Tenant One Co',
+            gstin: '24ABCDE1234F1Z5',
+            address: 'Ring Road',
+            city: 'Surat',
+            state: 'Gujarat',
+            pincode: '395001',
+            email: 'tenant@demo.test',
+            phone: '+919876543210',
+          },
+        ],
+      },
+    });
+
+    const result = await service.generateSubscriptionInvoice('sub-1', {
+      gstPercent: 5,
+      sendEmail: true,
+    });
+
+    expect(result.invoice.summary).toEqual({
+      subTotal: 1000,
+      gstPercent: 5,
+      gstAmount: 50,
+      totalAmount: 1050,
+    });
+    expect(result.invoice.currency).toBe('INR');
+    expect(otpDeliveryService.sendPlanInvoiceEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: 'tenant@demo.test',
+        currency: 'INR',
+        baseAmount: 1000,
+        gstAmount: 50,
+        totalAmount: 1050,
+      }),
+    );
+    expect(result.emailDeliveryStatus).toBe('SENT');
   });
 });

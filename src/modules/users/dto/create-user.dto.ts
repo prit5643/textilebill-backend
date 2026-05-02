@@ -14,7 +14,6 @@ import { Transform } from 'class-transformer';
 import { MOBILE_REGEX } from '../../../common/utils/validation.util';
 
 export enum UserRoleEnum {
-  OWNER = 'OWNER',
   ADMIN = 'ADMIN',
   MANAGER = 'MANAGER',
   ACCOUNTANT = 'ACCOUNTANT',

@@ -120,7 +120,7 @@ export class UsersController {
   }
 
   @Post()
-  @Roles('SUPER_ADMIN', 'TENANT_ADMIN')
+  @Roles('TENANT_ADMIN')
   @ApiOperation({ summary: 'Create a new user (Admin only)' })
   async create(
     @CurrentUser('tenantId') tenantId: string,
@@ -174,7 +174,7 @@ export class UsersController {
   }
 
   @Patch(':id')
-  @Roles('SUPER_ADMIN', 'TENANT_ADMIN')
+  @Roles('TENANT_ADMIN')
   @ApiOperation({ summary: 'Update user' })
   async update(
     @Param('id') id: string,
@@ -185,7 +185,7 @@ export class UsersController {
   }
 
   @Delete(':id')
-  @Roles('SUPER_ADMIN', 'TENANT_ADMIN')
+  @Roles('TENANT_ADMIN')
   @ApiOperation({ summary: 'Soft-delete user (deactivate)' })
   async remove(
     @Param('id') id: string,
@@ -196,14 +196,14 @@ export class UsersController {
   }
 
   @Get(':id/sessions')
-  @Roles('SUPER_ADMIN', 'TENANT_ADMIN')
+  @Roles('TENANT_ADMIN')
   @ApiOperation({ summary: 'List active sessions for a user' })
   async getSessions(@Param('id') id: string) {
     return this.usersService.getSessions(id);
   }
 
   @Delete(':id/sessions/:tokenId')
-  @Roles('SUPER_ADMIN', 'TENANT_ADMIN')
+  @Roles('TENANT_ADMIN')
   @ApiOperation({ summary: 'Revoke a specific user session' })
   async revokeSession(
     @Param('id') id: string,
@@ -213,7 +213,7 @@ export class UsersController {
   }
 
   @Get(':id/company-access')
-  @Roles('SUPER_ADMIN', 'TENANT_ADMIN')
+  @Roles('TENANT_ADMIN')
   @ApiOperation({ summary: 'List user company assignments' })
   async getCompanyAccess(
     @Param('id') id: string,
@@ -225,7 +225,7 @@ export class UsersController {
 
   @Post(':id/company-access')
   @RequireCompanyAccess({ source: 'body', key: 'companyId' })
-  @Roles('SUPER_ADMIN', 'TENANT_ADMIN')
+  @Roles('TENANT_ADMIN')
   @ApiOperation({ summary: 'Assign user to a company' })
   async addCompanyAccess(
     @Param('id') id: string,
@@ -241,7 +241,7 @@ export class UsersController {
 
   @Delete(':id/company-access/:companyId')
   @RequireCompanyAccess({ source: 'param', key: 'companyId' })
-  @Roles('SUPER_ADMIN', 'TENANT_ADMIN')
+  @Roles('TENANT_ADMIN')
   @ApiOperation({ summary: 'Remove user from a company' })
   async removeCompanyAccess(
     @Param('id') id: string,

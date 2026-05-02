@@ -21,6 +21,28 @@ type MailConfig = {
   resendReplyTo?: string;
 };
 
+type SubscriptionExpiryReminderMailInput = {
+  to: string;
+  tenantName: string;
+  planName: string;
+  endDate: Date;
+  daysLeft: number;
+};
+
+type PlanInvoiceMailInput = {
+  to: string;
+  invoiceNumber: string;
+  tenantName: string;
+  planName: string;
+  currency: 'INR';
+  baseAmount: number;
+  gstPercent: number;
+  gstAmount: number;
+  totalAmount: number;
+  periodStart: Date;
+  periodEnd: Date;
+};
+
 @Injectable()
 export class OtpDeliveryService {
   private readonly logger = new Logger(OtpDeliveryService.name);
@@ -212,6 +234,128 @@ export class OtpDeliveryService {
     }
   }
 
+  async sendSubscriptionExpiryReminderEmail(
+    input: SubscriptionExpiryReminderMailInput,
+  ): Promise<boolean> {
+    const config = this.getMailConfig();
+    const masked = this.maskEmail(input.to);
+
+    if (!config.enabled) {
+      this.logger.log(
+        `[SUBSCRIPTION_REMINDER] Dev mode -> target=${masked}, tenant=${input.tenantName}, endDate=${input.endDate.toISOString()}`,
+      );
+      return true;
+    }
+
+    const validationError = this.validateConfig(config);
+    if (validationError) {
+      this.logger.error(validationError);
+      return false;
+    }
+
+    try {
+      const client = this.getResendClient(config);
+      const from = config.resendFrom || config.from;
+      const endDate = this.formatDateIndian(input.endDate);
+
+      const result = await client.emails.send({
+        from: from!,
+        to: input.to,
+        subject: `TextileBill plan expiry reminder - ${input.daysLeft} day(s) left`,
+        text:
+          `Hello ${input.tenantName},\n\n` +
+          `Your plan "${input.planName}" will expire on ${endDate}.\n` +
+          `Please renew before expiry to avoid service interruption.\n\n` +
+          `- TextileBill Billing`,
+        html:
+          `<p>Hello <strong>${input.tenantName}</strong>,</p>` +
+          `<p>Your plan <strong>${input.planName}</strong> will expire on <strong>${endDate}</strong>.</p>` +
+          `<p>Please renew before expiry to avoid service interruption.</p>` +
+          `<p>- TextileBill Billing</p>`,
+        replyTo: config.resendReplyTo,
+      });
+
+      if (result.error) {
+        this.logger.error(
+          `[SUBSCRIPTION_REMINDER] Resend API error: ${result.error.message}`,
+        );
+        return false;
+      }
+
+      this.logger.log(
+        `[SUBSCRIPTION_REMINDER] Email sent to ${masked}. ID: ${result.data?.id}`,
+      );
+      return true;
+    } catch (error) {
+      this.logger.error(
+        `[SUBSCRIPTION_REMINDER] Failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return false;
+    }
+  }
+
+  async sendPlanInvoiceEmail(input: PlanInvoiceMailInput): Promise<boolean> {
+    const config = this.getMailConfig();
+    const masked = this.maskEmail(input.to);
+
+    if (!config.enabled) {
+      this.logger.log(
+        `[PLAN_INVOICE] Dev mode -> target=${masked}, invoice=${input.invoiceNumber}, total=${input.totalAmount}`,
+      );
+      return true;
+    }
+
+    const validationError = this.validateConfig(config);
+    if (validationError) {
+      this.logger.error(validationError);
+      return false;
+    }
+
+    try {
+      const client = this.getResendClient(config);
+      const from = config.resendFrom || config.from;
+      const period = `${this.formatDateIndian(input.periodStart)} - ${this.formatDateIndian(input.periodEnd)}`;
+
+      const result = await client.emails.send({
+        from: from!,
+        to: input.to,
+        subject: `TextileBill plan invoice ${input.invoiceNumber}`,
+        text:
+          `Invoice: ${input.invoiceNumber}\n` +
+          `Tenant: ${input.tenantName}\n` +
+          `Plan: ${input.planName}\n` +
+          `Period: ${period}\n` +
+          `Base Amount (INR): ${input.baseAmount.toFixed(2)}\n` +
+          `GST @${input.gstPercent}% (INR): ${input.gstAmount.toFixed(2)}\n` +
+          `Total (INR): ${input.totalAmount.toFixed(2)}\n`,
+        html:
+          `<p><strong>Invoice:</strong> ${input.invoiceNumber}</p>` +
+          `<p><strong>Tenant:</strong> ${input.tenantName}</p>` +
+          `<p><strong>Plan:</strong> ${input.planName}</p>` +
+          `<p><strong>Period:</strong> ${period}</p>` +
+          `<p><strong>Base Amount (INR):</strong> ${input.baseAmount.toFixed(2)}</p>` +
+          `<p><strong>GST @${input.gstPercent}% (INR):</strong> ${input.gstAmount.toFixed(2)}</p>` +
+          `<p><strong>Total (INR):</strong> ${input.totalAmount.toFixed(2)}</p>`,
+        replyTo: config.resendReplyTo,
+      });
+
+      if (result.error) {
+        this.logger.error(`[PLAN_INVOICE] Resend API error: ${result.error.message}`);
+        return false;
+      }
+
+      this.logger.log(
+        `[PLAN_INVOICE] Email sent to ${masked}. ID: ${result.data?.id}`,
+      );
+      return true;
+    } catch (error) {
+      this.logger.error(
+        `[PLAN_INVOICE] Failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return false;
+    }
+  }
+
   private getMailConfig(): MailConfig {
     return this.configService.get<MailConfig>('mail') ?? {};
   }
@@ -260,6 +404,15 @@ export class OtpDeliveryService {
   private buildSubject(purpose: OtpPurpose): string {
     const purposeText = this.describePurpose(purpose);
     return `TextileBill ${purposeText} OTP`;
+  }
+
+  private formatDateIndian(value: Date): string {
+    return new Intl.DateTimeFormat('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      timeZone: 'Asia/Kolkata',
+    }).format(value);
   }
 
   private buildPlainText(otp: string, purpose: OtpPurpose): string {

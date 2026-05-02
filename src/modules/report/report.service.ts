@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import {
   InvoiceStatus,
   InvoiceType,
@@ -6,22 +6,85 @@ import {
   Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { RedisService } from '../redis/redis.service';
+import {
+  createPaginatedResult,
+  parsePagination,
+} from '../../common/utils/pagination.util';
 
 type DateRangeInput = {
   dateFrom?: string;
   dateTo?: string;
+  excludeSalaries?: boolean;
 };
 
 const IST_TIME_ZONE = 'Asia/Kolkata';
 
 @Injectable()
 export class ReportService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly profitabilityCacheTtlSeconds = 5 * 60;
+
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly redisService?: RedisService,
+  ) {}
+
+  private buildProfitabilityCacheKey(
+    companyId: string,
+    scope: 'summary' | 'detail',
+    params: Record<string, string | number | null | undefined>,
+  ) {
+    const sortedEntries = Object.entries(params).sort(([a], [b]) =>
+      a.localeCompare(b),
+    );
+    const serializedParams = sortedEntries
+      .map(([key, value]) => `${key}=${value ?? ''}`)
+      .join('&');
+    return `reports:profitability:${scope}:${companyId}:${serializedParams}`;
+  }
+
+  private async getCachedProfitability<T>(key: string): Promise<T | null> {
+    if (!this.redisService) {
+      return null;
+    }
+
+    const serialized = await this.redisService.get(key);
+    if (!serialized) {
+      return null;
+    }
+
+    try {
+      return JSON.parse(serialized) as T;
+    } catch {
+      return null;
+    }
+  }
+
+  private async setCachedProfitability<T>(
+    key: string,
+    value: T,
+  ): Promise<void> {
+    if (!this.redisService) {
+      return;
+    }
+
+    await this.redisService.set(
+      key,
+      JSON.stringify(value),
+      this.profitabilityCacheTtlSeconds,
+    );
+  }
 
   async getDashboardKpis(companyId: string) {
     const todayIstDate = this.toIstDateOnlyUtc(new Date());
 
-    const [todaySales, todayPurchases, totalProducts] = await Promise.all([
+    const [
+      todaySales,
+      todayPurchases,
+      totalProducts,
+      overdueInvoices,
+      openWorkOrders,
+    ] = await Promise.all([
       this.prisma.invoice.aggregate({
         where: {
           companyId,
@@ -45,6 +108,18 @@ export class ReportService {
       this.prisma.product.count({
         where: { companyId, deletedAt: null },
       }),
+      this.prisma.invoice.count({
+        where: {
+          companyId,
+          type: InvoiceType.SALE,
+          status: InvoiceStatus.ACTIVE,
+          deletedAt: null,
+          dueDate: { lt: now },
+        },
+      }),
+      this.prisma.workOrder.count({
+        where: { companyId, status: 'OPEN', deletedAt: null },
+      }),
     ]);
 
     const outstanding = await this.computeOutstanding(companyId);
@@ -55,6 +130,8 @@ export class ReportService {
       outstandingReceivable: outstanding.receivable,
       outstandingPayable: outstanding.payable,
       totalProducts,
+      overdueInvoices,
+      openWorkOrders,
     };
   }
 
@@ -420,6 +497,384 @@ export class ReportService {
     }));
   }
 
+  async getMonthlyProfitSummary(
+    companyId: string,
+    year: number,
+    month?: number,
+  ) {
+    let from, to;
+    if (month !== undefined) {
+      from = new Date(year, month - 1, 1);
+      to = new Date(year, month, 1);
+    } else {
+      from = new Date(year, 0, 1);
+      to = new Date(year + 1, 0, 1);
+    }
+
+    const workOrders = await this.prisma.workOrder.findMany({
+      where: {
+        companyId,
+        createdAt: { gte: from, lt: to },
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        orderRef: true,
+        status: true,
+        itemName: true,
+        saleRate: true,
+        orderedQuantity: true,
+        lots: {
+          select: {
+            id: true,
+            lotType: true,
+            agreedRate: true,
+            acceptedQuantity: true,
+            quantity: true,
+            lossIncidents: { select: { amount: true } },
+          },
+        },
+        adjustments: {
+          select: { amount: true, adjustmentType: true },
+        },
+      },
+    });
+
+    let totalRevenue = 0;
+    let totalCost = 0;
+    let totalAdjustments = 0;
+
+    for (const wo of workOrders) {
+      // Revenue
+      totalRevenue += Number(wo.saleRate) * Number(wo.orderedQuantity);
+
+      for (const lot of wo.lots) {
+        if (lot.lotType === 'OUTSOURCED' && lot.agreedRate) {
+          totalCost +=
+            Number(lot.agreedRate) *
+            Number(lot.acceptedQuantity || lot.quantity);
+        } else {
+          // If in-house, what is cost? We'll assume internal logic handles it or 0.
+        }
+
+        for (const inc of lot.lossIncidents) {
+          totalAdjustments -= Number(inc.amount);
+        }
+      }
+
+      for (const adj of wo.adjustments) {
+        if (adj.adjustmentType === 'LOSS_EXPENSE_NOTE') {
+          totalAdjustments -= Number(adj.amount);
+        }
+      }
+    }
+
+    const netProfit = totalRevenue - totalCost + totalAdjustments;
+    const margin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
+
+    return {
+      revenue: this.round2(totalRevenue),
+      costs: this.round2(totalCost),
+      adjustments: this.round2(totalAdjustments),
+      netProfit: this.round2(netProfit),
+      marginPercent: this.round2(margin),
+      workOrdersCount: workOrders.length,
+    };
+  }
+
+  async getVendorMarginRisk(companyId: string) {
+    const outsourcedLots = await this.prisma.workOrderLot.findMany({
+      where: {
+        companyId,
+        lotType: 'OUTSOURCED',
+      },
+      select: {
+        vendorAccountId: true,
+        vendorAccount: { select: { party: { select: { name: true } } } },
+        agreedRate: true,
+        quantity: true,
+        acceptedQuantity: true,
+        lossIncidents: {
+          select: {
+            reasonCode: true,
+            amount: true,
+          },
+        },
+      },
+    });
+
+    const vendorMap = new Map<string, any>();
+    for (const lot of outsourcedLots) {
+      if (!lot.vendorAccountId) continue;
+      const v = vendorMap.get(lot.vendorAccountId) || {
+        vendorId: lot.vendorAccountId,
+        vendorName: lot.vendorAccount?.party?.name || 'Unknown',
+        totalOrders: 0,
+        totalCost: 0,
+        totalLossAmount: 0,
+      };
+
+      v.totalOrders++;
+      v.totalCost += Number(lot.agreedRate || 0) * Number(lot.quantity);
+
+      for (const incident of lot.lossIncidents) {
+        v.totalLossAmount += Number(incident.amount);
+      }
+      vendorMap.set(lot.vendorAccountId, v);
+    }
+
+    const arr = Array.from(vendorMap.values()).map((v) => {
+      const riskRatio =
+        v.totalCost > 0 ? (v.totalLossAmount / v.totalCost) * 100 : 0;
+      return {
+        ...v,
+        netLoss: this.round2(v.totalLossAmount),
+        riskRatio: this.round2(riskRatio),
+      };
+    });
+
+    return arr.sort((a, b) => b.riskRatio - a.riskRatio);
+  }
+
+  async getCostCenterProfitability(
+    companyId: string,
+    query: {
+      page?: number;
+      limit?: number;
+      fromDate?: string;
+      toDate?: string;
+    },
+  ) {
+    const cacheKey = this.buildProfitabilityCacheKey(companyId, 'summary', {
+      page: query.page ?? null,
+      limit: query.limit ?? null,
+      fromDate: query.fromDate ?? null,
+      toDate: query.toDate ?? null,
+    });
+    const cached =
+      await this.getCachedProfitability<
+        ReturnType<typeof createPaginatedResult>
+      >(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    const { skip, take, page, limit } = parsePagination(query);
+    const { from, to } = this.parseRange({
+      dateFrom: query.fromDate,
+      dateTo: query.toDate,
+    });
+
+    const where: Prisma.CostCenterWhereInput = {
+      companyId,
+      deletedAt: null,
+    };
+
+    const [centers, total] = await Promise.all([
+      this.prisma.costCenter.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, name: true, code: true },
+      }),
+      this.prisma.costCenter.count({ where }),
+    ]);
+
+    if (centers.length === 0) {
+      const emptyResult = createPaginatedResult([], total, page, limit);
+      await this.setCachedProfitability(cacheKey, emptyResult);
+      return emptyResult;
+    }
+
+    const profitabilityMap = await this.buildProfitabilityMap(
+      companyId,
+      centers.map((center) => center.id),
+      { from, to },
+    );
+
+    const data = centers.map((center) => {
+      const summary = profitabilityMap.get(center.id) ?? {
+        totalCost: 0,
+        totalSales: 0,
+        grossMargin: 0,
+        marginPercent: 0,
+      };
+      return {
+        costCenterId: center.id,
+        costCenterName: center.name,
+        costCenterCode: center.code ?? null,
+        ...summary,
+        periodStart: from ? from.toISOString().slice(0, 10) : null,
+        periodEnd: to ? to.toISOString().slice(0, 10) : null,
+      };
+    });
+
+    const result = createPaginatedResult(data, total, page, limit);
+    await this.setCachedProfitability(cacheKey, result);
+    return result;
+  }
+
+  async getCostCenterProfitabilityDetail(
+    companyId: string,
+    costCenterId: string,
+    query: { fromDate?: string; toDate?: string },
+  ) {
+    const cacheKey = this.buildProfitabilityCacheKey(companyId, 'detail', {
+      costCenterId,
+      fromDate: query.fromDate ?? null,
+      toDate: query.toDate ?? null,
+    });
+    const cached = await this.getCachedProfitability<any>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    const { from, to } = this.parseRange({
+      dateFrom: query.fromDate,
+      dateTo: query.toDate,
+    });
+
+    const center = await this.prisma.costCenter.findFirst({
+      where: { id: costCenterId, companyId, deletedAt: null },
+      select: { id: true, name: true, code: true },
+    });
+
+    if (!center) {
+      throw new NotFoundException('Cost center not found');
+    }
+
+    const profitabilityMap = await this.buildProfitabilityMap(
+      companyId,
+      [center.id],
+      { from, to },
+    );
+    const summary = profitabilityMap.get(center.id) ?? {
+      totalCost: 0,
+      totalSales: 0,
+      grossMargin: 0,
+      marginPercent: 0,
+    };
+
+    const result = {
+      costCenterId: center.id,
+      costCenterName: center.name,
+      costCenterCode: center.code ?? null,
+      ...summary,
+      periodStart: from ? from.toISOString().slice(0, 10) : null,
+      periodEnd: to ? to.toISOString().slice(0, 10) : null,
+    };
+    await this.setCachedProfitability(cacheKey, result);
+    return result;
+  }
+
+  private async buildProfitabilityMap(
+    companyId: string,
+    costCenterIds: string[],
+    range: { from?: Date; to?: Date },
+  ) {
+    const expenseDateFilter =
+      range.from || range.to
+        ? {
+            expenseDate: {
+              ...(range.from ? { gte: range.from } : {}),
+              ...(range.to ? { lte: range.to } : {}),
+            },
+          }
+        : {};
+
+    const invoiceDateFilter =
+      range.from || range.to
+        ? {
+            invoiceDate: {
+              ...(range.from ? { gte: range.from } : {}),
+              ...(range.to ? { lte: range.to } : {}),
+            },
+          }
+        : {};
+
+    const [allocations, sales, purchases] = await Promise.all([
+      this.prisma.costAllocation.groupBy({
+        by: ['costCenterId'],
+        where: {
+          companyId,
+          costCenterId: { in: costCenterIds },
+          expenseEntry: { deletedAt: null, ...expenseDateFilter },
+        },
+        _sum: { allocatedAmount: true },
+      }),
+      this.prisma.invoice.groupBy({
+        by: ['costCenterId'],
+        where: {
+          companyId,
+          costCenterId: { in: costCenterIds },
+          deletedAt: null,
+          status: { not: InvoiceStatus.CANCELLED },
+          type: InvoiceType.SALE,
+          ...invoiceDateFilter,
+        },
+        _sum: { totalAmount: true },
+      }),
+      this.prisma.invoice.groupBy({
+        by: ['costCenterId'],
+        where: {
+          companyId,
+          costCenterId: { in: costCenterIds },
+          deletedAt: null,
+          status: { not: InvoiceStatus.CANCELLED },
+          type: InvoiceType.PURCHASE,
+          ...invoiceDateFilter,
+        },
+        _sum: { totalAmount: true },
+      }),
+    ]);
+
+    const allocationMap = new Map(
+      allocations.map((row) => [
+        row.costCenterId,
+        Number(row._sum.allocatedAmount ?? 0),
+      ]),
+    );
+    const salesMap = new Map(
+      sales.map((row) => [row.costCenterId, Number(row._sum.totalAmount ?? 0)]),
+    );
+    const purchaseMap = new Map(
+      purchases.map((row) => [
+        row.costCenterId,
+        Number(row._sum.totalAmount ?? 0),
+      ]),
+    );
+
+    const result = new Map<
+      string,
+      {
+        totalCost: number;
+        totalSales: number;
+        grossMargin: number;
+        marginPercent: number;
+      }
+    >();
+
+    for (const centerId of costCenterIds) {
+      const allocationsTotal = allocationMap.get(centerId) ?? 0;
+      const purchaseTotal = purchaseMap.get(centerId) ?? 0;
+      const salesTotal = salesMap.get(centerId) ?? 0;
+      const totalCost = allocationsTotal + purchaseTotal;
+      const grossMargin = salesTotal - totalCost;
+      const marginPercent =
+        salesTotal > 0 ? (grossMargin / salesTotal) * 100 : 0;
+
+      result.set(centerId, {
+        totalCost: this.round2(totalCost),
+        totalSales: this.round2(salesTotal),
+        grossMargin: this.round2(grossMargin),
+        marginPercent: this.round2(marginPercent),
+      });
+    }
+
+    return result;
+  }
+
   async getGstr1(
     companyId: string,
     range: { dateFrom: string; dateTo: string },
@@ -584,6 +1039,8 @@ export class ReportService {
 
   async getProfitAndLoss(companyId: string, range: DateRangeInput) {
     const { from, to } = this.parseRange(range);
+
+    // 1. Invoices (Sales & Purchases)
     const [sales, saleReturns, purchases, purchaseReturns] = await Promise.all([
       this.sumByType(companyId, InvoiceType.SALE, from, to),
       this.sumByType(companyId, InvoiceType.SALE_RETURN, from, to),
@@ -591,12 +1048,105 @@ export class ReportService {
       this.sumByType(companyId, InvoiceType.PURCHASE_RETURN, from, to),
     ]);
 
-    const revenue = sales - saleReturns;
-    const expenses = purchases - purchaseReturns;
+    const income: any[] = [];
+    const expense: any[] = [];
+
+    const netSales = sales - saleReturns;
+    if (netSales !== 0) {
+      income.push({
+        accountId: 'sales',
+        accountName: 'Sales Revenue',
+        amount: this.round2(netSales),
+      });
+    }
+
+    const netPurchases = purchases - purchaseReturns;
+    if (netPurchases !== 0) {
+      expense.push({
+        accountId: 'purchases',
+        accountName: 'Cost of Goods Sold (Purchases)',
+        amount: this.round2(netPurchases),
+      });
+    }
+
+    // 2. Expenses by Category
+    const expenseDateFilter =
+      from || to
+        ? {
+            expenseDate: {
+              ...(from ? { gte: from } : {}),
+              ...(to ? { lte: to } : {}),
+            },
+          }
+        : {};
+
+    const expensesByCategory = await this.prisma.expenseEntry.groupBy({
+      by: ['categoryId'],
+      where: {
+        companyId,
+        deletedAt: null,
+        ...expenseDateFilter,
+      },
+      _sum: { amount: true },
+    });
+
+    if (expensesByCategory.length > 0) {
+      const categories = await this.prisma.expenseCategory.findMany({
+        where: { id: { in: expensesByCategory.map((e) => e.categoryId) } },
+      });
+      const categoryMap = new Map(categories.map((c) => [c.id, c.name]));
+
+      for (const group of expensesByCategory) {
+        const amt = Number(group._sum.amount ?? 0);
+        if (amt !== 0) {
+          expense.push({
+            accountId: group.categoryId,
+            accountName: categoryMap.get(group.categoryId) || 'Unknown Expense',
+            amount: this.round2(amt),
+          });
+        }
+      }
+    }
+
+    // 3. Salaries (if not excluded)
+    if (!range.excludeSalaries) {
+      const salaryDateFilter =
+        from || to
+          ? {
+              createdAt: {
+                ...(from ? { gte: from } : {}),
+                ...(to ? { lte: to } : {}),
+              },
+            }
+          : {};
+
+      const salarySettlements = await this.prisma.salarySettlement.aggregate({
+        where: {
+          companyId,
+          ...salaryDateFilter,
+        },
+        _sum: { grossSalary: true },
+      });
+
+      const totalSalaries = Number(salarySettlements._sum.grossSalary ?? 0);
+      if (totalSalaries > 0) {
+        expense.push({
+          accountId: 'salaries',
+          accountName: 'Salaries & Wages',
+          amount: this.round2(totalSalaries),
+        });
+      }
+    }
+
+    const totalIncome = income.reduce((sum, item) => sum + item.amount, 0);
+    const totalExpense = expense.reduce((sum, item) => sum + item.amount, 0);
+
     return {
-      revenue: this.round2(revenue),
-      expenses: this.round2(expenses),
-      netProfit: this.round2(revenue - expenses),
+      income,
+      expense,
+      totalIncome: this.round2(totalIncome),
+      totalExpense: this.round2(totalExpense),
+      netProfit: this.round2(totalIncome - totalExpense),
     };
   }
 
