@@ -122,9 +122,15 @@ export class PrismaService
     this.logger.error(
       `Database connection failed after ${maxRetries} attempts.`,
     );
-    throw lastError instanceof Error
-      ? lastError
-      : new Error('Database connection failed.');
+    if (lastError instanceof Error) {
+      this.logger.warn(
+        `Continuing startup without an active database connection: ${lastError.message}`,
+      );
+    } else {
+      this.logger.warn(
+        'Continuing startup without an active database connection.',
+      );
+    }
   }
 
   async onModuleDestroy(): Promise<void> {
