@@ -196,7 +196,7 @@ export class CompanyService {
           tenantId,
           userId: createdByUserId,
           companyId: company.id,
-          role: UserRole.ADMIN,
+          role: UserRole.TENANT_ADMIN,
         },
       });
     }
@@ -233,8 +233,10 @@ export class CompanyService {
     page?: number,
     limit?: number,
     view: CompanyListView = 'default',
+    search?: string,
+    isActive?: boolean,
   ) {
-    return this.findAllForActor(tenantId, page, limit, undefined, view);
+    return this.findAllForActor(tenantId, page, limit, undefined, view, search, isActive);
   }
 
   async findAllForActor(
@@ -243,9 +245,11 @@ export class CompanyService {
     limit?: number,
     actor?: { userId: string; role: string },
     view: CompanyListView = 'default',
+    search?: string,
+    isActive?: boolean,
   ) {
     const { skip, take, page: p, limit: l } = parsePagination({ page, limit });
-    const where: Prisma.CompanyWhereInput = { tenantId, deletedAt: null };
+    const where: Prisma.CompanyWhereInput = { tenantId };
 
     if (
       actor &&
@@ -256,6 +260,23 @@ export class CompanyService {
         some: { userId: actor.userId },
       };
     }
+
+    if (search) {
+      where.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { gstin: { contains: search, mode: 'insensitive' } },
+        { city: { contains: search, mode: 'insensitive' } },
+        { state: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    if (isActive === true) {
+      where.status = EntityStatus.ACTIVE;
+      where.deletedAt = null;
+    } else if (isActive === false) {
+      where.status = EntityStatus.INACTIVE;
+    }
+    // When isActive is undefined, show ALL companies (active + inactive)
 
     const [data, total] = await Promise.all([
       this.prisma.company.findMany({
@@ -278,7 +299,7 @@ export class CompanyService {
 
   async findById(id: string, tenantId: string) {
     const company = await this.prisma.company.findFirst({
-      where: { id, tenantId, deletedAt: null },
+      where: { id, tenantId },
       include: {
         financialYears: {
           orderBy: { startDate: 'desc' },

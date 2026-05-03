@@ -10,6 +10,7 @@ import {
   Req,
   Res,
   UseGuards,
+  Headers,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import {
@@ -89,10 +90,20 @@ export class InvoiceController {
     @CurrentCompanyId() companyId: string,
     @Res() res: Response,
     @Param('id') id: string,
+    @Headers('origin') origin?: string,
   ) {
     const invoice = await this.invoiceService.findById(companyId, id);
     const company = await this.invoiceService.getCompany(companyId);
     const buffer = await this.pdfService.generateInvoicePdf(invoice, company);
+
+    // @Res() bypasses NestJS interceptors including CORS — add headers explicitly
+    if (origin) {
+      res.set({
+        'Access-Control-Allow-Origin': origin,
+        'Access-Control-Allow-Credentials': 'true',
+        'Access-Control-Expose-Headers': 'Content-Disposition, Content-Length',
+      });
+    }
 
     res.set({
       'Content-Type': 'application/pdf',

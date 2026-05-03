@@ -13,7 +13,7 @@ async function main() {
   if (!company) throw new Error('Company not found!');
 
   const rolesToCreate = [
-    { email: 'admin@test.local', name: 'Test Admin', role: UserRole.ADMIN },
+    { email: 'admin@test.local', name: 'Test Admin', role: UserRole.TENANT_ADMIN },
     { email: 'manager@test.local', name: 'Test Manager', role: UserRole.MANAGER },
     { email: 'viewer@test.local', name: 'Test Viewer', role: UserRole.VIEWER },
   ];

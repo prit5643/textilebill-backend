@@ -53,7 +53,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     }
 
     if (!user.isActive) {
-      throw new ForbiddenException('Your account has been deactivated.');
+      throw new ForbiddenException('Your account has been deactivated or removed by an administrator.');
     }
 
     if (user.role !== 'SUPER_ADMIN') {
@@ -63,7 +63,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
       const tenantIsActive = await this.getTenantActiveState(user.tenantId);
       if (!tenantIsActive) {
-        throw new ForbiddenException('Your account has been deactivated.');
+        throw new ForbiddenException('Your account has been deactivated or removed by an administrator.');
       }
     }
 

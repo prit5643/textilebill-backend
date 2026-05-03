@@ -25,7 +25,12 @@ import { existsSync, mkdirSync } from 'fs';
 import { writeFile } from 'fs/promises';
 import { memoryStorage } from 'multer';
 import { UsersService } from './users.service';
-import { CreateUserDto, UpdateMyProfileDto, UpdateUserDto } from './dto';
+import {
+  CreateUserDto,
+  UpdateMyProfileDto,
+  UpdatePagePermissionsDto,
+  UpdateUserDto,
+} from './dto';
 import {
   buildAvatarFilename,
   detectAvatarImageExtension,
@@ -124,9 +129,10 @@ export class UsersController {
   @ApiOperation({ summary: 'Create a new user (Admin only)' })
   async create(
     @CurrentUser('tenantId') tenantId: string,
+    @CurrentUser('role') actorRole: string,
     @Body() dto: CreateUserDto,
   ) {
-    return this.usersService.create(tenantId, dto);
+    return this.usersService.create(tenantId, dto, actorRole);
   }
 
   @Post(':id/resend-setup-link')
@@ -179,9 +185,10 @@ export class UsersController {
   async update(
     @Param('id') id: string,
     @CurrentUser('tenantId') tenantId: string,
+    @CurrentUser('role') actorRole: string,
     @Body() dto: UpdateUserDto,
   ) {
-    return this.usersService.update(id, tenantId, dto);
+    return this.usersService.update(id, tenantId, dto, actorRole);
   }
 
   @Delete(':id')
@@ -255,4 +262,67 @@ export class UsersController {
     });
     return { message: 'Access removed' };
   }
+
+  @Get('me/company/:companyId/page-permissions')
+  @ApiOperation({ summary: 'Get current user page permissions for a company' })
+  async getMyPagePermissions(
+    @Param('companyId') companyId: string,
+    @CurrentUser('id') id: string,
+    @CurrentUser('role') role: string,
+    @CurrentUser('tenantId') tenantId: string,
+  ) {
+    return this.usersService.getPagePermissions(id, companyId, {
+      role,
+      tenantId,
+    });
+  }
+
+  @Get(':id/company/:companyId/page-permissions')
+  @Roles('SUPER_ADMIN', 'TENANT_ADMIN')
+  @ApiOperation({ summary: 'Get page permissions for user in a company' })
+  async getPagePermissions(
+    @Param('id') id: string,
+    @Param('companyId') companyId: string,
+    @CurrentUser('role') role: string,
+    @CurrentUser('tenantId') tenantId: string,
+  ) {
+    return this.usersService.getPagePermissions(id, companyId, {
+      role,
+      tenantId,
+    });
+  }
+
+  @Patch(':id/company/:companyId/page-permissions')
+  @Roles('SUPER_ADMIN', 'TENANT_ADMIN')
+  @ApiOperation({ summary: 'Update page permissions for user in a company' })
+  async updatePagePermissions(
+    @Param('id') id: string,
+    @Param('companyId') companyId: string,
+    @CurrentUser('role') role: string,
+    @CurrentUser('tenantId') tenantId: string,
+    @Body() dto: UpdatePagePermissionsDto,
+  ) {
+    return this.usersService.updatePagePermissions(id, companyId, dto, {
+      role,
+      tenantId,
+    });
+  }
+
+  // Backward-compatible alias for clients that still use legacy path shapes.
+  @Patch(':id/page-permissions/:companyId')
+  @Roles('SUPER_ADMIN', 'TENANT_ADMIN')
+  @ApiOperation({ summary: 'Update page permissions (legacy route alias)' })
+  async updatePagePermissionsLegacy(
+    @Param('id') id: string,
+    @Param('companyId') companyId: string,
+    @CurrentUser('role') role: string,
+    @CurrentUser('tenantId') tenantId: string,
+    @Body() dto: UpdatePagePermissionsDto,
+  ) {
+    return this.usersService.updatePagePermissions(id, companyId, dto, {
+      role,
+      tenantId,
+    });
+  }
+
 }

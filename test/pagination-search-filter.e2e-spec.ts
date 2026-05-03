@@ -31,7 +31,7 @@ describe('Pagination & Filters Tests (e2e)', () => {
     // Mock an admin token capable of making invoice requests
     adminToken = jwtService.sign({
       sub: 'admin1',
-      role: 'ADMIN',
+      role: 'TENANT_ADMIN',
       email: 'admin@example.com',
       companies: [{ id: MOCK_COMPANY_ID }],
     });

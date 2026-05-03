@@ -59,7 +59,7 @@ describe('prisma-connection.util', () => {
       );
 
       expect(normalized).toContain('pgbouncer=true');
-      expect(normalized).toContain('connection_limit=1');
+      expect(normalized).toContain('connection_limit=5');
     });
 
     it('keeps non-pooler urls unchanged', () => {

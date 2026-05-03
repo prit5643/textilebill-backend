@@ -6,7 +6,10 @@ describe('UsersController', () => {
   let usersService: jest.Mocked<
     Pick<
       UsersService,
-      'getCompanyAccess' | 'addCompanyAccess' | 'removeCompanyAccess'
+      | 'getCompanyAccess'
+      | 'addCompanyAccess'
+      | 'removeCompanyAccess'
+      | 'getPagePermissions'
     >
   >;
 
@@ -15,6 +18,7 @@ describe('UsersController', () => {
       getCompanyAccess: jest.fn(),
       addCompanyAccess: jest.fn(),
       removeCompanyAccess: jest.fn(),
+      getPagePermissions: jest.fn(),
     };
 
     controller = new UsersController(usersService as unknown as UsersService);
@@ -60,6 +64,34 @@ describe('UsersController', () => {
       'company-1',
       {
         role: 'TENANT_ADMIN',
+        tenantId: 'tenant-1',
+      },
+    );
+  });
+
+  it('registers the current-user page permissions route before dynamic user routes', () => {
+    const methods = Object.getOwnPropertyNames(UsersController.prototype);
+
+    expect(methods.indexOf('getMyPagePermissions')).toBeGreaterThan(-1);
+    expect(methods.indexOf('getPagePermissions')).toBeGreaterThan(-1);
+    expect(methods.indexOf('getMyPagePermissions')).toBeLessThan(
+      methods.indexOf('getPagePermissions'),
+    );
+  });
+
+  it('passes current user context to getMyPagePermissions', async () => {
+    await controller.getMyPagePermissions(
+      'company-1',
+      'manager-1',
+      'MANAGER',
+      'tenant-1',
+    );
+
+    expect(usersService.getPagePermissions).toHaveBeenCalledWith(
+      'manager-1',
+      'company-1',
+      {
+        role: 'MANAGER',
         tenantId: 'tenant-1',
       },
     );

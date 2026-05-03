@@ -61,7 +61,7 @@ describe('SubscriptionGuard', () => {
   it('allows cached active tenants without hitting the database', async () => {
     redisService.get.mockResolvedValueOnce('1').mockResolvedValueOnce('1');
     const context = createContext({
-      user: { id: 'user-1', role: 'ADMIN', tenantId: 'tenant-1' },
+      user: { id: 'user-1', role: 'TENANT_ADMIN', tenantId: 'tenant-1' },
     });
 
     await expect(guard.canActivate(context)).resolves.toBe(true);
@@ -71,7 +71,7 @@ describe('SubscriptionGuard', () => {
   it('rejects cached inactive tenants immediately', async () => {
     redisService.get.mockResolvedValueOnce('0');
     const context = createContext({
-      user: { id: 'user-1', role: 'ADMIN', tenantId: 'tenant-1' },
+      user: { id: 'user-1', role: 'TENANT_ADMIN', tenantId: 'tenant-1' },
     });
 
     await expect(guard.canActivate(context)).rejects.toBeInstanceOf(
@@ -86,7 +86,7 @@ describe('SubscriptionGuard', () => {
       endDate: new Date('2026-03-15T23:59:59.999Z'),
     });
     const context = createContext({
-      user: { id: 'user-1', role: 'ADMIN', tenantId: 'tenant-1' },
+      user: { id: 'user-1', role: 'TENANT_ADMIN', tenantId: 'tenant-1' },
     });
 
     await expect(guard.canActivate(context)).resolves.toBe(true);
@@ -124,7 +124,7 @@ describe('SubscriptionGuard', () => {
       endDate: new Date('2026-03-12T00:00:00.200Z'),
     });
     const context = createContext({
-      user: { id: 'user-1', role: 'ADMIN', tenantId: 'tenant-1' },
+      user: { id: 'user-1', role: 'TENANT_ADMIN', tenantId: 'tenant-1' },
     });
 
     await expect(guard.canActivate(context)).resolves.toBe(true);
@@ -142,7 +142,7 @@ describe('SubscriptionGuard', () => {
       endDate: new Date('2026-03-12T00:00:00.000Z'),
     });
     const context = createContext({
-      user: { id: 'user-1', role: 'ADMIN', tenantId: 'tenant-1' },
+      user: { id: 'user-1', role: 'TENANT_ADMIN', tenantId: 'tenant-1' },
     });
 
     await expect(guard.canActivate(context)).resolves.toBe(true);
@@ -160,7 +160,7 @@ describe('SubscriptionGuard', () => {
       deletedAt: null,
     });
     const context = createContext({
-      user: { id: 'user-1', role: 'ADMIN', tenantId: 'tenant-1' },
+      user: { id: 'user-1', role: 'TENANT_ADMIN', tenantId: 'tenant-1' },
     });
 
     await expect(guard.canActivate(context)).rejects.toBeInstanceOf(
@@ -185,7 +185,7 @@ describe('SubscriptionGuard', () => {
       deletedAt: null,
     });
     const context = createContext({
-      user: { id: 'user-1', role: 'ADMIN', tenantId: 'tenant-1' },
+      user: { id: 'user-1', role: 'TENANT_ADMIN', tenantId: 'tenant-1' },
     });
 
     await expect(guard.canActivate(context)).rejects.toThrow(

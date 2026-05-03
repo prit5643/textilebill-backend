@@ -30,7 +30,9 @@ class PublicController {
 
 describe('CompanyAccessGuard', () => {
   let guard: CompanyAccessGuard;
-  let prisma: jest.Mocked<Pick<PrismaService, 'company' | 'userCompany'>>;
+  let prisma: jest.Mocked<
+    Pick<PrismaService, 'company' | 'userCompany' | '$queryRaw'>
+  >;
   let redisService: jest.Mocked<Pick<RedisService, 'get' | 'set'>>;
 
   beforeEach(() => {
@@ -41,7 +43,15 @@ describe('CompanyAccessGuard', () => {
       userCompany: {
         findFirst: jest.fn().mockResolvedValue({ role: 'MANAGER' }),
       },
-    } as unknown as jest.Mocked<Pick<PrismaService, 'company' | 'userCompany'>>;
+      $queryRaw: jest.fn().mockResolvedValue([
+        {
+          role: 'MANAGER',
+          pagePermissions: null,
+        },
+      ]),
+    } as unknown as jest.Mocked<
+      Pick<PrismaService, 'company' | 'userCompany' | '$queryRaw'>
+    >;
 
     redisService = {
       get: jest.fn().mockResolvedValue(null),
@@ -78,6 +88,8 @@ describe('CompanyAccessGuard', () => {
 
   it('allows cached access without hitting the database', async () => {
     const request = {
+      method: 'GET',
+      originalUrl: '/api/invoices',
       companyId: 'company-1',
       user: { id: 'user-1', role: 'MANAGER', tenantId: 'tenant-1' },
     };
@@ -90,6 +102,65 @@ describe('CompanyAccessGuard', () => {
     expect(request.companyId).toBe('company-1');
   });
 
+  it('enforces page disable rules even when company access is cached', async () => {
+    const request = {
+      method: 'GET',
+      originalUrl: '/api/accounting',
+      companyId: 'company-1',
+      user: { id: 'user-1', role: 'MANAGER', tenantId: 'tenant-1' },
+    };
+    redisService.get.mockResolvedValueOnce('1');
+
+    const context = createContext(request, HeaderScopedController);
+
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(prisma.company.findFirst).not.toHaveBeenCalled();
+  });
+
+  it.each(['/api/reports/dashboard', '/api/reports/monthly-chart'])(
+    'allows dashboard report route %s when dashboard is enabled but reports is disabled',
+    async (originalUrl) => {
+      const request = {
+        method: 'GET',
+        originalUrl,
+        companyId: 'company-1',
+        user: { id: 'user-1', role: 'MANAGER', tenantId: 'tenant-1' },
+      };
+      redisService.get.mockResolvedValueOnce('1');
+      prisma.$queryRaw.mockResolvedValueOnce([
+        {
+          role: 'MANAGER',
+          pagePermissions: {
+            dashboard: { enabled: true, editable: false },
+            reports: { enabled: false, editable: false },
+          },
+        },
+      ]);
+
+      const context = createContext(request, HeaderScopedController);
+
+      await expect(guard.canActivate(context)).resolves.toBe(true);
+    },
+  );
+
+  it('allows assigned staff to read financial years for the active company context', async () => {
+    const request = {
+      method: 'GET',
+      originalUrl: '/api/companies/company-1/financial-years',
+      params: { id: 'company-1' },
+      user: { id: 'user-1', role: 'MANAGER', tenantId: 'tenant-1' },
+    };
+    (prisma.company.findFirst as jest.Mock).mockResolvedValueOnce({
+      id: 'company-1',
+    });
+
+    const context = createContext(request, ParamScopedController);
+
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+  });
+
   it('validates param-scoped company access for tenant-wide admins', async () => {
     (prisma.company.findFirst as jest.Mock).mockResolvedValueOnce({
       id: 'company-9',
@@ -98,7 +169,7 @@ describe('CompanyAccessGuard', () => {
     const context = createContext(
       {
         params: { id: 'company-9' },
-        user: { id: 'admin-1', role: 'ADMIN', tenantId: 'tenant-1' },
+        user: { id: 'admin-1', role: 'TENANT_ADMIN', tenantId: 'tenant-1' },
       },
       ParamScopedController,
     );
@@ -108,8 +179,6 @@ describe('CompanyAccessGuard', () => {
       where: {
         id: 'company-9',
         tenantId: 'tenant-1',
-        status: 'ACTIVE',
-        deletedAt: null,
       },
       select: { id: true },
     });
@@ -166,11 +235,40 @@ describe('CompanyAccessGuard', () => {
 
     await expect(guard.canActivate(context)).resolves.toBe(true);
     expect(prisma.company.findFirst).toHaveBeenCalledWith({
-      where: { id: 'company-1', status: 'ACTIVE', deletedAt: null },
+      where: { id: 'company-1' },
       select: { id: true },
     });
     expect(redisService.set).toHaveBeenCalledWith(
       'company-access:super-1:company-1',
+      '1',
+      300,
+    );
+  });
+
+  it('re-validates tenant admin access when deny cache is stale', async () => {
+    redisService.get.mockResolvedValueOnce('0');
+    (prisma.company.findFirst as jest.Mock).mockResolvedValueOnce({
+      id: 'company-42',
+    });
+
+    const context = createContext(
+      {
+        params: { id: 'company-42' },
+        user: { id: 'admin-2', role: 'TENANT_ADMIN', tenantId: 'tenant-1' },
+      },
+      ParamScopedController,
+    );
+
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    expect(prisma.company.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: 'company-42',
+        tenantId: 'tenant-1',
+      },
+      select: { id: true },
+    });
+    expect(redisService.set).toHaveBeenCalledWith(
+      'company-access:admin-2:company-42',
       '1',
       300,
     );

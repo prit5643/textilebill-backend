@@ -30,7 +30,7 @@ const EXP_CATS = [
   { name: 'Machine Maintenance', code: 'MACH' }, { name: 'Raw Material Transport', code: 'TRANS' },
   { name: 'Factory Electricity', code: 'ELEC' }, { name: 'Dye & Chemical Purchase', code: 'DYE' },
   { name: 'Packaging Materials', code: 'PKG' }, { name: 'Staff Canteen', code: 'CANT' },
-  { name: 'Admin & Office Supplies', code: 'ADMIN' }, { name: 'Travel & Conveyance', code: 'TRAVEL' },
+  { name: 'Admin & Office Supplies', code: 'TENANT_ADMIN' }, { name: 'Travel & Conveyance', code: 'TRAVEL' },
   { name: 'Repair & Maintenance', code: 'REPAIR' }, { name: 'Insurance Premium', code: 'INS' },
   { name: 'Audit & Legal Fees', code: 'LEGAL' }, { name: 'IT & Software', code: 'IT' },
   { name: 'Security Services', code: 'SEC' }, { name: 'Water & Utilities', code: 'UTIL' },

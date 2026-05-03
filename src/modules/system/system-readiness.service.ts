@@ -9,7 +9,7 @@ export interface ReadinessSnapshot {
 @Injectable()
 export class SystemReadinessService implements OnApplicationBootstrap {
   private readonly logger = new Logger(SystemReadinessService.name);
-  private readonly cacheMs = 15_000;
+  private readonly cacheMs = 60_000;
   private checkedAt: Date | null = null;
   private ready = false;
   private issues: string[] = [];

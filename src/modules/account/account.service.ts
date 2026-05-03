@@ -233,9 +233,8 @@ export class AccountService {
       where.deletedAt = null;
     } else if (options?.isActive === false) {
       where.deletedAt = { not: null };
-    } else {
-      where.deletedAt = null;
     }
+    // When isActive is undefined, show ALL accounts (active + inactive)
 
     const [data, total] = await Promise.all([
       this.prisma.account.findMany({
@@ -359,6 +358,20 @@ export class AccountService {
     return this.prisma.account.update({
       where: { id },
       data: { deletedAt: new Date() },
+      select: ACCOUNT_DETAIL_SELECT,
+    });
+  }
+
+  async activateAccount(id: string, companyId: string) {
+    // Allow finding inactive accounts (no deletedAt filter)
+    const account = await this.prisma.account.findFirst({
+      where: { id, companyId },
+      select: { id: true },
+    });
+    if (!account) throw new NotFoundException('Account not found');
+    return this.prisma.account.update({
+      where: { id },
+      data: { deletedAt: null },
       select: ACCOUNT_DETAIL_SELECT,
     });
   }

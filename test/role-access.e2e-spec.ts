@@ -45,12 +45,12 @@ describe('Role Access Matrix Tests (e2e)', () => {
 
     tokens.OWNER = jwtService.sign({
       sub: 'user1',
-      role: UserRole.OWNER,
+      role: UserRole.SUPER_ADMIN,
       ...mockUserBase,
     });
     tokens.ADMIN = jwtService.sign({
       sub: 'user2',
-      role: UserRole.ADMIN,
+      role: UserRole.TENANT_ADMIN,
       ...mockUserBase,
     });
     tokens.MANAGER = jwtService.sign({

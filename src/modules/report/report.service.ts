@@ -114,7 +114,7 @@ export class ReportService {
           type: InvoiceType.SALE,
           status: InvoiceStatus.ACTIVE,
           deletedAt: null,
-          dueDate: { lt: now },
+          dueDate: { lt: todayIstDate },
         },
       }),
       this.prisma.workOrder.count({

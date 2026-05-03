@@ -79,6 +79,13 @@ export class AccountController {
     return this.accountService.findAccountById(id, companyId);
   }
 
+  @Patch(':id/activate')
+  @Roles('SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER')
+  @ApiOperation({ summary: 'Re-activate a deactivated account' })
+  activate(@CurrentCompanyId() companyId: string, @Param('id') id: string) {
+    return this.accountService.activateAccount(id, companyId);
+  }
+
   @Patch(':id')
   @Roles('SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER')
   @ApiOperation({ summary: 'Update an account' })
@@ -90,20 +97,20 @@ export class AccountController {
     return this.accountService.updateAccount(id, companyId, dto);
   }
 
-  @Delete(':id')
-  @Roles('SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER')
-  @ApiOperation({ summary: 'Deactivate an account' })
-  remove(@CurrentCompanyId() companyId: string, @Param('id') id: string) {
-    return this.accountService.removeAccount(id, companyId);
-  }
-
   @Delete(':id/permanent')
-  @Roles('SUPER_ADMIN', 'TENANT_ADMIN')
+  @Roles('SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER')
   @ApiOperation({ summary: 'Permanently delete an account (admin only)' })
   removePermanently(
     @CurrentCompanyId() companyId: string,
     @Param('id') id: string,
   ) {
     return this.accountService.removeAccountPermanently(id, companyId);
+  }
+
+  @Delete(':id')
+  @Roles('SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER')
+  @ApiOperation({ summary: 'Deactivate an account' })
+  remove(@CurrentCompanyId() companyId: string, @Param('id') id: string) {
+    return this.accountService.removeAccount(id, companyId);
   }
 }

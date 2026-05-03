@@ -527,7 +527,7 @@ export function createWriteRateLimiters(
     {
       path: `${prefix}/admin`,
       middleware: writeLimiter(
-        'admin',
+      'admin',
         adminWriteMax,
         adminWriteWindowMs,
         'Too many admin write requests. Please wait and try again.',

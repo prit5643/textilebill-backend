@@ -132,7 +132,7 @@ async function main() {
             tenantId: tenant.id,
             userId: ownerUser.id,
             companyId: company.id,
-            role: UserRole.OWNER
+            role: UserRole.SUPER_ADMIN
           }
         });
       }

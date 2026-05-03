@@ -521,9 +521,8 @@ export class ProductService {
       where.deletedAt = null;
     } else if (options?.isActive === false) {
       where.deletedAt = { not: null };
-    } else {
-      where.deletedAt = null;
     }
+    // When isActive is undefined, show ALL products (active + inactive)
 
     const [data, total] = await Promise.all([
       this.prisma.product.findMany({
@@ -661,6 +660,22 @@ export class ProductService {
     return this.prisma.product.update({
       where: { id },
       data: { deletedAt: new Date() },
+      select: PRODUCT_LIST_DEFAULT_SELECT,
+    });
+  }
+
+  async activateProduct(id: string, companyId: string) {
+    const scopedCompanyId = this.requireCompanyId(companyId);
+    // Allow finding inactive product (no deletedAt filter)
+    const product = await this.prisma.product.findFirst({
+      where: { id, companyId: scopedCompanyId },
+      select: { id: true },
+    });
+    if (!product) throw new NotFoundException('Product not found');
+    return this.prisma.product.update({
+      where: { id },
+      data: { deletedAt: null },
+      select: PRODUCT_LIST_DEFAULT_SELECT,
     });
   }
 

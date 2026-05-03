@@ -31,7 +31,7 @@ describe('UsersService', () => {
         findFirst: jest.fn(),
         create: jest.fn(),
         findMany: jest.fn(),
-        count: jest.fn(),
+        count: jest.fn().mockResolvedValue(0),
         update: jest.fn(),
       } as any,
       company: {
@@ -40,16 +40,27 @@ describe('UsersService', () => {
       } as any,
       userCompany: {
         findFirst: jest.fn(),
+        findUnique: jest.fn(),
         findMany: jest.fn(),
         upsert: jest.fn(),
         deleteMany: jest.fn(),
         updateMany: jest.fn(),
         createMany: jest.fn(),
+        count: jest.fn().mockResolvedValue(0),
+      } as any,
+      subscription: {
+        findFirst: jest.fn().mockResolvedValue({
+          plan: {
+            maxUsers: 5,
+            maxCompanies: 5,
+          },
+        }),
       } as any,
       refreshToken: {
         findFirst: jest.fn(),
         findMany: jest.fn(),
         update: jest.fn(),
+        updateMany: jest.fn(),
       } as any,
       $transaction: jest.fn(),
     };
@@ -279,6 +290,7 @@ describe('UsersService', () => {
         id: 'c1',
         tenantId: 'tenant-1',
       });
+      (prisma.userCompany!.findUnique as jest.Mock).mockResolvedValueOnce(null);
       (prisma.userCompany!.upsert as jest.Mock).mockResolvedValueOnce({
         id: 'uc-1',
       });
@@ -380,18 +392,30 @@ describe('UsersService', () => {
         deletedAt: null,
         userCompanies: [{ companyId: 'c1', role: 'VIEWER' }],
       });
-      (prisma.user!.update as jest.Mock).mockResolvedValueOnce({
-        id: 'u1',
-        tenantId: 'tenant-1',
-        email: 'test@test.com',
-        name: 'Test User',
-        phone: null,
-        status: 'INACTIVE',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        deletedAt: new Date(),
-        userCompanies: [{ companyId: 'c1', role: 'VIEWER' }],
-      });
+      (prisma.$transaction as jest.Mock).mockImplementationOnce(
+        async (callback) => {
+          const tx = {
+            user: {
+              update: jest.fn().mockResolvedValue({
+                id: 'u1',
+                tenantId: 'tenant-1',
+                email: 'test@test.com',
+                name: 'Test User',
+                phone: null,
+                status: 'INACTIVE',
+                createdAt: new Date(),
+                updatedAt: new Date(),
+                deletedAt: new Date(),
+                userCompanies: [{ companyId: 'c1', role: 'VIEWER' }],
+              }),
+            },
+            refreshToken: {
+              updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+            },
+          };
+          return callback(tx);
+        },
+      );
 
       (redisService.keys as jest.Mock).mockResolvedValueOnce([
         'auth:user:u1:session:s1',

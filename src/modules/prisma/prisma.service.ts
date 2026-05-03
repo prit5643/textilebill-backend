@@ -48,7 +48,7 @@ export class PrismaService
 
     if (configuredDatabaseUrl !== databaseUrl) {
       this.logger.warn(
-        'Normalized DATABASE_URL for Supabase pooler (pgbouncer=true, connection_limit=1).',
+        'Normalized DATABASE_URL for Supabase pooler (pgbouncer=true, connection_limit=5).',
       );
     }
   }

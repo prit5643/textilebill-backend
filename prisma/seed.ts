@@ -113,13 +113,13 @@ async function ensureOwnerUser(tenantId: string, companyId: string) {
       },
     },
     update: {
-      role: UserRole.OWNER,
+      role: UserRole.SUPER_ADMIN,
     },
     create: {
       tenantId,
       userId: user.id,
       companyId,
-      role: UserRole.OWNER,
+      role: UserRole.SUPER_ADMIN,
     },
   });
 

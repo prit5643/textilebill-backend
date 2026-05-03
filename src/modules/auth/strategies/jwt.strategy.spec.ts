@@ -62,13 +62,13 @@ describe('JwtStrategy', () => {
         sub: 'user-1',
         sessionId: 'session-1',
         email: 'owner@test.com',
-        role: 'ADMIN',
+        role: 'TENANT_ADMIN',
         tenantId: 'tenant-1',
       }),
     ).resolves.toEqual({
       id: 'user-1',
       email: 'owner@test.com',
-      role: 'ADMIN',
+      role: 'TENANT_ADMIN',
       tenantId: 'tenant-1',
       sessionId: 'session-1',
     });
@@ -78,7 +78,7 @@ describe('JwtStrategy', () => {
       JSON.stringify({
         id: 'user-1',
         email: 'owner@test.com',
-        role: 'ADMIN',
+        role: 'TENANT_ADMIN',
         tenantId: 'tenant-1',
         isActive: true,
         passwordChangedAt: null,
@@ -99,7 +99,7 @@ describe('JwtStrategy', () => {
         return JSON.stringify({
           id: 'user-1',
           email: 'owner@test.com',
-          role: 'ADMIN',
+          role: 'TENANT_ADMIN',
           tenantId: 'tenant-1',
           isActive: true,
           passwordChangedAt: null,
@@ -124,7 +124,7 @@ describe('JwtStrategy', () => {
     ).resolves.toEqual({
       id: 'user-1',
       email: 'owner@test.com',
-      role: 'ADMIN',
+      role: 'TENANT_ADMIN',
       tenantId: 'tenant-1',
       sessionId: 'session-1',
     });
@@ -146,7 +146,7 @@ describe('JwtStrategy', () => {
         sub: 'user-1',
         sessionId: 'session-1',
         email: 'owner@test.com',
-        role: 'ADMIN',
+        role: 'TENANT_ADMIN',
         tenantId: 'tenant-1',
       }),
     ).rejects.toThrow(ForbiddenException);
@@ -158,7 +158,7 @@ describe('JwtStrategy', () => {
         return JSON.stringify({
           id: 'user-1',
           email: 'owner@test.com',
-          role: 'ADMIN',
+          role: 'TENANT_ADMIN',
           tenantId: 'tenant-1',
           isActive: true,
           passwordChangedAt: null,
@@ -177,7 +177,7 @@ describe('JwtStrategy', () => {
         sub: 'user-1',
         sessionId: 'session-1',
         email: 'owner@test.com',
-        role: 'ADMIN',
+        role: 'TENANT_ADMIN',
         tenantId: 'tenant-1',
       }),
     ).rejects.toThrow(ForbiddenException);

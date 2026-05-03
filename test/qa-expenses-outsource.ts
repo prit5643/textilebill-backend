@@ -64,7 +64,7 @@ async function main() {
       email: 'owner@qa.test',
       passwordHash: 'dummyhash',
       userCompanies: {
-        create: { companyId: company.id, role: 'OWNER' },
+        create: { companyId: company.id, role: 'SUPER_ADMIN' },
       },
     },
   });

@@ -109,7 +109,9 @@ describe('AuthService', () => {
   });
 
   it('issues cookie-ready session tokens on login', async () => {
-    (prisma.user!.findFirst as jest.Mock).mockResolvedValueOnce({
+    (prisma.user!.findFirst as jest.Mock)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
       id: 'user-1',
       tenantId: 'tenant-1',
       email: 'owner@test.com',
@@ -120,7 +122,7 @@ describe('AuthService', () => {
       passwordHash: 'hashed-password',
       userCompanies: [
         {
-          role: 'ADMIN',
+          role: 'TENANT_ADMIN',
           company: {
             id: 'company-1',
             name: 'Alpha Textiles',

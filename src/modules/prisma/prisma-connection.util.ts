@@ -39,7 +39,9 @@ export function normalizeDatabaseUrl(rawUrl: string): string {
     ? Number.parseInt(connectionLimit, 10)
     : NaN;
   if (!Number.isFinite(parsedLimit) || parsedLimit <= 0) {
-    parsed.searchParams.set('connection_limit', '1');
+    // Default to 5 connections when no valid limit is configured.
+    // Using 1 is too aggressive and causes pool exhaustion under normal concurrency.
+    parsed.searchParams.set('connection_limit', '5');
   }
 
   return parsed.toString();

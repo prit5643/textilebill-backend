@@ -75,13 +75,19 @@ export class CompanyController {
     @Query('page') page?: number,
     @Query('limit') limit?: number,
     @Query('view') view?: string,
+    @Query('search') search?: string,
+    @Query('isActive') isActive?: string,
   ) {
+    const isActiveParsed =
+      isActive === 'true' ? true : isActive === 'false' ? false : undefined;
     return this.companyService.findAllForActor(
       tenantId,
       page ? +page : undefined,
       limit ? +limit : undefined,
       { userId, role },
       view === 'header' ? 'header' : 'default',
+      search,
+      isActiveParsed,
     );
   }
 
@@ -94,7 +100,6 @@ export class CompanyController {
 
   @Patch(':id')
   @RequireCompanyAccess({ source: 'param', key: 'id' })
-  @Roles('SUPER_ADMIN', 'TENANT_ADMIN')
   @ApiOperation({ summary: 'Update a company' })
   update(
     @TenantId() tenantId: string,
@@ -106,7 +111,6 @@ export class CompanyController {
 
   @Delete(':id')
   @RequireCompanyAccess({ source: 'param', key: 'id' })
-  @Roles('SUPER_ADMIN', 'TENANT_ADMIN')
   @ApiOperation({ summary: 'Deactivate a company' })
   remove(@TenantId() tenantId: string, @Param('id') id: string) {
     return this.companyService.remove(id, tenantId);

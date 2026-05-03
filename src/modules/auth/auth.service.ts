@@ -147,7 +147,7 @@ export class AuthService {
     }
 
     if (storedToken.user.status !== 'ACTIVE' || storedToken.user.deletedAt) {
-      throw new ForbiddenException('Your account has been deactivated.');
+      throw new ForbiddenException('Your account has been deactivated or removed by an administrator.');
     }
 
     await this.prisma.refreshToken.update({
@@ -1054,8 +1054,8 @@ export class AuthService {
     }
 
     const rank: Record<UserRole, number> = {
-      OWNER: 5,
-      ADMIN: 4,
+      SUPER_ADMIN: 5,
+      TENANT_ADMIN: 4,
       MANAGER: 3,
       ACCOUNTANT: 2,
       VIEWER: 1,
@@ -1072,11 +1072,9 @@ export class AuthService {
     }
 
     switch (role) {
-      case 'OWNER':
-        return this.isConfiguredSuperAdminEmail(userEmail)
-          ? 'SUPER_ADMIN'
-          : 'TENANT_ADMIN';
-      case 'ADMIN':
+      case 'SUPER_ADMIN':
+        return 'SUPER_ADMIN';
+      case 'TENANT_ADMIN':
         return 'TENANT_ADMIN';
       case 'MANAGER':
         return 'MANAGER';

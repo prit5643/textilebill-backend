@@ -101,6 +101,13 @@ export class ProductController {
     return this.productService.findProductById(id, companyId);
   }
 
+  @Patch(':id/activate')
+  @Roles('SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER')
+  @ApiOperation({ summary: 'Re-activate a deactivated product' })
+  activate(@CurrentCompanyId() companyId: string, @Param('id') id: string) {
+    return this.productService.activateProduct(id, companyId);
+  }
+
   @Patch(':id')
   @Roles('SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER')
   @ApiOperation({ summary: 'Update a product' })
@@ -112,20 +119,20 @@ export class ProductController {
     return this.productService.updateProduct(id, companyId, dto);
   }
 
-  @Delete(':id')
-  @Roles('SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER')
-  @ApiOperation({ summary: 'Deactivate a product' })
-  remove(@CurrentCompanyId() companyId: string, @Param('id') id: string) {
-    return this.productService.removeProduct(id, companyId);
-  }
-
   @Delete(':id/permanent')
-  @Roles('SUPER_ADMIN', 'TENANT_ADMIN')
+  @Roles('SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER')
   @ApiOperation({ summary: 'Permanently delete a product (admin only)' })
   removePermanently(
     @CurrentCompanyId() companyId: string,
     @Param('id') id: string,
   ) {
     return this.productService.removeProductPermanently(id, companyId);
+  }
+
+  @Delete(':id')
+  @Roles('SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER')
+  @ApiOperation({ summary: 'Deactivate a product' })
+  remove(@CurrentCompanyId() companyId: string, @Param('id') id: string) {
+    return this.productService.removeProduct(id, companyId);
   }
 }

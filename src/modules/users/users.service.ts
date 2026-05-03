@@ -13,12 +13,21 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { OtpDeliveryService } from '../auth/otp-delivery.service';
-import { CreateUserDto, UpdateMyProfileDto, UpdateUserDto } from './dto';
+import {
+  CreateUserDto,
+  UpdateMyProfileDto,
+  UpdatePagePermissionsDto,
+  UpdateUserDto,
+} from './dto';
 import {
   parsePagination,
   createPaginatedResult,
 } from '../../common/utils/pagination.util';
 import { getUserAuthCachePattern } from '../auth/auth-request-cache.util';
+import {
+  PagePermissionMap,
+  normalizePagePermissions,
+} from '../../common/constants/page-permissions';
 
 const PASSWORD_SETUP_LINK_EXPIRY_MINUTES = 30;
 const PASSWORD_SETUP_LINK_EXPIRY_SECONDS =
@@ -27,6 +36,11 @@ const PASSWORD_SETUP_LINK_EXPIRY_SECONDS =
 type AccessActor = {
   role: string;
   tenantId?: string;
+};
+
+type UserCompanyPermissionRow = {
+  role: UserRole;
+  pagePermissions: unknown;
 };
 
 type UserWithAccess = {
@@ -53,7 +67,7 @@ export class UsersService {
     private readonly configService: ConfigService,
   ) {}
 
-  async create(tenantId: string, dto: CreateUserDto) {
+  async create(tenantId: string, dto: CreateUserDto, actorRole?: string) {
     const normalizedEmail = dto.email.trim().toLowerCase();
 
     const tenant = await this.prisma.tenant.findFirst({
@@ -79,6 +93,26 @@ export class UsersService {
         'User with this email already exists in tenant',
       );
     }
+    const planLimits = await this.getTenantPlanLimits(tenantId);
+    const activeUsersCount = await this.prisma.user.count({
+      where: { tenantId, deletedAt: null, status: 'ACTIVE' },
+    });
+    if (
+      planLimits.maxUsers !== null &&
+      activeUsersCount >= planLimits.maxUsers
+    ) {
+      throw new BadRequestException(
+        `User limit reached. Maximum ${planLimits.maxUsers} active users are allowed in your plan.`,
+      );
+    }
+    if (
+      planLimits.maxCompanies !== null &&
+      (dto.companyIds?.length ?? 0) > planLimits.maxCompanies
+    ) {
+      throw new BadRequestException(
+        `Company access limit reached. Maximum ${planLimits.maxCompanies} companies are allowed per user as per plan.`,
+      );
+    }
 
     const rawPassword = dto.password ?? randomUUID().replace(/-/g, '');
     const passwordHash = await bcrypt.hash(rawPassword, 12);
@@ -88,7 +122,12 @@ export class UsersService {
       normalizedEmail,
     );
     const mappedRole = this.mapRole(dto.role);
-    if (mappedRole === UserRole.ADMIN) {
+    if (actorRole === 'TENANT_ADMIN' && mappedRole === UserRole.TENANT_ADMIN) {
+      throw new ForbiddenException(
+        'Tenant admin can only create MANAGER, ACCOUNTANT, or VIEWER users.',
+      );
+    }
+    if (mappedRole === UserRole.TENANT_ADMIN) {
       await this.assertNoOtherTenantAdmin(tenantId);
     }
 
@@ -113,26 +152,51 @@ export class UsersService {
           },
         });
 
-        if (dto.companyIds?.length) {
-          const uniqueCompanyIds = Array.from(new Set(dto.companyIds));
+        const requestedCompanyIds = dto.companyIds?.length
+          ? Array.from(new Set(dto.companyIds))
+          : [];
+
+        const assignmentCompanyIds =
+          mappedRole === UserRole.TENANT_ADMIN && requestedCompanyIds.length === 0
+            ? (
+                await tx.company.findMany({
+                  where: {
+                    tenantId,
+                    deletedAt: null,
+                    status: 'ACTIVE',
+                  },
+                  select: { id: true },
+                })
+              ).map((row) => row.id)
+            : requestedCompanyIds;
+
+        if (assignmentCompanyIds.length) {
+          if (
+            planLimits.maxCompanies !== null &&
+            assignmentCompanyIds.length > planLimits.maxCompanies
+          ) {
+            throw new BadRequestException(
+              `Company access limit reached. Maximum ${planLimits.maxCompanies} companies are allowed per user as per plan.`,
+            );
+          }
           const validCompanies = await tx.company.findMany({
             where: {
               tenantId,
               deletedAt: null,
               status: 'ACTIVE',
-              id: { in: uniqueCompanyIds },
+              id: { in: assignmentCompanyIds },
             },
             select: { id: true },
           });
 
-          if (validCompanies.length !== uniqueCompanyIds.length) {
+          if (validCompanies.length !== assignmentCompanyIds.length) {
             throw new BadRequestException(
               'One or more companyIds are invalid for this tenant',
             );
           }
 
           await tx.userCompany.createMany({
-            data: uniqueCompanyIds.map((companyId) => ({
+            data: assignmentCompanyIds.map((companyId) => ({
               tenantId,
               userId: user.id,
               companyId,
@@ -141,7 +205,7 @@ export class UsersService {
             skipDuplicates: true,
           });
 
-          user.userCompanies = uniqueCompanyIds.map((companyId) => ({
+          user.userCompanies = assignmentCompanyIds.map((companyId) => ({
             companyId,
             role: mappedRole,
           }));
@@ -397,7 +461,12 @@ export class UsersService {
     };
   }
 
-  async update(id: string, tenantId: string, dto: UpdateUserDto) {
+  async update(
+    id: string,
+    tenantId: string,
+    dto: UpdateUserDto,
+    actorRole?: string,
+  ) {
     const currentUser = await this.findById(id, tenantId);
     const shouldUpdateRole = dto.role !== undefined;
 
@@ -433,7 +502,12 @@ export class UsersService {
 
       if (shouldUpdateRole) {
         const nextRole = this.mapRole(dto.role);
-        if (nextRole === UserRole.ADMIN) {
+        if (actorRole === 'TENANT_ADMIN' && nextRole === UserRole.TENANT_ADMIN) {
+          throw new ForbiddenException(
+            'Tenant admin can only assign MANAGER, ACCOUNTANT, or VIEWER roles.',
+          );
+        }
+        if (nextRole === UserRole.TENANT_ADMIN) {
           await this.assertNoOtherTenantAdmin(tenantId, id);
         }
 
@@ -461,17 +535,26 @@ export class UsersService {
   async softDelete(id: string, tenantId: string) {
     await this.findById(id, tenantId);
 
-    const user = await this.prisma.user.update({
-      where: { id },
-      data: { status: 'INACTIVE', deletedAt: new Date() },
-      include: {
-        userCompanies: {
-          select: {
-            companyId: true,
-            role: true,
+    const user = await this.prisma.$transaction(async (tx) => {
+      const deletedUser = await tx.user.update({
+        where: { id },
+        data: { status: 'INACTIVE', deletedAt: new Date() },
+        include: {
+          userCompanies: {
+            select: {
+              companyId: true,
+              role: true,
+            },
           },
         },
-      },
+      });
+
+      await tx.refreshToken.updateMany({
+        where: { userId: id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+
+      return deletedUser;
     });
 
     await this.clearUserAuthCache(id);
@@ -528,6 +611,77 @@ export class UsersService {
     });
   }
 
+  async getPagePermissions(
+    userId: string,
+    companyId: string,
+    actor: AccessActor,
+  ): Promise<PagePermissionMap> {
+    await Promise.all([
+      this.findScopedUser(userId, actor),
+      this.findScopedCompany(companyId, actor),
+    ]);
+
+    const assignment = await this.getUserCompanyPermissionRecord(
+      userId,
+      companyId,
+      actor.role === 'SUPER_ADMIN' ? undefined : this.requireActorTenantId(actor),
+    );
+    if (!assignment) {
+      throw new NotFoundException(
+        'User does not have company access for this company.',
+      );
+    }
+
+    return normalizePagePermissions(assignment.pagePermissions, assignment.role);
+  }
+
+  async updatePagePermissions(
+    userId: string,
+    companyId: string,
+    dto: UpdatePagePermissionsDto,
+    actor: AccessActor,
+  ): Promise<PagePermissionMap> {
+    await Promise.all([
+      this.findScopedUser(userId, actor),
+      this.findScopedCompany(companyId, actor),
+    ]);
+
+    const assignment = await this.getUserCompanyPermissionRecord(
+      userId,
+      companyId,
+      actor.role === 'SUPER_ADMIN' ? undefined : this.requireActorTenantId(actor),
+    );
+    if (!assignment) {
+      throw new NotFoundException(
+        'User does not have company access for this company.',
+      );
+    }
+
+    const normalized = normalizePagePermissions(dto.permissions, assignment.role);
+    const normalizedJson = JSON.stringify(normalized);
+
+    if (actor.role === 'SUPER_ADMIN') {
+      await this.prisma.$executeRawUnsafe(
+        'UPDATE "UserCompany" SET "pagePermissions" = $1::jsonb WHERE "userId" = $2 AND "companyId" = $3',
+        normalizedJson,
+        userId,
+        companyId,
+      );
+    } else {
+      await this.prisma.$executeRawUnsafe(
+        'UPDATE "UserCompany" SET "pagePermissions" = $1::jsonb WHERE "userId" = $2 AND "companyId" = $3 AND "tenantId" = $4',
+        normalizedJson,
+        userId,
+        companyId,
+        this.requireActorTenantId(actor),
+      );
+    }
+
+    await this.clearCompanyAccessCache(userId, companyId);
+    await this.clearUserAuthCache(userId);
+    return normalized;
+  }
+
   async addCompanyAccess(
     userId: string,
     companyId: string,
@@ -541,6 +695,23 @@ export class UsersService {
     if (user.tenantId !== company.tenantId) {
       throw new BadRequestException(
         'User and company must belong to the same tenant',
+      );
+    }
+    const existingAssignment = await this.prisma.userCompany.findUnique({
+      where: { userId_companyId: { userId, companyId } },
+      select: { userId: true },
+    });
+    const planLimits = await this.getTenantPlanLimits(company.tenantId);
+    const existingAssignments = await this.prisma.userCompany.count({
+      where: { userId, tenantId: company.tenantId },
+    });
+    if (
+      !existingAssignment &&
+      planLimits.maxCompanies !== null &&
+      existingAssignments >= planLimits.maxCompanies
+    ) {
+      throw new BadRequestException(
+        `Company access limit reached. Maximum ${planLimits.maxCompanies} companies are allowed per user as per plan.`,
       );
     }
 
@@ -611,8 +782,8 @@ export class UsersService {
 
   private roleRank(role: UserRole): number {
     const order: Record<UserRole, number> = {
-      OWNER: 5,
-      ADMIN: 4,
+      SUPER_ADMIN: 5,
+      TENANT_ADMIN: 4,
       MANAGER: 3,
       ACCOUNTANT: 2,
       VIEWER: 1,
@@ -656,9 +827,10 @@ export class UsersService {
 
   private mapRole(rawRole?: string): UserRole {
     switch (rawRole) {
-      case 'ADMIN':
+      case 'SUPER_ADMIN':
+        return 'SUPER_ADMIN';
       case 'TENANT_ADMIN':
-        return 'ADMIN';
+        return 'TENANT_ADMIN';
       case 'ACCOUNTANT':
         return 'ACCOUNTANT';
       case 'VIEWER':
@@ -677,7 +849,7 @@ export class UsersService {
     const existingAdmin = await this.prisma.userCompany.findFirst({
       where: {
         tenantId,
-        role: UserRole.ADMIN,
+        role: UserRole.TENANT_ADMIN,
         user: {
           deletedAt: null,
           status: 'ACTIVE',
@@ -757,6 +929,26 @@ export class UsersService {
     return actor.tenantId;
   }
 
+  private async getUserCompanyPermissionRecord(
+    userId: string,
+    companyId: string,
+    tenantId?: string,
+  ): Promise<UserCompanyPermissionRow | null> {
+    const rows = tenantId
+      ? await this.prisma.$queryRaw<Array<UserCompanyPermissionRow>>(
+          Prisma.sql`SELECT "role", "pagePermissions" FROM "UserCompany" WHERE "userId" = ${userId} AND "companyId" = ${companyId} AND "tenantId" = ${tenantId} LIMIT 1`,
+        )
+      : await this.prisma.$queryRaw<Array<UserCompanyPermissionRow>>(
+          Prisma.sql`SELECT "role", "pagePermissions" FROM "UserCompany" WHERE "userId" = ${userId} AND "companyId" = ${companyId} LIMIT 1`,
+        );
+
+    if (!rows.length) {
+      return null;
+    }
+
+    return rows[0];
+  }
+
   private async clearCompanyAccessCache(userId: string, companyId: string) {
     await this.redisService.del(`company-access:${userId}:${companyId}`);
   }
@@ -766,6 +958,46 @@ export class UsersService {
     for (const key of keys) {
       await this.redisService.del(key);
     }
+  }
+
+  private async getTenantPlanLimits(tenantId: string): Promise<{
+    maxUsers: number | null;
+    maxCompanies: number | null;
+  }> {
+    const activeSubscription = await this.prisma.subscription.findFirst({
+      where: {
+        tenantId,
+        deletedAt: null,
+        status: 'ACTIVE',
+        endDate: { gte: new Date() },
+      },
+      orderBy: { endDate: 'desc' },
+      include: {
+        plan: {
+          select: {
+            maxUsers: true,
+            maxCompanies: true,
+          },
+        },
+      },
+    });
+
+    if (!activeSubscription?.plan) {
+      throw new BadRequestException(
+        'No active subscription plan found. Please ask Super Admin to assign and activate a plan.',
+      );
+    }
+
+    return {
+      maxUsers:
+        activeSubscription.plan.maxUsers > 0
+          ? activeSubscription.plan.maxUsers
+          : null,
+      maxCompanies:
+        activeSubscription.plan.maxCompanies > 0
+          ? activeSubscription.plan.maxCompanies
+          : null,
+    };
   }
 
   private resolvePublicAppUrl(): string {

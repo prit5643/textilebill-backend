@@ -18,8 +18,8 @@ datasource db {
 // ------------------------------------------
 
 enum UserRole {
-  OWNER // full access, can manage users
-  ADMIN // manage company settings
+  SUPER_ADMIN // full access, system-wide
+  TENANT_ADMIN // manage tenant/company settings
   MANAGER // create/edit invoices
   ACCOUNTANT // read + ledger
   VIEWER // read only
@@ -380,6 +380,7 @@ model UserCompany {
   userId    String
   companyId String
   role      UserRole
+  pagePermissions Json?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

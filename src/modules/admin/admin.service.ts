@@ -149,7 +149,7 @@ export class AdminService {
             NOT: {
               userCompanies: {
                 some: {
-                  role: UserRole.OWNER,
+                  role: UserRole.SUPER_ADMIN,
                 },
               },
             },
@@ -226,7 +226,7 @@ export class AdminService {
           NOT: {
             userCompanies: {
               some: {
-                role: UserRole.OWNER,
+                role: UserRole.SUPER_ADMIN,
               },
             },
           },
@@ -355,7 +355,7 @@ export class AdminService {
               NOT: {
                 userCompanies: {
                   some: {
-                    role: UserRole.OWNER,
+                    role: UserRole.SUPER_ADMIN,
                   },
                 },
               },
@@ -498,7 +498,7 @@ export class AdminService {
           tenantId: tenant.id,
           userId: user.id,
           companyId: company.id,
-          role: UserRole.ADMIN,
+          role: UserRole.TENANT_ADMIN,
         },
       });
 
@@ -1366,7 +1366,7 @@ export class AdminService {
       NOT: {
         userCompanies: {
           some: {
-            role: UserRole.OWNER,
+            role: UserRole.SUPER_ADMIN,
           },
         },
       },
@@ -1560,7 +1560,7 @@ export class AdminService {
       const existingTenantAdmin = await this.prisma.userCompany.findFirst({
         where: {
           tenantId: existing.tenantId,
-          role: UserRole.ADMIN,
+          role: UserRole.TENANT_ADMIN,
           user: {
             deletedAt: null,
             status: EntityStatus.ACTIVE,
@@ -1765,7 +1765,7 @@ export class AdminService {
   ): UserRole {
     switch (role) {
       case 'TENANT_ADMIN':
-        return UserRole.ADMIN;
+        return UserRole.TENANT_ADMIN;
       case 'MANAGER':
         return UserRole.MANAGER;
       case 'ACCOUNTANT':
@@ -1778,8 +1778,8 @@ export class AdminService {
 
   private getHighestRole(rows: Array<{ role: UserRole }>) {
     const rank: Record<UserRole, number> = {
-      OWNER: 5,
-      ADMIN: 4,
+      SUPER_ADMIN: 5,
+      TENANT_ADMIN: 4,
       MANAGER: 3,
       ACCOUNTANT: 2,
       VIEWER: 1,
@@ -1793,11 +1793,9 @@ export class AdminService {
 
   private toLegacyRole(role: UserRole, userEmail?: string): string {
     switch (role) {
-      case UserRole.OWNER:
-        return this.isConfiguredSuperAdminEmail(userEmail)
-          ? 'SUPER_ADMIN'
-          : 'TENANT_ADMIN';
-      case UserRole.ADMIN:
+      case UserRole.SUPER_ADMIN:
+        return 'SUPER_ADMIN';
+      case UserRole.TENANT_ADMIN:
         return 'TENANT_ADMIN';
       case UserRole.MANAGER:
         return 'MANAGER';

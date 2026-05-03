@@ -249,7 +249,7 @@ describe('AdminService', () => {
     const result = await service.createTenant({
       name: 'Alpha',
       email: 'admin@alpha.test',
-      adminFirstName: 'Admin',
+      adminFirstName: 'TENANT_ADMIN',
       adminLastName: 'User',
     });
 
@@ -266,7 +266,7 @@ describe('AdminService', () => {
         tenantId: 'tenant-1',
         userId: 'user-1',
         companyId: 'company-1',
-        role: 'ADMIN',
+        role: 'TENANT_ADMIN',
       },
     });
     expect(redisService.set).toHaveBeenCalledWith(
@@ -342,7 +342,7 @@ describe('AdminService', () => {
     const dto = {
       name: 'New Tenant LLC',
       email: 'tom@newcompany.test',
-      adminFirstName: 'Admin',
+      adminFirstName: 'TENANT_ADMIN',
       adminLastName: 'Tom',
       companyName: 'New Company',
       pwd: 'Password123',
@@ -394,7 +394,7 @@ describe('AdminService', () => {
         NOT: {
           userCompanies: {
             some: {
-              role: 'OWNER',
+              role: 'SUPER_ADMIN',
             },
           },
         },
@@ -507,7 +507,7 @@ describe('AdminService', () => {
               NOT: {
                 userCompanies: {
                   some: {
-                    role: 'OWNER',
+                    role: 'SUPER_ADMIN',
                   },
                 },
               },
@@ -678,7 +678,7 @@ describe('AdminService', () => {
         refreshTokens: [{ createdAt: new Date('2026-04-02T00:00:00.000Z') }],
         tenant: { id: 'tenant-1', name: 'Tenant One', status: 'ACTIVE' },
         userCompanies: [
-          { role: 'ADMIN', company: { id: 'company-1', name: 'Main' } },
+          { role: 'TENANT_ADMIN', company: { id: 'company-1', name: 'Main' } },
         ],
       },
     ]);
@@ -696,7 +696,7 @@ describe('AdminService', () => {
           NOT: {
             userCompanies: {
               some: {
-                role: 'OWNER',
+                role: 'SUPER_ADMIN',
               },
             },
           },
@@ -713,7 +713,7 @@ describe('AdminService', () => {
           NOT: {
             userCompanies: {
               some: {
-                role: 'OWNER',
+                role: 'SUPER_ADMIN',
               },
             },
           },
@@ -739,7 +739,7 @@ describe('AdminService', () => {
         path: '/admin/users',
         statusCode: 201,
         createdAt: new Date('2026-04-06T10:00:00.000Z'),
-        user: { id: 'user-1', email: 'admin@test.com', name: 'Admin' },
+        user: { id: 'user-1', email: 'admin@test.com', name: 'TENANT_ADMIN' },
         company: { id: 'company-1', name: 'Acme' },
       },
     ]);
